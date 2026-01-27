@@ -54,7 +54,11 @@ impl Executor {
         // Decrement counter and destroy if exhausted
         let new_counter = self.db.decrement_container_counter(container.id).await?;
         if new_counter <= 0 {
-            let _ = self.container_manager.destroy_container(container.id).await;
+            // Only destroy if no other jobs are using this container
+            let active = self.db.count_running_jobs_for_container(&container.container_id).await.unwrap_or(1);
+            if active <= 1 {
+                let _ = self.container_manager.destroy_container(container.id).await;
+            }
         }
 
         let duration_ms = start.elapsed().as_millis() as i32;

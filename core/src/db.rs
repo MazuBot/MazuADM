@@ -230,6 +230,13 @@ impl Database {
         ).fetch_all(&self.pool).await?)
     }
 
+    pub async fn count_running_jobs_for_container(&self, container_id: &str) -> Result<i64> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM exploit_jobs WHERE container_id = $1 AND status = 'running'")
+            .bind(container_id)
+            .fetch_one(&self.pool).await?;
+        Ok(count)
+    }
+
     pub async fn update_job_status(&self, id: i32, status: &str, set_started: bool) -> Result<()> {
         if set_started {
             sqlx::query!("UPDATE exploit_jobs SET status = $2, started_at = NOW() WHERE id = $1", id, status).execute(&self.pool).await?;
