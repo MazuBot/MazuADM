@@ -102,13 +102,14 @@ impl ContainerManager {
         let output = self.docker.start_exec(&exec.id, Some(StartExecOptions { detach: false, tty: true, ..Default::default() })).await?;
         
         let mut stdout = String::new();
-        let mut stderr = String::new();
         
+        // With TTY, all output comes as Raw bytes (stdout and stderr combined)
         if let bollard::exec::StartExecResults::Attached { output: mut stream, .. } = output {
             while let Some(Ok(log)) = stream.next().await {
                 match log {
                     bollard::container::LogOutput::StdOut { message } => stdout.push_str(&String::from_utf8_lossy(&message)),
-                    bollard::container::LogOutput::StdErr { message } => stderr.push_str(&String::from_utf8_lossy(&message)),
+                    bollard::container::LogOutput::StdErr { message } => stdout.push_str(&String::from_utf8_lossy(&message)),
+                    bollard::container::LogOutput::Console { message } => stdout.push_str(&String::from_utf8_lossy(&message)),
                     _ => {}
                 }
             }
@@ -117,7 +118,7 @@ impl ContainerManager {
         let inspect = self.docker.inspect_exec(&exec.id).await?;
         let exit_code = inspect.exit_code.unwrap_or(-1);
 
-        Ok(ExecResult { stdout, stderr, exit_code })
+        Ok(ExecResult { stdout, stderr: String::new(), exit_code })
     }
 
     /// Health check all containers, recreate dead ones
