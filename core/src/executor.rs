@@ -171,6 +171,10 @@ impl Executor {
                     }
                 };
 
+                // Random delay 0-500ms to spread container reuse
+                let delay = rand::random::<u64>() % 500;
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+
                 match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), worker_timeout, max_flags).await {
                     Ok(result) => {
                         for flag in result.flags {
