@@ -327,7 +327,7 @@
         <table>
           <thead><tr><th>ID</th><th>Challenge</th><th>Exploit</th><th>Team</th><th>Container</th><th>Priority</th><th>Status</th><th>Duration</th></tr></thead>
           <tbody>
-            {#each jobs as j}
+            {#each [...jobs].sort((a, b) => b.priority - a.priority || a.id - b.id) as j}
               <tr class={j.status} onclick={() => selectedJob = j} style="cursor:pointer">
                 <td>{j.id}</td>
                 <td>{getChallengeName(getExploitRunInfo(j.exploit_run_id)?.challenge_id)}</td>
