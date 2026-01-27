@@ -371,7 +371,7 @@
   table { width: 100%; border-collapse: collapse; }
   th, td { padding: 0.5rem; text-align: left; border-bottom: 1px solid #333; }
   tr.success { background: #1a3a1a; }
-  tr.failed, tr.error { background: #3a1a1a; }
+  tr.failed, tr.error, tr.timeout { background: #3a1a1a; }
   tr.running { background: #3a3a1a; }
   tr.disabled { opacity: 0.5; }
   code { background: #333; padding: 0.2rem 0.4rem; border-radius: 3px; }
