@@ -196,6 +196,11 @@ impl Database {
         Ok(())
     }
 
+    pub async fn start_round(&self, id: i32) -> Result<()> {
+        sqlx::query!("UPDATE rounds SET status = 'running' WHERE id = $1", id).execute(&self.pool).await?;
+        Ok(())
+    }
+
     pub async fn list_rounds(&self) -> Result<Vec<Round>> {
         Ok(sqlx::query_as!(Round, "SELECT * FROM rounds ORDER BY id DESC").fetch_all(&self.pool).await?)
     }

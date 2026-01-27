@@ -91,6 +91,9 @@ impl Executor {
     }
 
     pub async fn run_round(&self, round_id: i32) -> Result<()> {
+        // Mark round as running
+        self.db.start_round(round_id).await?;
+
         // Health check containers before round
         self.container_manager.health_check().await?;
 
