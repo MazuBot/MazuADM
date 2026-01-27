@@ -4,10 +4,13 @@
   let { teams, exploits, exploitRuns, challengeId, onRefresh } = $props();
 
   let showAddExploit = $state(false);
-  let newExploit = $state({ name: '', docker_image: '', entrypoint: '', priority: 0 });
+  let newExploit = $state({ name: '', docker_image: '', entrypoint: '', priority: 0, auto_add: 'none' });
 
   let editingRun = $state(null);
   let editForm = $state({ priority: '', sequence: 0, enabled: true });
+
+  let editingExploit = $state(null);
+  let exploitForm = $state({ name: '', docker_image: '', entrypoint: '', priority: 0, enabled: true });
 
   let draggingCard = $state(null);
 
@@ -33,13 +36,38 @@
 
   async function addExploit() {
     await api.createExploit({ 
-      ...newExploit, 
+      name: newExploit.name,
+      docker_image: newExploit.docker_image,
+      priority: newExploit.priority,
       challenge_id: challengeId,
-      entrypoint: newExploit.entrypoint || null
+      entrypoint: newExploit.entrypoint || null,
+      auto_add: newExploit.auto_add
     });
     showAddExploit = false;
-    newExploit = { name: '', docker_image: '', entrypoint: '', priority: 0 };
+    newExploit = { name: '', docker_image: '', entrypoint: '', priority: 0, auto_add: 'none' };
     onRefresh();
+  }
+
+  function openEditExploit(e) {
+    editingExploit = e;
+    exploitForm = { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint || '', priority: e.priority, enabled: e.enabled };
+  }
+
+  async function saveExploit() {
+    await api.updateExploit(editingExploit.id, {
+      ...exploitForm,
+      entrypoint: exploitForm.entrypoint || null
+    });
+    editingExploit = null;
+    onRefresh();
+  }
+
+  async function deleteExploit() {
+    if (confirm('Delete this exploit and all its runs?')) {
+      await api.deleteExploit(editingExploit.id);
+      editingExploit = null;
+      onRefresh();
+    }
   }
 
   async function addRun(exploitId, teamId) {
@@ -92,11 +120,10 @@
     reordered.splice(fromIdx, 1);
     reordered.splice(toIdx, 0, draggingCard);
 
-    // Update sequences
-    for (let i = 0; i < reordered.length; i++) {
-      if (reordered[i].sequence !== i) {
-        await api.updateExploitRun(reordered[i].id, { sequence: i });
-      }
+    // Batch update sequences
+    const updates = reordered.map((r, i) => ({ id: r.id, sequence: i })).filter((u, i) => reordered[i].sequence !== u.sequence);
+    if (updates.length > 0) {
+      await api.reorderExploitRuns(updates);
     }
     draggingCard = null;
     onRefresh();
@@ -116,7 +143,7 @@
   <div class="sidebar">
     <h3>Exploits</h3>
     {#each filteredExploits as e}
-      <div class="exploit-item" draggable="true" ondragstart={(ev) => ev.dataTransfer.setData('exploitId', e.id)}>
+      <div class="exploit-item" class:disabled={!e.enabled} draggable="true" ondragstart={(ev) => ev.dataTransfer.setData('exploitId', e.id)} onclick={() => openEditExploit(e)}>
         {e.name}
       </div>
     {/each}
@@ -159,6 +186,13 @@
       <input bind:value={newExploit.docker_image} placeholder="Docker Image" />
       <input bind:value={newExploit.entrypoint} placeholder="Entrypoint (optional)" />
       <input bind:value={newExploit.priority} type="number" placeholder="Priority" />
+      <label>Auto-add to teams
+        <select bind:value={newExploit.auto_add}>
+          <option value="none">Don't add</option>
+          <option value="start">Add to start of each team</option>
+          <option value="end">Add to end of each team</option>
+        </select>
+      </label>
       <div class="modal-actions">
         <button onclick={() => showAddExploit = false}>Cancel</button>
         <button onclick={addExploit}>Add</button>
@@ -198,12 +232,31 @@
   </div>
 {/if}
 
+{#if editingExploit}
+  <div class="modal-overlay" onclick={() => editingExploit = null}>
+    <div class="modal" onclick={(e) => e.stopPropagation()}>
+      <h3>Edit Exploit</h3>
+      <label>Name <input bind:value={exploitForm.name} /></label>
+      <label>Docker Image <input bind:value={exploitForm.docker_image} /></label>
+      <label>Entrypoint <input bind:value={exploitForm.entrypoint} placeholder="Optional" /></label>
+      <label>Priority <input bind:value={exploitForm.priority} type="number" /></label>
+      <label class="checkbox"><input type="checkbox" bind:checked={exploitForm.enabled} /> Enabled</label>
+      <div class="modal-actions">
+        <button class="danger" onclick={deleteExploit}>Delete</button>
+        <button onclick={() => editingExploit = null}>Cancel</button>
+        <button onclick={saveExploit}>Save</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .board { display: flex; gap: 1rem; height: calc(100vh - 150px); }
   .sidebar { width: 200px; background: #252540; padding: 1rem; border-radius: 8px; }
   .sidebar h3 { margin-top: 0; color: #00d9ff; }
   .exploit-item { background: #1a1a2e; padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 4px; cursor: grab; border: 1px solid #444; }
   .exploit-item:hover { border-color: #00d9ff; }
+  .exploit-item.disabled { opacity: 0.5; text-decoration: line-through; }
   .add-btn { width: 100%; margin-top: 0.5rem; }
   .columns { display: flex; gap: 1rem; flex: 1; overflow-x: auto; }
   .column { min-width: 200px; background: #252540; padding: 1rem; border-radius: 8px; }
@@ -211,7 +264,8 @@
   .cards { display: flex; flex-direction: column; gap: 0.5rem; min-height: 50px; }
   .card { background: #1a1a2e; padding: 0.75rem; border-radius: 4px; border-left: 3px solid #00d9ff; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
   .card:hover { background: #252550; }
-  .card.disabled { opacity: 0.5; border-left-color: #666; }
+  .card.disabled { background: #0d0d15; opacity: 0.6; border-left-color: #444; }
+  .card.disabled .card-name { text-decoration: line-through; color: #666; }
   .card.dragging { opacity: 0.4; border: 2px dashed #00d9ff; }
   .card-seq { background: #333; color: #888; font-size: 0.75rem; padding: 0.1rem 0.4rem; border-radius: 3px; }
   .card-name { font-weight: 500; flex: 1; }
@@ -222,6 +276,7 @@
   .modal input[type="text"], .modal input[type="number"] { width: 100%; padding: 0.5rem; margin-bottom: 0.5rem; background: #1a1a2e; border: 1px solid #444; color: #eee; border-radius: 4px; box-sizing: border-box; }
   .modal label { display: block; margin-bottom: 0.5rem; color: #aaa; font-size: 0.9rem; }
   .modal label input { margin-top: 0.25rem; }
+  .modal label select { display: block; width: 100%; padding: 0.5rem; margin-top: 0.25rem; background: #1a1a2e; border: 1px solid #444; color: #eee; border-radius: 4px; }
   .modal .checkbox { display: flex; align-items: center; gap: 0.5rem; }
   .modal .checkbox input { width: auto; margin: 0; }
   .modal .info { background: #1a1a2e; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem; }

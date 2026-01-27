@@ -16,6 +16,8 @@ export const api = {
   deleteTeam: (id) => fetchJson(`/teams/${id}`, { method: 'DELETE' }),
   exploits: (challengeId) => fetchJson(challengeId ? `/exploits?challenge_id=${challengeId}` : '/exploits'),
   createExploit: (data) => fetchJson('/exploits', { method: 'POST', body: JSON.stringify(data) }),
+  updateExploit: (id, data) => fetchJson(`/exploits/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteExploit: (id) => fetchJson(`/exploits/${id}`, { method: 'DELETE' }),
   exploitRuns: (challengeId, teamId) => {
     const params = new URLSearchParams();
     if (challengeId) params.set('challenge_id', challengeId);
@@ -26,9 +28,12 @@ export const api = {
   createExploitRun: (data) => fetchJson('/exploit-runs', { method: 'POST', body: JSON.stringify(data) }),
   updateExploitRun: (id, data) => fetchJson(`/exploit-runs/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteExploitRun: (id) => fetchJson(`/exploit-runs/${id}`, { method: 'DELETE' }),
+  reorderExploitRuns: (updates) => fetchJson('/exploit-runs/reorder', { method: 'POST', body: JSON.stringify(updates) }),
   rounds: () => fetchJson('/rounds'),
   createRound: () => fetchJson('/rounds', { method: 'POST' }),
   runRound: (id) => fetchJson(`/rounds/${id}/run`, { method: 'POST' }),
   jobs: (roundId) => fetchJson(`/jobs?round_id=${roundId}`),
   flags: (roundId) => fetchJson(roundId ? `/flags?round_id=${roundId}` : '/flags'),
+  settings: () => fetchJson('/settings'),
+  updateSetting: (key, value) => fetchJson('/settings', { method: 'POST', body: JSON.stringify({ key, value }) }),
 };

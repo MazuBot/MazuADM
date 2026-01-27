@@ -97,7 +97,7 @@ async fn main() -> Result<()> {
         },
         Cmd::Team { cmd } => match cmd {
             TeamCmd::Add { id, name, ip, priority } => {
-                let t = db.create_team(CreateTeam { team_id: id, team_name: name, default_ip: ip, priority }).await?;
+                let t = db.create_team(CreateTeam { team_id: id, team_name: name, default_ip: ip, priority, enabled: Some(true) }).await?;
                 for c in db.list_challenges().await? { let _ = db.create_relation(c.id, t.id, None, None).await; }
                 println!("Created team {}", t.id);
             }
@@ -108,7 +108,7 @@ async fn main() -> Result<()> {
         },
         Cmd::Exploit { cmd } => match cmd {
             ExploitCmd::Add { name, challenge, image, priority, max_per_container, timeout, entrypoint } => {
-                let e = db.create_exploit(CreateExploit { name, challenge_id: challenge, docker_image: image, entrypoint, enabled: Some(true), priority, max_per_container, timeout_secs: timeout }).await?;
+                let e = db.create_exploit(CreateExploit { name, challenge_id: challenge, docker_image: image, entrypoint, enabled: Some(true), priority, max_per_container, timeout_secs: timeout, auto_add: None }).await?;
                 println!("Created exploit {}", e.id);
             }
             ExploitCmd::List { challenge } => {

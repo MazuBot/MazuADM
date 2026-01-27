@@ -71,7 +71,40 @@ pub async fn list_exploits(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<Exp
 }
 
 pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Exploit> {
-    s.db.create_exploit(e).await.map(Json).map_err(err)
+    let auto_add = e.auto_add.clone();
+    let exploit = s.db.create_exploit(e).await.map_err(err)?;
+    
+    if let Some(mode) = auto_add {
+        if mode == "start" || mode == "end" {
+            let teams = s.db.list_teams().await.map_err(err)?;
+            for team in teams {
+                let runs = s.db.list_exploit_runs(Some(exploit.challenge_id), Some(team.id)).await.map_err(err)?;
+                let seq = if mode == "start" {
+                    runs.iter().map(|r| r.sequence).min().unwrap_or(0) - 1
+                } else {
+                    runs.iter().map(|r| r.sequence).max().unwrap_or(-1) + 1
+                };
+                let _ = s.db.create_exploit_run(CreateExploitRun {
+                    exploit_id: exploit.id,
+                    challenge_id: exploit.challenge_id,
+                    team_id: team.id,
+                    priority: None,
+                    sequence: Some(seq),
+                }).await;
+            }
+        }
+    }
+    
+    Ok(Json(exploit))
+}
+
+pub async fn update_exploit(State(s): S, Path(id): Path<i32>, Json(e): Json<CreateExploit>) -> R<Exploit> {
+    s.db.update_exploit(id, e).await.map(Json).map_err(err)
+}
+
+pub async fn delete_exploit(State(s): S, Path(id): Path<i32>) -> R<String> {
+    s.db.delete_exploit(id).await.map_err(err)?;
+    Ok(Json("ok".to_string()))
 }
 
 // Exploit Runs
@@ -96,6 +129,17 @@ pub async fn update_exploit_run(State(s): S, Path(id): Path<i32>, Json(u): Json<
 
 pub async fn delete_exploit_run(State(s): S, Path(id): Path<i32>) -> R<String> {
     s.db.delete_exploit_run(id).await.map_err(err)?;
+    Ok(Json("ok".to_string()))
+}
+
+#[derive(Deserialize)]
+pub struct ReorderItem {
+    pub id: i32,
+    pub sequence: i32,
+}
+
+pub async fn reorder_exploit_runs(State(s): S, Json(items): Json<Vec<ReorderItem>>) -> R<String> {
+    s.db.reorder_exploit_runs(&items.iter().map(|i| (i.id, i.sequence)).collect::<Vec<_>>()).await.map_err(err)?;
     Ok(Json("ok".to_string()))
 }
 
@@ -124,4 +168,20 @@ pub async fn list_jobs(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<Exploit
 // Flags
 pub async fn list_flags(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<Flag>> {
     s.db.list_flags(q.round_id).await.map(Json).map_err(err)
+}
+
+// Settings
+pub async fn list_settings(State(s): S) -> R<Vec<Setting>> {
+    s.db.list_settings().await.map(Json).map_err(err)
+}
+
+#[derive(Deserialize)]
+pub struct UpdateSetting {
+    pub key: String,
+    pub value: String,
+}
+
+pub async fn update_setting(State(s): S, Json(u): Json<UpdateSetting>) -> R<String> {
+    s.db.set_setting(&u.key, &u.value).await.map_err(err)?;
+    Ok(Json("ok".to_string()))
 }

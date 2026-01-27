@@ -11,6 +11,7 @@
   let selectedRound = $state(null);
   let jobs = $state([]);
   let flags = $state([]);
+  let settings = $state([]);
   let tab = $state('board');
 
   // Challenge form
@@ -21,7 +22,7 @@
   // Team form
   let showTeamModal = $state(false);
   let editingTeam = $state(null);
-  let teamForm = $state({ team_id: '', team_name: '', default_ip: '', priority: 0 });
+  let teamForm = $state({ team_id: '', team_name: '', default_ip: '', priority: 0, enabled: true });
 
   async function load() {
     challenges = await api.challenges();
@@ -29,6 +30,7 @@
     exploits = await api.exploits();
     exploitRuns = await api.exploitRuns();
     rounds = await api.rounds();
+    settings = await api.settings();
     if (challenges.length && !selectedChallenge) selectedChallenge = challenges[0].id;
   }
 
@@ -101,13 +103,13 @@
   // Team CRUD
   function openAddTeam() {
     editingTeam = null;
-    teamForm = { team_id: '', team_name: '', default_ip: '', priority: 0 };
+    teamForm = { team_id: '', team_name: '', default_ip: '', priority: 0, enabled: true };
     showTeamModal = true;
   }
 
   function openEditTeam(t) {
     editingTeam = t;
-    teamForm = { team_id: t.team_id, team_name: t.team_name, default_ip: t.default_ip ?? '', priority: t.priority };
+    teamForm = { team_id: t.team_id, team_name: t.team_name, default_ip: t.default_ip ?? '', priority: t.priority, enabled: t.enabled };
     showTeamModal = true;
   }
 
@@ -116,7 +118,8 @@
       team_id: teamForm.team_id,
       team_name: teamForm.team_name,
       default_ip: teamForm.default_ip || null,
-      priority: Number(teamForm.priority)
+      priority: Number(teamForm.priority),
+      enabled: teamForm.enabled
     };
     if (editingTeam) {
       await api.updateTeam(editingTeam.id, data);
@@ -135,6 +138,28 @@
     }
   }
 
+  // Job detail modal
+  let selectedJob = $state(null);
+
+  function getTeamName(teamId) {
+    const t = teams.find(t => t.id === teamId);
+    return t ? `${t.id} (${t.team_name})` : teamId;
+  }
+
+  function getChallengeName(challengeId) {
+    const c = challenges.find(c => c.id === challengeId);
+    return c ? c.name : challengeId;
+  }
+
+  function getExploitName(exploitId) {
+    const e = exploits.find(e => e.id === exploitId);
+    return e ? e.name : exploitId;
+  }
+
+  function getExploitRunInfo(runId) {
+    return exploitRuns.find(r => r.id === runId);
+  }
+
   $effect(() => { load(); });
   $effect(() => { if (selectedRound) loadJobs(); });
 </script>
@@ -148,6 +173,7 @@
       <button class:active={tab === 'teams'} onclick={() => tab = 'teams'}>Teams</button>
       <button class:active={tab === 'rounds'} onclick={() => tab = 'rounds'}>Rounds</button>
       <button class:active={tab === 'flags'} onclick={() => tab = 'flags'}>Flags</button>
+      <button class:active={tab === 'settings'} onclick={() => tab = 'settings'}>Settings</button>
     </nav>
   </header>
 
@@ -189,15 +215,16 @@
         <button onclick={openAddTeam}>+ Add Team</button>
       </div>
       <table>
-        <thead><tr><th>ID</th><th>Team ID</th><th>Name</th><th>Default IP</th><th>Priority</th><th></th></tr></thead>
+        <thead><tr><th>ID</th><th>Team ID</th><th>Name</th><th>Default IP</th><th>Priority</th><th>Enabled</th><th></th></tr></thead>
         <tbody>
           {#each teams as t}
-            <tr>
+            <tr class:disabled={!t.enabled}>
               <td>{t.id}</td>
               <td>{t.team_id}</td>
               <td>{t.team_name}</td>
               <td>{t.default_ip ?? '-'}</td>
               <td>{t.priority}</td>
+              <td>{t.enabled ? '✓' : '✗'}</td>
               <td><button class="small" onclick={() => openEditTeam(t)}>Edit</button></td>
             </tr>
           {/each}
@@ -219,10 +246,17 @@
       </div>
       {#if jobs.length}
         <table>
-          <thead><tr><th>ID</th><th>Run</th><th>Team</th><th>Priority</th><th>Status</th></tr></thead>
+          <thead><tr><th>ID</th><th>Exploit</th><th>Team</th><th>Priority</th><th>Status</th><th>Duration</th></tr></thead>
           <tbody>
             {#each jobs as j}
-              <tr class={j.status}><td>{j.id}</td><td>{j.exploit_run_id}</td><td>{j.team_id}</td><td>{j.priority}</td><td>{j.status}</td></tr>
+              <tr class={j.status} onclick={() => selectedJob = j} style="cursor:pointer">
+                <td>{j.id}</td>
+                <td>{getExploitName(getExploitRunInfo(j.exploit_run_id)?.exploit_id)}</td>
+                <td>{getTeamName(j.team_id)}</td>
+                <td>{j.priority}</td>
+                <td>{j.status}</td>
+                <td>{j.duration_ms ? `${j.duration_ms}ms` : '-'}</td>
+              </tr>
             {/each}
           </tbody>
         </table>
@@ -238,8 +272,51 @@
         {/each}
       </tbody>
     </table>
+
+  {:else if tab === 'settings'}
+    <div class="panel">
+      <h2>Settings</h2>
+      <div class="settings-grid">
+        <div class="setting-row">
+          <label>concurrent_limit</label>
+          <input value={settings.find(s => s.key === 'concurrent_limit')?.value || '4'} 
+                 onchange={(e) => api.updateSetting('concurrent_limit', e.target.value).then(load)} />
+        </div>
+        <div class="setting-row">
+          <label>worker_timeout</label>
+          <input value={settings.find(s => s.key === 'worker_timeout')?.value || '30'} 
+                 onchange={(e) => api.updateSetting('worker_timeout', e.target.value).then(load)} />
+        </div>
+      </div>
+      <p class="hint">concurrent_limit: Max parallel exploit executions. worker_timeout: Seconds before killing a container.</p>
+    </div>
   {/if}
 </main>
+
+{#if selectedJob}
+  <div class="modal-overlay" onclick={() => selectedJob = null}>
+    <div class="modal wide" onclick={(e) => e.stopPropagation()}>
+      <h3>Job #{selectedJob.id} - {selectedJob.status}</h3>
+      <div class="job-info">
+        <p><strong>Exploit:</strong> {getExploitName(getExploitRunInfo(selectedJob.exploit_run_id)?.exploit_id)}</p>
+        <p><strong>Team:</strong> {getTeamName(selectedJob.team_id)}</p>
+        <p><strong>Priority:</strong> {selectedJob.priority}</p>
+        <p><strong>Duration:</strong> {selectedJob.duration_ms ? `${selectedJob.duration_ms}ms` : '-'}</p>
+      </div>
+      {#if selectedJob.stdout}
+        <label>Stdout</label>
+        <pre class="log-output">{selectedJob.stdout}</pre>
+      {/if}
+      {#if selectedJob.stderr}
+        <label>Stderr</label>
+        <pre class="log-output stderr">{selectedJob.stderr}</pre>
+      {/if}
+      <div class="modal-actions">
+        <button onclick={() => selectedJob = null}>Close</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if showChallengeModal}
   <div class="modal-overlay" onclick={() => showChallengeModal = false}>
@@ -267,6 +344,7 @@
       <label>Team Name <input bind:value={teamForm.team_name} /></label>
       <label>Default IP <input bind:value={teamForm.default_ip} placeholder="Optional" /></label>
       <label>Priority <input bind:value={teamForm.priority} type="number" /></label>
+      <label class="checkbox"><input type="checkbox" bind:checked={teamForm.enabled} /> Enabled</label>
       <div class="modal-actions">
         {#if editingTeam}<button class="danger" onclick={deleteTeam}>Delete</button>{/if}
         <button onclick={() => showTeamModal = false}>Cancel</button>
@@ -308,4 +386,14 @@
   .modal .checkbox { display: flex; align-items: center; gap: 0.5rem; flex-direction: row; }
   .modal .checkbox input { display: inline; width: auto; margin: 0; }
   .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+  .modal.wide { min-width: 500px; max-width: 700px; }
+  .job-info { background: #1a1a2e; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem; }
+  .job-info p { margin: 0.25rem 0; }
+  .log-output { background: #0d0d15; padding: 0.75rem; border-radius: 4px; font-size: 0.85rem; max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 0.25rem 0 1rem 0; }
+  .log-output.stderr { border-left: 3px solid #d9534f; }
+  .settings-grid { display: flex; flex-direction: column; gap: 0.75rem; margin: 1rem 0; }
+  .setting-row { display: flex; align-items: center; gap: 1rem; }
+  .setting-row label { min-width: 150px; color: #aaa; }
+  .setting-row input { flex: 1; max-width: 200px; padding: 0.5rem; background: #1a1a2e; border: 1px solid #444; color: #eee; border-radius: 4px; }
+  .hint { color: #666; font-size: 0.85rem; margin-top: 1rem; }
 </style>

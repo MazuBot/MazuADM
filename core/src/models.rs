@@ -13,6 +13,7 @@ pub struct Challenge {
     pub created_at: DateTime<Utc>,
 }
 
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateChallenge {
     pub name: String,
@@ -30,6 +31,7 @@ pub struct Team {
     pub default_ip: Option<String>,
     pub priority: i32,
     pub created_at: DateTime<Utc>,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -38,6 +40,7 @@ pub struct CreateTeam {
     pub team_name: String,
     pub default_ip: Option<String>,
     pub priority: Option<i32>,
+    pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
@@ -74,6 +77,7 @@ pub struct CreateExploit {
     pub priority: Option<i32>,
     pub max_per_container: Option<i32>,
     pub timeout_secs: Option<i32>,
+    pub auto_add: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
@@ -139,6 +143,12 @@ pub struct Flag {
 pub struct ConnectionInfo {
     pub addr: String,
     pub port: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct Setting {
+    pub key: String,
+    pub value: String,
 }
 
 impl ChallengeTeamRelation {
