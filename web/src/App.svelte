@@ -47,6 +47,11 @@
     rounds = await api.rounds();
     settings = await api.settings();
     if (challenges.length && !selectedChallenge) selectedChallenge = challenges[0].id;
+    if (rounds.length && !selectedRound) {
+      const nonPending = rounds.filter(r => r.status !== 'pending');
+      selectedRound = nonPending.length ? nonPending[0].id : rounds[0].id;
+      loadJobs();
+    }
   }
 
   async function loadJobs() {
