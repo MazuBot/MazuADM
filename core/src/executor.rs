@@ -1,82 +1,60 @@
 use crate::{Database, Exploit, ExploitJob, ExploitRun, ConnectionInfo};
+use crate::container_manager::ContainerManager;
 use anyhow::Result;
-use bollard::Docker;
-use bollard::query_parameters::{CreateContainerOptions, StartContainerOptions, WaitContainerOptions, LogsOptions, RemoveContainerOptions};
-use bollard::secret::{ContainerCreateBody, HostConfig};
-use futures::{StreamExt, TryStreamExt};
 use std::time::{Instant, Duration};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use regex::Regex;
 
 pub struct Executor {
-    db: Database,
-    docker: Docker,
+    pub db: Database,
+    pub container_manager: ContainerManager,
 }
 
 impl Executor {
     pub fn new(db: Database) -> Result<Self> {
-        let docker = Docker::connect_with_local_defaults()?;
-        Ok(Self { db, docker })
+        let container_manager = ContainerManager::new(db.clone())?;
+        Ok(Self { db, container_manager })
     }
 
-    pub async fn execute_job(&self, job: &ExploitJob, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64) -> Result<JobResult> {
+    pub async fn execute_job(&self, job: &ExploitJob, run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64) -> Result<JobResult> {
         let start = Instant::now();
         self.db.update_job_status(job.id, "running", true).await?;
 
-        let container_name = format!("mazuadm-{}-{}", job.round_id, job.id);
         let team = self.db.get_team(job.team_id).await?;
-        let config = ContainerCreateBody {
-            image: Some(exploit.docker_image.clone()),
-            entrypoint: exploit.entrypoint.as_ref().map(|e| vec![e.clone()]),
-            cmd: Some(vec![conn.addr.clone(), conn.port.to_string(), team.team_id.clone()]),
-            env: Some(vec![
-                format!("TARGET_HOST={}", conn.addr),
-                format!("TARGET_PORT={}", conn.port),
-                format!("TARGET_TEAM_ID={}", team.team_id),
-            ]),
-            host_config: Some(HostConfig {
-                network_mode: Some("host".to_string()),
-                ..Default::default()
-            }),
-            ..Default::default()
+        
+        // Get or assign persistent container
+        let container = self.container_manager.get_or_assign_container(run).await?;
+
+        // Build command - use entrypoint or default script
+        let cmd = match &exploit.entrypoint {
+            Some(ep) => vec![ep.clone(), conn.addr.clone(), conn.port.to_string(), team.team_id.clone()],
+            None => vec!["/exploit".to_string(), conn.addr.clone(), conn.port.to_string(), team.team_id.clone()],
         };
 
-        let id = self.docker.create_container(Some(CreateContainerOptions { name: Some(container_name), platform: String::new() }), config).await?.id;
-        self.docker.start_container(&id, None::<StartContainerOptions>).await?;
+        let env = vec![
+            format!("TARGET_HOST={}", conn.addr),
+            format!("TARGET_PORT={}", conn.port),
+            format!("TARGET_TEAM_ID={}", team.team_id),
+        ];
 
-        // Wait with timeout
-        let wait_result = tokio::time::timeout(
+        // Execute with timeout
+        let exec_result = tokio::time::timeout(
             Duration::from_secs(timeout_secs),
-            async {
-                let mut wait = self.docker.wait_container(&id, None::<WaitContainerOptions>);
-                if let Some(Ok(res)) = wait.next().await { res.status_code } else { -1 }
-            }
+            self.container_manager.execute_in_container(&container, cmd, env)
         ).await;
 
-        let (exit_code, timed_out) = match wait_result {
-            Ok(code) => (code, false),
-            Err(_) => {
-                // Timeout - kill container
-                let _ = self.docker.stop_container(&id, None).await;
-                (-1, true)
-            }
+        let (stdout, stderr, exit_code, timed_out) = match exec_result {
+            Ok(Ok(r)) => (r.stdout, r.stderr, r.exit_code, false),
+            Ok(Err(e)) => (String::new(), e.to_string(), -1, false),
+            Err(_) => (String::new(), "Timeout".to_string(), -1, true),
         };
 
-        let mut stdout = String::new();
-        let mut stderr = String::new();
-        if let Ok(logs) = self.docker.logs(&id, Some(LogsOptions { stdout: true, stderr: true, ..Default::default() })).try_collect::<Vec<_>>().await {
-            for log in logs {
-                match log {
-                    bollard::container::LogOutput::StdOut { message } => stdout.push_str(&String::from_utf8_lossy(&message)),
-                    bollard::container::LogOutput::StdErr { message } => stderr.push_str(&String::from_utf8_lossy(&message)),
-                    _ => {}
-                }
-            }
+        // Decrement counter and destroy if exhausted
+        let new_counter = self.db.decrement_container_counter(container.id).await?;
+        if new_counter <= 0 {
+            let _ = self.container_manager.destroy_container(container.id).await;
         }
-
-        // Cleanup container
-        let _ = self.docker.remove_container(&id, Some(RemoveContainerOptions { force: true, ..Default::default() })).await;
 
         let duration_ms = start.elapsed().as_millis() as i32;
         let status = if timed_out { "timeout" } else if exit_code == 0 { "success" } else { "failed" };
@@ -95,7 +73,9 @@ impl Executor {
     }
 
     pub async fn run_round(&self, round_id: i32) -> Result<()> {
-        // Get settings
+        // Health check containers before round
+        self.container_manager.health_check().await?;
+
         let concurrent_limit: usize = self.db.get_setting("concurrent_limit").await
             .ok().and_then(|v| v.parse().ok()).unwrap_or(10);
         let worker_timeout: u64 = self.db.get_setting("worker_timeout").await
@@ -108,8 +88,7 @@ impl Executor {
         for job in jobs {
             let permit = semaphore.clone().acquire_owned().await?;
             let db = self.db.clone();
-            let docker = Docker::connect_with_local_defaults()?;
-            let executor = Executor { db: db.clone(), docker };
+            let executor = Executor::new(db.clone())?;
 
             let handle = tokio::spawn(async move {
                 let _permit = permit;
@@ -135,7 +114,6 @@ impl Executor {
                     Err(e) => { tracing::error!("Job {} failed: {}", job.id, e); return; }
                 };
 
-                // Skip disabled teams
                 if !team.enabled {
                     let _ = db.finish_job(job.id, "skipped", None, Some("Team disabled"), 0).await;
                     return;
@@ -150,7 +128,7 @@ impl Executor {
                 
                 if let Some(rel) = rel {
                     if let Some(conn) = rel.connection_info(&challenge, &team) {
-                        match executor.execute_job(&job, &exploit, &conn, challenge.flag_regex.as_deref(), worker_timeout).await {
+                        match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), worker_timeout).await {
                             Ok(result) => {
                                 for flag in result.flags {
                                     let _ = db.create_flag(job.id, round_id, challenge.id, team.id, &flag).await;
@@ -168,7 +146,6 @@ impl Executor {
             handles.push(handle);
         }
 
-        // Wait for all jobs
         for handle in handles {
             let _ = handle.await;
         }

@@ -3,6 +3,7 @@ use axum::{extract::{Path, Query, State}, Json};
 use mazuadm_core::*;
 use mazuadm_core::scheduler::Scheduler;
 use mazuadm_core::executor::Executor;
+use mazuadm_core::container_manager::ContainerManager;
 use std::sync::Arc;
 use serde::Deserialize;
 
@@ -95,14 +96,36 @@ pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Expl
         }
     }
     
+    // Pre-warm containers for enabled exploit
+    if exploit.enabled {
+        let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
+        let _ = cm.ensure_containers(exploit.id).await;
+    }
+    
     Ok(Json(exploit))
 }
 
 pub async fn update_exploit(State(s): S, Path(id): Path<i32>, Json(e): Json<CreateExploit>) -> R<Exploit> {
-    s.db.update_exploit(id, e).await.map(Json).map_err(err)
+    let was_enabled = s.db.get_exploit(id).await.map(|e| e.enabled).unwrap_or(false);
+    let exploit = s.db.update_exploit(id, e).await.map_err(err)?;
+    
+    let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
+    if exploit.enabled && !was_enabled {
+        // Just enabled - spawn containers
+        let _ = cm.ensure_containers(id).await;
+    } else if !exploit.enabled && was_enabled {
+        // Just disabled - destroy containers
+        let _ = cm.destroy_exploit_containers(id).await;
+    }
+    
+    Ok(Json(exploit))
 }
 
 pub async fn delete_exploit(State(s): S, Path(id): Path<i32>) -> R<String> {
+    // Destroy containers first
+    let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
+    let _ = cm.destroy_exploit_containers(id).await;
+    
     s.db.delete_exploit(id).await.map_err(err)?;
     Ok(Json("ok".to_string()))
 }
@@ -183,5 +206,25 @@ pub struct UpdateSetting {
 
 pub async fn update_setting(State(s): S, Json(u): Json<UpdateSetting>) -> R<String> {
     s.db.set_setting(&u.key, &u.value).await.map_err(err)?;
+    Ok(Json("ok".to_string()))
+}
+
+// Containers
+pub async fn list_containers(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<ExploitContainer>> {
+    match q.challenge_id {
+        Some(eid) => s.db.get_exploit_containers(eid).await.map(Json).map_err(err),
+        None => s.db.list_all_containers().await.map(Json).map_err(err),
+    }
+}
+
+pub async fn health_check_containers(State(s): S) -> R<String> {
+    let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
+    cm.health_check().await.map_err(err)?;
+    Ok(Json("ok".to_string()))
+}
+
+pub async fn ensure_all_containers(State(s): S) -> R<String> {
+    let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
+    cm.ensure_all_containers().await.map_err(err)?;
     Ok(Json("ok".to_string()))
 }

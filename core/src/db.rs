@@ -97,8 +97,8 @@ impl Database {
     // Exploits
     pub async fn create_exploit(&self, e: CreateExploit) -> Result<Exploit> {
         Ok(sqlx::query_as!(Exploit,
-            "INSERT INTO exploits (name, challenge_id, docker_image, entrypoint, enabled, priority, max_per_container, timeout_secs) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
-            e.name, e.challenge_id, e.docker_image, e.entrypoint, e.enabled.unwrap_or(true), e.priority.unwrap_or(0), e.max_per_container.unwrap_or(1), e.timeout_secs.unwrap_or(30)
+            "INSERT INTO exploits (name, challenge_id, docker_image, entrypoint, enabled, priority, max_per_container, timeout_secs, default_counter) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
+            e.name, e.challenge_id, e.docker_image, e.entrypoint, e.enabled.unwrap_or(true), e.priority.unwrap_or(0), e.max_per_container.unwrap_or(1), e.timeout_secs.unwrap_or(30), e.default_counter.unwrap_or(999)
         ).fetch_one(&self.pool).await?)
     }
 
@@ -113,10 +113,14 @@ impl Database {
         Ok(sqlx::query_as!(Exploit, "SELECT * FROM exploits WHERE id = $1", id).fetch_one(&self.pool).await?)
     }
 
+    pub async fn list_enabled_exploits(&self) -> Result<Vec<Exploit>> {
+        Ok(sqlx::query_as!(Exploit, "SELECT * FROM exploits WHERE enabled = true ORDER BY priority DESC").fetch_all(&self.pool).await?)
+    }
+
     pub async fn update_exploit(&self, id: i32, e: CreateExploit) -> Result<Exploit> {
         Ok(sqlx::query_as!(Exploit,
-            "UPDATE exploits SET name = $2, docker_image = $3, entrypoint = $4, enabled = COALESCE($5, enabled), priority = COALESCE($6, priority), max_per_container = COALESCE($7, max_per_container), timeout_secs = COALESCE($8, timeout_secs) WHERE id = $1 RETURNING *",
-            id, e.name, e.docker_image, e.entrypoint, e.enabled, e.priority, e.max_per_container, e.timeout_secs
+            "UPDATE exploits SET name = $2, docker_image = $3, entrypoint = $4, enabled = COALESCE($5, enabled), priority = COALESCE($6, priority), max_per_container = COALESCE($7, max_per_container), timeout_secs = COALESCE($8, timeout_secs), default_counter = COALESCE($9, default_counter) WHERE id = $1 RETURNING *",
+            id, e.name, e.docker_image, e.entrypoint, e.enabled, e.priority, e.max_per_container, e.timeout_secs, e.default_counter
         ).fetch_one(&self.pool).await?)
     }
 
@@ -246,5 +250,80 @@ impl Database {
 
     pub async fn list_settings(&self) -> Result<Vec<Setting>> {
         Ok(sqlx::query_as!(Setting, "SELECT * FROM settings ORDER BY key").fetch_all(&self.pool).await?)
+    }
+
+    // Exploit Containers
+    pub async fn create_exploit_container(&self, exploit_id: i32, container_id: &str, counter: i32) -> Result<ExploitContainer> {
+        Ok(sqlx::query_as!(ExploitContainer,
+            "INSERT INTO exploit_containers (exploit_id, container_id, counter) VALUES ($1, $2, $3) RETURNING *",
+            exploit_id, container_id, counter
+        ).fetch_one(&self.pool).await?)
+    }
+
+    pub async fn get_exploit_containers(&self, exploit_id: i32) -> Result<Vec<ExploitContainer>> {
+        Ok(sqlx::query_as!(ExploitContainer,
+            "SELECT * FROM exploit_containers WHERE exploit_id = $1 AND status = 'running' ORDER BY id",
+            exploit_id
+        ).fetch_all(&self.pool).await?)
+    }
+
+    pub async fn list_all_containers(&self) -> Result<Vec<ExploitContainer>> {
+        Ok(sqlx::query_as!(ExploitContainer, "SELECT * FROM exploit_containers ORDER BY id").fetch_all(&self.pool).await?)
+    }
+
+    pub async fn get_container(&self, id: i32) -> Result<ExploitContainer> {
+        Ok(sqlx::query_as!(ExploitContainer, "SELECT * FROM exploit_containers WHERE id = $1", id).fetch_one(&self.pool).await?)
+    }
+
+    pub async fn get_available_container(&self, exploit_id: i32, max_per_container: i32) -> Result<Option<ExploitContainer>> {
+        Ok(sqlx::query_as!(ExploitContainer,
+            r#"SELECT c.* FROM exploit_containers c
+               LEFT JOIN exploit_runners r ON r.exploit_container_id = c.id
+               WHERE c.exploit_id = $1 AND c.status = 'running' AND c.counter > 0
+               GROUP BY c.id HAVING COUNT(r.id) < $2
+               ORDER BY c.id LIMIT 1"#,
+            exploit_id, max_per_container as i64
+        ).fetch_optional(&self.pool).await?)
+    }
+
+    pub async fn decrement_container_counter(&self, id: i32) -> Result<i32> {
+        let rec = sqlx::query!("UPDATE exploit_containers SET counter = counter - 1 WHERE id = $1 RETURNING counter", id)
+            .fetch_one(&self.pool).await?;
+        Ok(rec.counter)
+    }
+
+    pub async fn set_container_status(&self, id: i32, status: &str) -> Result<()> {
+        sqlx::query!("UPDATE exploit_containers SET status = $2 WHERE id = $1", id, status).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn delete_exploit_container(&self, id: i32) -> Result<()> {
+        sqlx::query!("DELETE FROM exploit_containers WHERE id = $1", id).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    // Exploit Runners
+    pub async fn create_exploit_runner(&self, container_id: i32, run_id: i32, team_id: i32) -> Result<ExploitRunner> {
+        Ok(sqlx::query_as!(ExploitRunner,
+            "INSERT INTO exploit_runners (exploit_container_id, exploit_run_id, team_id) VALUES ($1, $2, $3) RETURNING *",
+            container_id, run_id, team_id
+        ).fetch_one(&self.pool).await?)
+    }
+
+    pub async fn get_runner_for_run(&self, exploit_run_id: i32) -> Result<Option<ExploitRunner>> {
+        Ok(sqlx::query_as!(ExploitRunner,
+            "SELECT * FROM exploit_runners WHERE exploit_run_id = $1", exploit_run_id
+        ).fetch_optional(&self.pool).await?)
+    }
+
+    pub async fn get_runners_for_container(&self, container_id: i32) -> Result<Vec<ExploitRunner>> {
+        Ok(sqlx::query_as!(ExploitRunner,
+            "SELECT * FROM exploit_runners WHERE exploit_container_id = $1", container_id
+        ).fetch_all(&self.pool).await?)
+    }
+
+    pub async fn delete_runners_for_container(&self, container_id: i32) -> Result<()> {
+        sqlx::query!("DELETE FROM exploit_runners WHERE exploit_container_id = $1", container_id).execute(&self.pool).await?;
+        Ok(())
     }
 }

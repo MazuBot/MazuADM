@@ -108,7 +108,7 @@ async fn main() -> Result<()> {
         },
         Cmd::Exploit { cmd } => match cmd {
             ExploitCmd::Add { name, challenge, image, priority, max_per_container, timeout, entrypoint } => {
-                let e = db.create_exploit(CreateExploit { name, challenge_id: challenge, docker_image: image, entrypoint, enabled: Some(true), priority, max_per_container, timeout_secs: timeout, auto_add: None }).await?;
+                let e = db.create_exploit(CreateExploit { name, challenge_id: challenge, docker_image: image, entrypoint, enabled: Some(true), priority, max_per_container, timeout_secs: timeout, default_counter: None, auto_add: None }).await?;
                 println!("Created exploit {}", e.id);
             }
             ExploitCmd::List { challenge } => {

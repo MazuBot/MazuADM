@@ -64,6 +64,7 @@ pub struct Exploit {
     pub docker_image: String,
     pub entrypoint: Option<String>,
     pub timeout_secs: i32,
+    pub default_counter: i32,
     pub created_at: DateTime<Utc>,
 }
 
@@ -77,6 +78,7 @@ pub struct CreateExploit {
     pub priority: Option<i32>,
     pub max_per_container: Option<i32>,
     pub timeout_secs: Option<i32>,
+    pub default_counter: Option<i32>,
     pub auto_add: Option<String>,
 }
 
@@ -149,6 +151,25 @@ pub struct ConnectionInfo {
 pub struct Setting {
     pub key: String,
     pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct ExploitContainer {
+    pub id: i32,
+    pub exploit_id: i32,
+    pub container_id: String,
+    pub counter: i32,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct ExploitRunner {
+    pub id: i32,
+    pub exploit_container_id: i32,
+    pub exploit_run_id: i32,
+    pub team_id: i32,
+    pub created_at: DateTime<Utc>,
 }
 
 impl ChallengeTeamRelation {

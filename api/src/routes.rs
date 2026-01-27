@@ -1,4 +1,4 @@
-use axum::{Router, routing::{get, post, put, delete}};
+use axum::{Router, routing::{get, post, put}};
 use crate::{AppState, handlers::*};
 use std::sync::Arc;
 
@@ -19,4 +19,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/jobs", get(list_jobs))
         .route("/api/flags", get(list_flags))
         .route("/api/settings", get(list_settings).post(update_setting))
+        .route("/api/containers", get(list_containers))
+        .route("/api/containers/health", post(health_check_containers))
+        .route("/api/containers/ensure", post(ensure_all_containers))
 }
