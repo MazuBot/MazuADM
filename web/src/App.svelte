@@ -1,5 +1,6 @@
 <script>
   import { api } from './api.js';
+  import { connect, disconnect } from './websocket.js';
   import Board from './Board.svelte';
   import { AnsiUp } from 'ansi_up';
 
@@ -64,6 +65,42 @@
   let editingTeam = $state(null);
   let teamForm = $state({ team_id: '', team_name: '', default_ip: '', priority: 0, enabled: true });
 
+  // WebSocket message handler
+  function handleWsMessage(msg) {
+    const { type, data } = msg;
+    switch (type) {
+      case 'challenge_created': challenges = [...challenges, data]; break;
+      case 'challenge_updated': challenges = challenges.map(c => c.id === data.id ? data : c); break;
+      case 'challenge_deleted': challenges = challenges.filter(c => c.id !== data); break;
+      case 'team_created': teams = [...teams, data]; break;
+      case 'team_updated': teams = teams.map(t => t.id === data.id ? data : t); break;
+      case 'team_deleted': teams = teams.filter(t => t.id !== data); break;
+      case 'exploit_created': exploits = [...exploits, data]; break;
+      case 'exploit_updated': exploits = exploits.map(e => e.id === data.id ? data : e); break;
+      case 'exploit_deleted': exploits = exploits.filter(e => e.id !== data); break;
+      case 'exploit_run_created': exploitRuns = [...exploitRuns, data]; break;
+      case 'exploit_run_updated': exploitRuns = exploitRuns.map(r => r.id === data.id ? data : r); break;
+      case 'exploit_run_deleted': exploitRuns = exploitRuns.filter(r => r.id !== data); break;
+      case 'exploit_runs_reordered': load(); break;
+      case 'round_created': rounds = [data, ...rounds]; break;
+      case 'round_updated': rounds = rounds.map(r => r.id === data.id ? data : r); break;
+      case 'job_updated':
+        if (data.round_id === selectedRound) {
+          const idx = jobs.findIndex(j => j.id === data.id);
+          if (idx >= 0) jobs = [...jobs.slice(0, idx), data, ...jobs.slice(idx + 1)];
+          else jobs = [...jobs, data];
+        }
+        break;
+      case 'flag_created':
+        if (!selectedFlagRound || data.round_id === selectedFlagRound) {
+          flags = [...flags, data];
+        }
+        break;
+      case 'setting_updated': settings = settings.map(s => s.key === data.key ? { ...s, value: data.value } : s); break;
+      case 'relation_updated': break; // Relations are loaded per-challenge
+    }
+  }
+
   async function load() {
     challenges = await api.challenges();
     teams = await api.teams();
@@ -85,6 +122,9 @@
 
     if (t === 'flags' && id && rounds.find(r => r.id === id)) { selectedFlagRound = id; }
     loadFlags();
+    
+    // Connect WebSocket after initial load
+    connect(handleWsMessage);
   }
 
   async function loadJobs() {
@@ -114,15 +154,7 @@
   async function runRound() {
     if (selectedRound) {
       await api.runRound(selectedRound);
-      pollJobs();
     }
-  }
-
-  function pollJobs() {
-    const interval = setInterval(async () => {
-      await loadJobs();
-      if (jobs.every(j => j.status !== 'pending' && j.status !== 'running')) clearInterval(interval);
-    }, 1000);
   }
 
   // Challenge CRUD

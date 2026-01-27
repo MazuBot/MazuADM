@@ -224,6 +224,10 @@ impl Database {
         Ok(sqlx::query_as!(ExploitJob, "SELECT * FROM exploit_jobs WHERE round_id = $1 ORDER BY priority DESC", round_id).fetch_all(&self.pool).await?)
     }
 
+    pub async fn get_job(&self, id: i32) -> Result<ExploitJob> {
+        Ok(sqlx::query_as!(ExploitJob, "SELECT * FROM exploit_jobs WHERE id = $1", id).fetch_one(&self.pool).await?)
+    }
+
     pub async fn get_pending_jobs(&self, round_id: i32) -> Result<Vec<ExploitJob>> {
         Ok(sqlx::query_as!(ExploitJob,
             "SELECT * FROM exploit_jobs WHERE round_id = $1 AND status = 'pending' ORDER BY priority DESC", round_id

@@ -137,7 +137,8 @@ async fn main() -> Result<()> {
                 println!("{}", Table::new(rows));
             }
             RoundCmd::Run { id } => {
-                let executor = mazuadm_core::executor::Executor::new(db)?;
+                let (tx, _) = tokio::sync::broadcast::channel(1);
+                let executor = mazuadm_core::executor::Executor::new(db, tx)?;
                 executor.run_round(id).await?;
                 println!("Round {} completed", id);
             }

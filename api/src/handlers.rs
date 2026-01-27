@@ -1,5 +1,7 @@
+use crate::events::WsMessage;
 use crate::AppState;
-use axum::{extract::{Path, Query, State}, Json};
+use axum::{extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade}}, Json, response::Response};
+use futures_util::StreamExt;
 use mazuadm_core::*;
 use mazuadm_core::scheduler::Scheduler;
 use mazuadm_core::executor::Executor;
@@ -11,6 +13,40 @@ type S = State<Arc<AppState>>;
 type R<T> = Result<Json<T>, String>;
 
 fn err<E: std::fmt::Display>(e: E) -> String { e.to_string() }
+
+fn broadcast<T: serde::Serialize>(s: &AppState, msg_type: &str, data: &T) {
+    let _ = s.tx.send(WsMessage::new(msg_type, data));
+}
+
+// WebSocket handler
+pub async fn ws_handler(ws: WebSocketUpgrade, State(s): S) -> Response {
+    ws.on_upgrade(move |socket| handle_ws(socket, s))
+}
+
+async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>) {
+    let mut rx = state.tx.subscribe();
+    loop {
+        tokio::select! {
+            msg = rx.recv() => {
+                match msg {
+                    Ok(m) => {
+                        let text = serde_json::to_string(&m).unwrap_or_default();
+                        if socket.send(axum::extract::ws::Message::Text(text.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            msg = socket.next() => {
+                match msg {
+                    Some(Ok(_)) => {} // ignore client messages
+                    _ => break,
+                }
+            }
+        }
+    }
+}
 
 #[derive(Deserialize)]
 pub struct ListQuery {
@@ -27,20 +63,26 @@ pub async fn list_challenges(State(s): S) -> R<Vec<Challenge>> {
 pub async fn create_challenge(State(s): S, Json(c): Json<CreateChallenge>) -> R<Challenge> {
     let challenge = s.db.create_challenge(c).await.map_err(err)?;
     s.db.ensure_relations(challenge.id).await.map_err(err)?;
+    broadcast(&s, "challenge_created", &challenge);
     Ok(Json(challenge))
 }
 
 pub async fn update_challenge(State(s): S, Path(id): Path<i32>, Json(c): Json<CreateChallenge>) -> R<Challenge> {
-    s.db.update_challenge(id, c).await.map(Json).map_err(err)
+    let challenge = s.db.update_challenge(id, c).await.map_err(err)?;
+    broadcast(&s, "challenge_updated", &challenge);
+    Ok(Json(challenge))
 }
 
 pub async fn delete_challenge(State(s): S, Path(id): Path<i32>) -> R<String> {
     s.db.delete_challenge(id).await.map_err(err)?;
+    broadcast(&s, "challenge_deleted", &id);
     Ok(Json("ok".to_string()))
 }
 
 pub async fn set_challenge_enabled(State(s): S, Path((id, enabled)): Path<(i32, bool)>) -> R<String> {
     s.db.set_challenge_enabled(id, enabled).await.map_err(err)?;
+    let challenge = s.db.get_challenge(id).await.map_err(err)?;
+    broadcast(&s, "challenge_updated", &challenge);
     Ok(Json("ok".to_string()))
 }
 
@@ -54,15 +96,19 @@ pub async fn create_team(State(s): S, Json(t): Json<CreateTeam>) -> R<Team> {
     for c in s.db.list_challenges().await.map_err(err)? {
         let _ = s.db.create_relation(c.id, team.id, None, None).await;
     }
+    broadcast(&s, "team_created", &team);
     Ok(Json(team))
 }
 
 pub async fn update_team(State(s): S, Path(id): Path<i32>, Json(t): Json<CreateTeam>) -> R<Team> {
-    s.db.update_team(id, t).await.map(Json).map_err(err)
+    let team = s.db.update_team(id, t).await.map_err(err)?;
+    broadcast(&s, "team_updated", &team);
+    Ok(Json(team))
 }
 
 pub async fn delete_team(State(s): S, Path(id): Path<i32>) -> R<String> {
     s.db.delete_team(id).await.map_err(err)?;
+    broadcast(&s, "team_deleted", &id);
     Ok(Json("ok".to_string()))
 }
 
@@ -85,13 +131,15 @@ pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Expl
                 } else {
                     runs.iter().map(|r| r.sequence).max().unwrap_or(-1) + 1
                 };
-                let _ = s.db.create_exploit_run(CreateExploitRun {
+                if let Ok(run) = s.db.create_exploit_run(CreateExploitRun {
                     exploit_id: exploit.id,
                     challenge_id: exploit.challenge_id,
                     team_id: team.id,
                     priority: None,
                     sequence: Some(seq),
-                }).await;
+                }).await {
+                    broadcast(&s, "exploit_run_created", &run);
+                }
             }
         }
     }
@@ -102,6 +150,7 @@ pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Expl
         let _ = cm.ensure_containers(exploit.id).await;
     }
     
+    broadcast(&s, "exploit_created", &exploit);
     Ok(Json(exploit))
 }
 
@@ -111,22 +160,21 @@ pub async fn update_exploit(State(s): S, Path(id): Path<i32>, Json(e): Json<Upda
     
     let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
     if exploit.enabled && !was_enabled {
-        // Just enabled - spawn containers
         let _ = cm.ensure_containers(id).await;
     } else if !exploit.enabled && was_enabled {
-        // Just disabled - destroy containers
         let _ = cm.destroy_exploit_containers(id).await;
     }
     
+    broadcast(&s, "exploit_updated", &exploit);
     Ok(Json(exploit))
 }
 
 pub async fn delete_exploit(State(s): S, Path(id): Path<i32>) -> R<String> {
-    // Destroy containers first
     let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
     let _ = cm.destroy_exploit_containers(id).await;
     
     s.db.delete_exploit(id).await.map_err(err)?;
+    broadcast(&s, "exploit_deleted", &id);
     Ok(Json("ok".to_string()))
 }
 
@@ -136,7 +184,9 @@ pub async fn list_exploit_runs(State(s): S, Query(q): Query<ListQuery>) -> R<Vec
 }
 
 pub async fn create_exploit_run(State(s): S, Json(r): Json<CreateExploitRun>) -> R<ExploitRun> {
-    s.db.create_exploit_run(r).await.map(Json).map_err(err)
+    let run = s.db.create_exploit_run(r).await.map_err(err)?;
+    broadcast(&s, "exploit_run_created", &run);
+    Ok(Json(run))
 }
 
 #[derive(Deserialize)]
@@ -147,15 +197,18 @@ pub struct UpdateExploitRun {
 }
 
 pub async fn update_exploit_run(State(s): S, Path(id): Path<i32>, Json(u): Json<UpdateExploitRun>) -> R<ExploitRun> {
-    s.db.update_exploit_run(id, u.priority, u.sequence, u.enabled).await.map(Json).map_err(err)
+    let run = s.db.update_exploit_run(id, u.priority, u.sequence, u.enabled).await.map_err(err)?;
+    broadcast(&s, "exploit_run_updated", &run);
+    Ok(Json(run))
 }
 
 pub async fn delete_exploit_run(State(s): S, Path(id): Path<i32>) -> R<String> {
     s.db.delete_exploit_run(id).await.map_err(err)?;
+    broadcast(&s, "exploit_run_deleted", &id);
     Ok(Json("ok".to_string()))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, serde::Serialize)]
 pub struct ReorderItem {
     pub id: i32,
     pub sequence: i32,
@@ -163,6 +216,7 @@ pub struct ReorderItem {
 
 pub async fn reorder_exploit_runs(State(s): S, Json(items): Json<Vec<ReorderItem>>) -> R<String> {
     s.db.reorder_exploit_runs(&items.iter().map(|i| (i.id, i.sequence)).collect::<Vec<_>>()).await.map_err(err)?;
+    broadcast(&s, "exploit_runs_reordered", &items);
     Ok(Json("ok".to_string()))
 }
 
@@ -173,11 +227,15 @@ pub async fn list_rounds(State(s): S) -> R<Vec<Round>> {
 
 pub async fn create_round(State(s): S) -> R<i32> {
     let scheduler = Scheduler::new(s.db.clone());
-    scheduler.generate_round().await.map(Json).map_err(err)
+    let round_id = scheduler.generate_round().await.map_err(err)?;
+    let round = s.db.get_round(round_id).await.map_err(err)?;
+    broadcast(&s, "round_created", &round);
+    Ok(Json(round_id))
 }
 
 pub async fn run_round(State(s): S, Path(id): Path<i32>) -> R<String> {
-    let executor = Executor::new(s.db.clone()).map_err(err)?;
+    let tx = s.tx.clone();
+    let executor = Executor::new(s.db.clone(), tx).map_err(err)?;
     tokio::spawn(async move { executor.run_round(id).await });
     Ok(Json("started".to_string()))
 }
@@ -198,7 +256,7 @@ pub async fn list_settings(State(s): S) -> R<Vec<Setting>> {
     s.db.list_settings().await.map(Json).map_err(err)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, serde::Serialize)]
 pub struct UpdateSetting {
     pub key: String,
     pub value: String,
@@ -206,6 +264,7 @@ pub struct UpdateSetting {
 
 pub async fn update_setting(State(s): S, Json(u): Json<UpdateSetting>) -> R<String> {
     s.db.set_setting(&u.key, &u.value).await.map_err(err)?;
+    broadcast(&s, "setting_updated", &u);
     Ok(Json("ok".to_string()))
 }
 
@@ -256,5 +315,7 @@ pub struct UpdateRelation {
 }
 
 pub async fn update_relation(State(s): S, Path((challenge_id, team_id)): Path<(i32, i32)>, Json(u): Json<UpdateRelation>) -> R<ChallengeTeamRelation> {
-    s.db.update_relation(challenge_id, team_id, u.addr, u.port).await.map(Json).map_err(err)
+    let rel = s.db.update_relation(challenge_id, team_id, u.addr, u.port).await.map_err(err)?;
+    broadcast(&s, "relation_updated", &rel);
+    Ok(Json(rel))
 }

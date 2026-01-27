@@ -1,15 +1,19 @@
+mod events;
 mod handlers;
 mod routes;
 
+use crate::events::WsMessage;
 use anyhow::Result;
 use mazuadm_core::Database;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: Database,
+    pub tx: broadcast::Sender<WsMessage>,
 }
 
 #[tokio::main]
@@ -25,7 +29,8 @@ async fn main() -> Result<()> {
         tracing::warn!("Reset {} stale running jobs to error status", reset);
     }
     
-    let state = Arc::new(AppState { db });
+    let (tx, _) = broadcast::channel::<WsMessage>(256);
+    let state = Arc::new(AppState { db, tx });
 
     let app = routes::routes()
         .with_state(state)

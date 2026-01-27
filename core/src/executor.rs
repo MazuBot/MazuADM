@@ -1,26 +1,36 @@
-use crate::{Database, Exploit, ExploitJob, ExploitRun, ConnectionInfo};
+use crate::{Database, Exploit, ExploitJob, ExploitRun, ConnectionInfo, WsMessage};
 use crate::container_manager::ContainerManager;
 use anyhow::Result;
 use std::time::{Instant, Duration};
 use std::sync::Arc;
 use std::collections::HashMap;
-use tokio::sync::{Semaphore, Mutex};
+use tokio::sync::{broadcast, Semaphore, Mutex};
 use regex::Regex;
 
 pub struct Executor {
     pub db: Database,
     pub container_manager: ContainerManager,
+    pub tx: broadcast::Sender<WsMessage>,
+}
+
+fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &str, data: &T) {
+    let _ = tx.send(WsMessage::new(msg_type, data));
 }
 
 impl Executor {
-    pub fn new(db: Database) -> Result<Self> {
+    pub fn new(db: Database, tx: broadcast::Sender<WsMessage>) -> Result<Self> {
         let container_manager = ContainerManager::new(db.clone())?;
-        Ok(Self { db, container_manager })
+        Ok(Self { db, container_manager, tx })
     }
 
     pub async fn execute_job(&self, job: &ExploitJob, run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64, max_flags: usize) -> Result<JobResult> {
         let start = Instant::now();
         self.db.update_job_status(job.id, "running", true).await?;
+        
+        // Broadcast job running
+        if let Ok(updated_job) = self.db.get_job(job.id).await {
+            broadcast(&self.tx, "job_updated", &updated_job);
+        }
 
         let team = self.db.get_team(job.team_id).await?;
         
@@ -78,6 +88,11 @@ impl Executor {
         };
         
         self.db.finish_job(job.id, status, Some(&stdout), Some(&stderr), duration_ms).await?;
+        
+        // Broadcast job finished
+        if let Ok(updated_job) = self.db.get_job(job.id).await {
+            broadcast(&self.tx, "job_updated", &updated_job);
+        }
 
         Ok(JobResult { stdout, stderr, duration_ms, exit_code, flags })
     }
@@ -98,6 +113,9 @@ impl Executor {
     pub async fn run_round(&self, round_id: i32) -> Result<()> {
         // Mark round as running
         self.db.start_round(round_id).await?;
+        if let Ok(round) = self.db.get_round(round_id).await {
+            broadcast(&self.tx, "round_updated", &round);
+        }
 
         // Health check containers before round
         self.container_manager.health_check().await?;
@@ -127,7 +145,8 @@ impl Executor {
         for job in jobs {
             let permit = semaphore.clone().acquire_owned().await?;
             let db = self.db.clone();
-            let executor = Executor::new(db.clone())?;
+            let tx = self.tx.clone();
+            let executor = Executor::new(db.clone(), tx.clone())?;
             let target_locks = target_locks.clone();
 
             let handle = tokio::spawn(async move {
@@ -156,17 +175,20 @@ impl Executor {
 
                 if !exploit.enabled {
                     let _ = db.finish_job(job.id, "skipped", None, Some("Exploit disabled"), 0).await;
+                    if let Ok(j) = db.get_job(job.id).await { broadcast(&tx, "job_updated", &j); }
                     return;
                 }
 
                 if !team.enabled {
                     let _ = db.finish_job(job.id, "skipped", None, Some("Team disabled"), 0).await;
+                    if let Ok(j) = db.get_job(job.id).await { broadcast(&tx, "job_updated", &j); }
                     return;
                 }
 
                 if skip_on_flag {
                     if let Ok(true) = db.has_flag_for(round_id, challenge.id, team.id).await {
                         let _ = db.finish_job(job.id, "skipped", None, Some("Flag already found"), 0).await;
+                        if let Ok(j) = db.get_job(job.id).await { broadcast(&tx, "job_updated", &j); }
                         return;
                     }
                 }
@@ -182,6 +204,7 @@ impl Executor {
                     Some(c) => c,
                     None => {
                         let _ = db.finish_job(job.id, "error", None, Some("No connection info (missing IP or port)"), 0).await;
+                        if let Ok(j) = db.get_job(job.id).await { broadcast(&tx, "job_updated", &j); }
                         return;
                     }
                 };
@@ -204,6 +227,7 @@ impl Executor {
                 if skip_on_flag {
                     if let Ok(true) = db.has_flag_for(round_id, challenge.id, team.id).await {
                         let _ = db.finish_job(job.id, "skipped", None, Some("Flag already found"), 0).await;
+                        if let Ok(j) = db.get_job(job.id).await { broadcast(&tx, "job_updated", &j); }
                         return;
                     }
                 }
@@ -218,12 +242,15 @@ impl Executor {
                 match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), timeout, max_flags).await {
                     Ok(result) => {
                         for flag in result.flags {
-                            let _ = db.create_flag(job.id, round_id, challenge.id, team.id, &flag).await;
+                            if let Ok(f) = db.create_flag(job.id, round_id, challenge.id, team.id, &flag).await {
+                                broadcast(&tx, "flag_created", &f);
+                            }
                         }
                     }
                     Err(e) => {
                         tracing::error!("Job {} failed: {}", job.id, e);
                         let _ = db.finish_job(job.id, "error", None, Some(&e.to_string()), 0).await;
+                        if let Ok(j) = db.get_job(job.id).await { broadcast(&tx, "job_updated", &j); }
                     }
                 }
             });
@@ -236,6 +263,9 @@ impl Executor {
         }
         
         self.db.finish_round(round_id).await?;
+        if let Ok(round) = self.db.get_round(round_id).await {
+            broadcast(&self.tx, "round_updated", &round);
+        }
         Ok(())
     }
 }
