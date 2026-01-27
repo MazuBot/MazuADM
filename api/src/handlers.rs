@@ -239,3 +239,22 @@ pub async fn restart_container(State(s): S, Path(id): Path<i32>) -> R<String> {
     }
     Ok(Json("ok".to_string()))
 }
+
+// Relations
+pub async fn list_relations(State(s): S, Path(challenge_id): Path<i32>) -> R<Vec<ChallengeTeamRelation>> {
+    s.db.list_relations(challenge_id).await.map(Json).map_err(err)
+}
+
+pub async fn get_relation(State(s): S, Path((challenge_id, team_id)): Path<(i32, i32)>) -> R<Option<ChallengeTeamRelation>> {
+    s.db.get_relation(challenge_id, team_id).await.map(Json).map_err(err)
+}
+
+#[derive(Deserialize)]
+pub struct UpdateRelation {
+    pub addr: Option<String>,
+    pub port: Option<i32>,
+}
+
+pub async fn update_relation(State(s): S, Path((challenge_id, team_id)): Path<(i32, i32)>, Json(u): Json<UpdateRelation>) -> R<ChallengeTeamRelation> {
+    s.db.update_relation(challenge_id, team_id, u.addr, u.port).await.map(Json).map_err(err)
+}

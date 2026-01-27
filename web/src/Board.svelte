@@ -12,6 +12,9 @@
   let editingExploit = $state(null);
   let exploitForm = $state({ name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, enabled: true });
 
+  let editingRelation = $state(null);
+  let relationForm = $state({ addr: '', port: '' });
+
   let draggingCard = $state(null);
 
   let filteredExploits = $derived(exploits.filter(e => e.challenge_id === challengeId));
@@ -70,6 +73,20 @@
       editingExploit = null;
       onRefresh();
     }
+  }
+
+  async function openRelationModal(team) {
+    editingRelation = team;
+    const rel = await api.getRelation(challengeId, team.id);
+    relationForm = { addr: rel?.addr || '', port: rel?.port || '' };
+  }
+
+  async function saveRelation() {
+    await api.updateRelation(challengeId, editingRelation.id, {
+      addr: relationForm.addr || null,
+      port: relationForm.port ? Number(relationForm.port) : null
+    });
+    editingRelation = null;
   }
 
   async function addRun(exploitId, teamId) {
@@ -155,7 +172,10 @@
   <div class="columns">
     {#each teams as team}
       <div class="column" class:disabled={!team.enabled} ondragover={(e) => e.preventDefault()} ondrop={(e) => onColumnDrop(e, team.id)}>
-        <h3>{team.team_name} {!team.enabled ? '(disabled)' : ''}</h3>
+        <h3>
+          {team.team_name} {!team.enabled ? '(disabled)' : ''}
+          <span class="gear" onclick={(e) => { e.stopPropagation(); openRelationModal(team); }}>⚙️</span>
+        </h3>
         <div class="cards">
           {#each getRunsForTeam(team.id) as run, idx}
             <div 
@@ -256,6 +276,21 @@
   </div>
 {/if}
 
+{#if editingRelation}
+  <div class="modal-overlay" onclick={() => editingRelation = null}>
+    <div class="modal" onclick={(e) => e.stopPropagation()}>
+      <h3>Connection for {editingRelation.team_name}</h3>
+      <p class="hint">Leave empty to use team default IP + challenge default port</p>
+      <label>IP/Host <input bind:value={relationForm.addr} placeholder="Team default" /></label>
+      <label>Port <input bind:value={relationForm.port} type="number" placeholder="Challenge default" /></label>
+      <div class="modal-actions">
+        <button onclick={() => editingRelation = null}>Cancel</button>
+        <button onclick={saveRelation}>Save</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .board { display: flex; gap: 1rem; height: calc(100vh - 150px); }
   .sidebar { width: 200px; background: #252540; padding: 1rem; border-radius: 8px; }
@@ -267,7 +302,10 @@
   .columns { display: flex; gap: 1rem; flex: 1; overflow-x: auto; }
   .column { min-width: 200px; background: #252540; padding: 1rem; border-radius: 8px; }
   .column.disabled { background: #1a1a25; opacity: 0.6; }
-  .column h3 { margin-top: 0; font-size: 0.9rem; color: #aaa; }
+  .column h3 { margin-top: 0; font-size: 0.9rem; color: #aaa; display: flex; justify-content: space-between; align-items: center; }
+  .gear { cursor: pointer; opacity: 0.5; font-size: 0.8rem; }
+  .gear:hover { opacity: 1; }
+  .hint { color: #666; font-size: 0.85rem; margin: 0.5rem 0; }
   .cards { display: flex; flex-direction: column; gap: 0.5rem; min-height: 50px; }
   .card { background: #1a1a2e; padding: 0.75rem; border-radius: 4px; border-left: 3px solid #00d9ff; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
   .card:hover { background: #252550; }

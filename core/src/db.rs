@@ -88,6 +88,19 @@ impl Database {
         ).fetch_all(&self.pool).await?)
     }
 
+    pub async fn get_relation(&self, challenge_id: i32, team_id: i32) -> Result<Option<ChallengeTeamRelation>> {
+        Ok(sqlx::query_as!(ChallengeTeamRelation,
+            "SELECT * FROM challenge_team_relations WHERE challenge_id = $1 AND team_id = $2", challenge_id, team_id
+        ).fetch_optional(&self.pool).await?)
+    }
+
+    pub async fn update_relation(&self, challenge_id: i32, team_id: i32, addr: Option<String>, port: Option<i32>) -> Result<ChallengeTeamRelation> {
+        Ok(sqlx::query_as!(ChallengeTeamRelation,
+            "INSERT INTO challenge_team_relations (challenge_id, team_id, addr, port) VALUES ($1, $2, $3, $4) ON CONFLICT (challenge_id, team_id) DO UPDATE SET addr = $3, port = $4 RETURNING *",
+            challenge_id, team_id, addr, port
+        ).fetch_one(&self.pool).await?)
+    }
+
     pub async fn ensure_relations(&self, challenge_id: i32) -> Result<()> {
         sqlx::query!("INSERT INTO challenge_team_relations (challenge_id, team_id) SELECT $1, id FROM teams ON CONFLICT DO NOTHING", challenge_id)
             .execute(&self.pool).await?;

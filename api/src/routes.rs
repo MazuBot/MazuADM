@@ -23,4 +23,6 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/containers/{id}", delete(delete_container))
         .route("/api/containers/{id}/runners", get(get_container_runners))
         .route("/api/containers/{id}/restart", post(restart_container))
+        .route("/api/relations/{challenge_id}", get(list_relations))
+        .route("/api/relations/{challenge_id}/{team_id}", get(get_relation).put(update_relation))
 }

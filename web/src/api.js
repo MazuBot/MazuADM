@@ -40,4 +40,7 @@ export const api = {
   containerRunners: (id) => fetchJson(`/containers/${id}/runners`),
   deleteContainer: (id) => fetchJson(`/containers/${id}`, { method: 'DELETE' }),
   restartContainer: (id) => fetchJson(`/containers/${id}/restart`, { method: 'POST' }),
+  relations: (challengeId) => fetchJson(`/relations/${challengeId}`),
+  getRelation: (challengeId, teamId) => fetchJson(`/relations/${challengeId}/${teamId}`),
+  updateRelation: (challengeId, teamId, data) => fetchJson(`/relations/${challengeId}/${teamId}`, { method: 'PUT', body: JSON.stringify(data) }),
 };
