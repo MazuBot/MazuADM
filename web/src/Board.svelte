@@ -4,13 +4,13 @@
   let { teams, exploits, exploitRuns, challengeId, onRefresh } = $props();
 
   let showAddExploit = $state(false);
-  let newExploit = $state({ name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, auto_add: 'none' });
+  let newExploit = $state({ name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, timeout_secs: 0, auto_add: 'none' });
 
   let editingRun = $state(null);
   let editForm = $state({ priority: '', sequence: 0, enabled: true });
 
   let editingExploit = $state(null);
-  let exploitForm = $state({ name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, enabled: true });
+  let exploitForm = $state({ name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, timeout_secs: 0, enabled: true });
 
   let editingRelation = $state(null);
   let relationForm = $state({ addr: '', port: '' });
@@ -46,16 +46,17 @@
       entrypoint: newExploit.entrypoint || null,
       max_per_container: newExploit.max_per_container,
       default_counter: newExploit.default_counter,
+      timeout_secs: newExploit.timeout_secs || 0,
       auto_add: newExploit.auto_add
     });
     showAddExploit = false;
-    newExploit = { name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, auto_add: 'none' };
+    newExploit = { name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, timeout_secs: 0, auto_add: 'none' };
     onRefresh();
   }
 
   function openEditExploit(e) {
     editingExploit = e;
-    exploitForm = { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint || '', priority: e.priority, max_per_container: e.max_per_container, default_counter: e.default_counter, enabled: e.enabled };
+    exploitForm = { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint || '', priority: e.priority, max_per_container: e.max_per_container, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, enabled: e.enabled };
   }
 
   async function saveExploit() {
@@ -210,6 +211,7 @@
       <label>Priority <input bind:value={newExploit.priority} type="number" /></label>
       <label>Max per container <input bind:value={newExploit.max_per_container} type="number" placeholder="Default: 1" /></label>
       <label>Default counter <input bind:value={newExploit.default_counter} type="number" placeholder="Default: 999" /></label>
+      <label>Timeout (secs) <input bind:value={newExploit.timeout_secs} type="number" placeholder="0 = use global" /></label>
       <label>Auto-add to teams
         <select bind:value={newExploit.auto_add}>
           <option value="none">Don't add</option>
@@ -257,6 +259,7 @@
       <label>Priority <input bind:value={exploitForm.priority} type="number" /></label>
       <label>Max per container <input bind:value={exploitForm.max_per_container} type="number" /></label>
       <label>Default counter <input bind:value={exploitForm.default_counter} type="number" /></label>
+      <label>Timeout (secs) <input bind:value={exploitForm.timeout_secs} type="number" placeholder="0 = use global" /></label>
       <label class="checkbox"><input type="checkbox" bind:checked={exploitForm.enabled} /> Enabled</label>
       <div class="modal-actions">
         <button class="danger" onclick={deleteExploit}>Delete</button>

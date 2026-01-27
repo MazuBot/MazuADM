@@ -212,7 +212,10 @@ impl Executor {
                 let delay = rand::random::<u64>() % 500;
                 tokio::time::sleep(Duration::from_millis(delay)).await;
 
-                match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), worker_timeout, max_flags).await {
+                // Use exploit timeout if set, otherwise global worker_timeout
+                let timeout = if exploit.timeout_secs > 0 { exploit.timeout_secs as u64 } else { worker_timeout };
+
+                match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), timeout, max_flags).await {
                     Ok(result) => {
                         for flag in result.flags {
                             let _ = db.create_flag(job.id, round_id, challenge.id, team.id, &flag).await;
