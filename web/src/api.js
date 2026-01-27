@@ -40,6 +40,4 @@ export const api = {
   containerRunners: (id) => fetchJson(`/containers/${id}/runners`),
   deleteContainer: (id) => fetchJson(`/containers/${id}`, { method: 'DELETE' }),
   restartContainer: (id) => fetchJson(`/containers/${id}/restart`, { method: 'POST' }),
-  healthCheckContainers: () => fetchJson('/containers/health', { method: 'POST' }),
-  ensureContainers: () => fetchJson('/containers/ensure', { method: 'POST' }),
 };

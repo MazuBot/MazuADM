@@ -312,10 +312,6 @@
     <div class="panel">
       <div class="panel-header">
         <h2>Containers</h2>
-        <div>
-          <button onclick={() => api.healthCheckContainers().then(loadContainers)}>Health Check</button>
-          <button onclick={() => api.ensureContainers().then(loadContainers)}>Ensure All</button>
-        </div>
       </div>
       {#each exploits as exploit}
         {@const expContainers = containers.filter(c => c.exploit_id === exploit.id)}

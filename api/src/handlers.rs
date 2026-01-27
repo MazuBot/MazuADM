@@ -217,18 +217,6 @@ pub async fn list_containers(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<E
     }
 }
 
-pub async fn health_check_containers(State(s): S) -> R<String> {
-    let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
-    cm.health_check().await.map_err(err)?;
-    Ok(Json("ok".to_string()))
-}
-
-pub async fn ensure_all_containers(State(s): S) -> R<String> {
-    let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
-    cm.ensure_all_containers().await.map_err(err)?;
-    Ok(Json("ok".to_string()))
-}
-
 pub async fn get_container_runners(State(s): S, Path(id): Path<i32>) -> R<Vec<ExploitRunner>> {
     s.db.get_runners_for_container(id).await.map(Json).map_err(err)
 }
