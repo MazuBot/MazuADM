@@ -134,6 +134,11 @@ impl Executor {
                     Err(e) => { tracing::error!("Job {} failed: {}", job.id, e); return; }
                 };
 
+                if !exploit.enabled {
+                    let _ = db.finish_job(job.id, "skipped", None, Some("Exploit disabled"), 0).await;
+                    return;
+                }
+
                 if !team.enabled {
                     let _ = db.finish_job(job.id, "skipped", None, Some("Team disabled"), 0).await;
                     return;

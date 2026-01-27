@@ -180,7 +180,7 @@
           {#each getRunsForTeam(team.id) as run, idx}
             <div 
               class="card" 
-              class:disabled={!run.enabled}
+              class:disabled={!run.enabled || !getExploit(run.exploit_id)?.enabled}
               class:dragging={draggingCard?.id === run.id}
               draggable="true"
               ondragstart={(e) => onCardDragStart(e, run)}
