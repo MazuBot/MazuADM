@@ -36,4 +36,10 @@ export const api = {
   flags: (roundId) => fetchJson(roundId ? `/flags?round_id=${roundId}` : '/flags'),
   settings: () => fetchJson('/settings'),
   updateSetting: (key, value) => fetchJson('/settings', { method: 'POST', body: JSON.stringify({ key, value }) }),
+  containers: () => fetchJson('/containers'),
+  containerRunners: (id) => fetchJson(`/containers/${id}/runners`),
+  deleteContainer: (id) => fetchJson(`/containers/${id}`, { method: 'DELETE' }),
+  restartContainer: (id) => fetchJson(`/containers/${id}/restart`, { method: 'POST' }),
+  healthCheckContainers: () => fetchJson('/containers/health', { method: 'POST' }),
+  ensureContainers: () => fetchJson('/containers/ensure', { method: 'POST' }),
 };

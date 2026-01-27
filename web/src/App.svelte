@@ -12,6 +12,8 @@
   let jobs = $state([]);
   let flags = $state([]);
   let settings = $state([]);
+  let containers = $state([]);
+  let containerRunners = $state({});
   let tab = $state('board');
 
   // Challenge form
@@ -160,8 +162,22 @@
     return exploitRuns.find(r => r.id === runId);
   }
 
+  function getExploitRunName(runId) {
+    const run = exploitRuns.find(r => r.id === runId);
+    return run ? getExploitName(run.exploit_id) : runId;
+  }
+
+  async function loadContainers() {
+    containers = await api.containers();
+  }
+
+  async function loadRunners(containerId) {
+    containerRunners[containerId] = await api.containerRunners(containerId);
+  }
+
   $effect(() => { load(); });
   $effect(() => { if (selectedRound) loadJobs(); });
+  $effect(() => { if (tab === 'containers') loadContainers(); });
 </script>
 
 <main>
@@ -173,6 +189,7 @@
       <button class:active={tab === 'teams'} onclick={() => tab = 'teams'}>Teams</button>
       <button class:active={tab === 'rounds'} onclick={() => tab = 'rounds'}>Rounds</button>
       <button class:active={tab === 'flags'} onclick={() => tab = 'flags'}>Flags</button>
+      <button class:active={tab === 'containers'} onclick={() => tab = 'containers'}>Containers</button>
       <button class:active={tab === 'settings'} onclick={() => tab = 'settings'}>Settings</button>
     </nav>
   </header>
@@ -290,6 +307,49 @@
       </div>
       <p class="hint">concurrent_limit: Max parallel exploit executions. worker_timeout: Seconds before killing a container.</p>
     </div>
+
+  {:else if tab === 'containers'}
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Containers</h2>
+        <div>
+          <button onclick={() => api.healthCheckContainers().then(loadContainers)}>Health Check</button>
+          <button onclick={() => api.ensureContainers().then(loadContainers)}>Ensure All</button>
+        </div>
+      </div>
+      {#each exploits as exploit}
+        {@const expContainers = containers.filter(c => c.exploit_id === exploit.id)}
+        {#if expContainers.length}
+          <h3>{exploit.name}</h3>
+          <table>
+            <thead><tr><th>ID</th><th>Container</th><th>Status</th><th>Counter</th><th>Runners</th><th>Actions</th></tr></thead>
+            <tbody>
+              {#each expContainers as c}
+                <tr class={c.status === 'running' ? '' : 'error'}>
+                  <td>{c.id}</td>
+                  <td><code>{c.container_id.slice(0, 12)}</code></td>
+                  <td>{c.status}</td>
+                  <td>{c.counter}</td>
+                  <td>
+                    {#if containerRunners[c.id]}
+                      {#each containerRunners[c.id] as r}
+                        <div>{getExploitRunName(r.exploit_run_id)} → {getTeamName(r.team_id)}</div>
+                      {/each}
+                    {:else}
+                      <button onclick={() => loadRunners(c.id)}>Load</button>
+                    {/if}
+                  </td>
+                  <td>
+                    <button onclick={() => api.restartContainer(c.id).then(loadContainers)}>Restart</button>
+                    <button onclick={() => api.deleteContainer(c.id).then(loadContainers)}>Remove</button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/if}
+      {/each}
+    </div>
   {/if}
 </main>
 
@@ -302,6 +362,7 @@
         <p><strong>Team:</strong> {getTeamName(selectedJob.team_id)}</p>
         <p><strong>Priority:</strong> {selectedJob.priority}</p>
         <p><strong>Duration:</strong> {selectedJob.duration_ms ? `${selectedJob.duration_ms}ms` : '-'}</p>
+        {#if selectedJob.container_id}<p><strong>Container:</strong> <code>{selectedJob.container_id.slice(0, 12)}</code></p>{/if}
       </div>
       {#if selectedJob.stdout}
         <label>Stdout</label>

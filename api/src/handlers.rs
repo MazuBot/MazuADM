@@ -228,3 +228,26 @@ pub async fn ensure_all_containers(State(s): S) -> R<String> {
     cm.ensure_all_containers().await.map_err(err)?;
     Ok(Json("ok".to_string()))
 }
+
+pub async fn get_container_runners(State(s): S, Path(id): Path<i32>) -> R<Vec<ExploitRunner>> {
+    s.db.get_runners_for_container(id).await.map(Json).map_err(err)
+}
+
+pub async fn delete_container(State(s): S, Path(id): Path<i32>) -> R<String> {
+    let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
+    cm.destroy_container(id).await.map_err(err)?;
+    Ok(Json("ok".to_string()))
+}
+
+pub async fn restart_container(State(s): S, Path(id): Path<i32>) -> R<String> {
+    let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
+    let container = s.db.get_container(id).await.map_err(err)?;
+    let exploit = s.db.get_exploit(container.exploit_id).await.map_err(err)?;
+    let runners = s.db.get_runners_for_container(id).await.map_err(err)?;
+    cm.destroy_container(id).await.map_err(err)?;
+    let new_container = cm.spawn_container(&exploit).await.map_err(err)?;
+    for r in runners {
+        let _ = s.db.create_exploit_runner(new_container.id, r.exploit_run_id, r.team_id).await;
+    }
+    Ok(Json("ok".to_string()))
+}
