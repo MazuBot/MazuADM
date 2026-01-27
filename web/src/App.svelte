@@ -272,7 +272,7 @@
                 <td>{getTeamName(j.team_id)}</td>
                 <td>{j.container_id ? j.container_id.slice(0, 12) : '-'}</td>
                 <td>{j.priority}</td>
-                <td>{j.status}</td>
+                <td>{j.status === 'flag' ? '🚩 FLAG' : j.status}</td>
                 <td>{j.duration_ms ? `${j.duration_ms}ms` : '-'}</td>
               </tr>
             {/each}
@@ -429,6 +429,7 @@
   table { width: 100%; border-collapse: collapse; }
   th, td { padding: 0.5rem; text-align: left; border-bottom: 1px solid #333; }
   tr.success { background: #1a3a1a; }
+  tr.flag { background: #2a4a2a; }
   tr.failed, tr.error, tr.timeout { background: #3a1a1a; }
   tr.running { background: #3a3a1a; }
   tr.disabled { opacity: 0.5; }
