@@ -117,7 +117,7 @@ impl Database {
         Ok(sqlx::query_as!(Exploit, "SELECT * FROM exploits WHERE enabled = true ORDER BY priority DESC").fetch_all(&self.pool).await?)
     }
 
-    pub async fn update_exploit(&self, id: i32, e: CreateExploit) -> Result<Exploit> {
+    pub async fn update_exploit(&self, id: i32, e: UpdateExploit) -> Result<Exploit> {
         Ok(sqlx::query_as!(Exploit,
             "UPDATE exploits SET name = $2, docker_image = $3, entrypoint = $4, enabled = COALESCE($5, enabled), priority = COALESCE($6, priority), max_per_container = COALESCE($7, max_per_container), timeout_secs = COALESCE($8, timeout_secs), default_counter = COALESCE($9, default_counter) WHERE id = $1 RETURNING *",
             id, e.name, e.docker_image, e.entrypoint, e.enabled, e.priority, e.max_per_container, e.timeout_secs, e.default_counter

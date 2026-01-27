@@ -82,6 +82,18 @@ pub struct CreateExploit {
     pub auto_add: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateExploit {
+    pub name: String,
+    pub docker_image: String,
+    pub entrypoint: Option<String>,
+    pub enabled: Option<bool>,
+    pub priority: Option<i32>,
+    pub max_per_container: Option<i32>,
+    pub timeout_secs: Option<i32>,
+    pub default_counter: Option<i32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct ExploitRun {
     pub id: i32,

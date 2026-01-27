@@ -11,5 +11,8 @@
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "svelte": "^5.0.0",
     "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "ansi_up": "^6.0.6"
   }
 }

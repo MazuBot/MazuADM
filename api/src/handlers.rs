@@ -105,7 +105,7 @@ pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Expl
     Ok(Json(exploit))
 }
 
-pub async fn update_exploit(State(s): S, Path(id): Path<i32>, Json(e): Json<CreateExploit>) -> R<Exploit> {
+pub async fn update_exploit(State(s): S, Path(id): Path<i32>, Json(e): Json<UpdateExploit>) -> R<Exploit> {
     let was_enabled = s.db.get_exploit(id).await.map(|e| e.enabled).unwrap_or(false);
     let exploit = s.db.update_exploit(id, e).await.map_err(err)?;
     

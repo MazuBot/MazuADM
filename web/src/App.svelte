@@ -1,6 +1,12 @@
 <script>
   import { api } from './api.js';
   import Board from './Board.svelte';
+  import { AnsiUp } from 'ansi_up';
+
+  const ansi_up = new AnsiUp();
+  function renderAnsi(text) {
+    return ansi_up.ansi_to_html(text || '');
+  }
 
   let challenges = $state([]);
   let teams = $state([]);
@@ -363,11 +369,11 @@
       </div>
       {#if selectedJob.stdout}
         <label>Stdout</label>
-        <pre class="log-output">{selectedJob.stdout}</pre>
+        <pre class="log-output">{@html renderAnsi(selectedJob.stdout)}</pre>
       {/if}
       {#if selectedJob.stderr}
         <label>Stderr</label>
-        <pre class="log-output stderr">{selectedJob.stderr}</pre>
+        <pre class="log-output stderr">{@html renderAnsi(selectedJob.stderr)}</pre>
       {/if}
       <div class="modal-actions">
         <button onclick={() => selectedJob = null}>Close</button>
