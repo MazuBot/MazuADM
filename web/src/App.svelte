@@ -363,8 +363,15 @@
           <input value={settings.find(s => s.key === 'max_flags_per_job')?.value || '50'} 
                  onchange={(e) => api.updateSetting('max_flags_per_job', e.target.value).then(load)} />
         </div>
+        <div class="setting-row">
+          <label>skip_on_flag</label>
+          <select onchange={(e) => api.updateSetting('skip_on_flag', e.target.value).then(load)}>
+            <option value="false" selected={settings.find(s => s.key === 'skip_on_flag')?.value !== 'true'}>No</option>
+            <option value="true" selected={settings.find(s => s.key === 'skip_on_flag')?.value === 'true'}>Yes</option>
+          </select>
+        </div>
       </div>
-      <p class="hint">concurrent_limit: Max parallel executions. worker_timeout: Seconds before timeout. max_flags_per_job: Max unique flags per job output.</p>
+      <p class="hint">skip_on_flag: Skip remaining exploits for a chal/team once a flag is found in this round.</p>
     </div>
 
   {:else if tab === 'containers'}

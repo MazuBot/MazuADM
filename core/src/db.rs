@@ -247,6 +247,13 @@ impl Database {
         ).fetch_one(&self.pool).await?)
     }
 
+    pub async fn has_flag_for(&self, round_id: i32, challenge_id: i32, team_id: i32) -> Result<bool> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM flags WHERE round_id = $1 AND challenge_id = $2 AND team_id = $3")
+            .bind(round_id).bind(challenge_id).bind(team_id)
+            .fetch_one(&self.pool).await?;
+        Ok(count > 0)
+    }
+
     pub async fn list_flags(&self, round_id: Option<i32>) -> Result<Vec<Flag>> {
         match round_id {
             Some(r) => Ok(sqlx::query_as!(Flag, "SELECT * FROM flags WHERE round_id = $1 ORDER BY id DESC", r).fetch_all(&self.pool).await?),

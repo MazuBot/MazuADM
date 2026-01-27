@@ -100,6 +100,8 @@ impl Executor {
             .ok().and_then(|v| v.parse().ok()).unwrap_or(60);
         let max_flags: usize = self.db.get_setting("max_flags_per_job").await
             .ok().and_then(|v| v.parse().ok()).unwrap_or(50);
+        let skip_on_flag: bool = self.db.get_setting("skip_on_flag").await
+            .ok().map(|v| v == "true").unwrap_or(false);
 
         let jobs = self.db.get_pending_jobs(round_id).await?;
         let semaphore = Arc::new(Semaphore::new(concurrent_limit));
@@ -142,6 +144,13 @@ impl Executor {
                 if !team.enabled {
                     let _ = db.finish_job(job.id, "skipped", None, Some("Team disabled"), 0).await;
                     return;
+                }
+
+                if skip_on_flag {
+                    if let Ok(true) = db.has_flag_for(round_id, challenge.id, team.id).await {
+                        let _ = db.finish_job(job.id, "skipped", None, Some("Flag already found"), 0).await;
+                        return;
+                    }
                 }
 
                 let relations = match db.list_relations(challenge.id).await {
