@@ -204,12 +204,12 @@
   <div class="modal-overlay" onclick={() => showAddExploit = false}>
     <div class="modal" onclick={(e) => e.stopPropagation()}>
       <h3>Add Exploit</h3>
-      <input bind:value={newExploit.name} placeholder="Name" />
-      <input bind:value={newExploit.docker_image} placeholder="Docker Image" />
-      <input bind:value={newExploit.entrypoint} placeholder="Entrypoint (optional)" />
-      <input bind:value={newExploit.priority} type="number" placeholder="Priority" />
-      <input bind:value={newExploit.max_per_container} type="number" placeholder="Max per container (default: 1)" />
-      <input bind:value={newExploit.default_counter} type="number" placeholder="Default counter (default: 999)" />
+      <label>Name <input bind:value={newExploit.name} /></label>
+      <label>Docker Image <input bind:value={newExploit.docker_image} /></label>
+      <label>Entrypoint <input bind:value={newExploit.entrypoint} placeholder="Optional" /></label>
+      <label>Priority <input bind:value={newExploit.priority} type="number" /></label>
+      <label>Max per container <input bind:value={newExploit.max_per_container} type="number" placeholder="Default: 1" /></label>
+      <label>Default counter <input bind:value={newExploit.default_counter} type="number" placeholder="Default: 999" /></label>
       <label>Auto-add to teams
         <select bind:value={newExploit.auto_add}>
           <option value="none">Don't add</option>
@@ -235,18 +235,9 @@
         <p><strong>Image:</strong> <code>{getExploit(editingRun.exploit_id)?.docker_image}</code></p>
         <p><strong>Entrypoint:</strong> <code>{getExploit(editingRun.exploit_id)?.entrypoint || 'default'}</code></p>
       </div>
-      <label>
-        Priority (empty = auto)
-        <input bind:value={editForm.priority} type="number" placeholder="Auto" />
-      </label>
-      <label>
-        Sequence
-        <input bind:value={editForm.sequence} type="number" />
-      </label>
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={editForm.enabled} />
-        Enabled
-      </label>
+      <label>Priority <input bind:value={editForm.priority} type="number" placeholder="Auto" /></label>
+      <label>Sequence <input bind:value={editForm.sequence} type="number" /></label>
+      <label class="checkbox"><input type="checkbox" bind:checked={editForm.enabled} /> Enabled</label>
       <div class="modal-actions">
         <button class="danger" onclick={deleteRun}>Delete</button>
         <button onclick={() => editingRun = null}>Cancel</button>
@@ -318,8 +309,8 @@
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 100; }
   .modal { background: #252540; padding: 1.5rem; border-radius: 8px; min-width: 320px; }
   .modal h3 { margin-top: 0; }
-  .modal input[type="text"], .modal input[type="number"] { width: 100%; padding: 0.5rem; margin-bottom: 0.5rem; background: #1a1a2e; border: 1px solid #444; color: #eee; border-radius: 4px; box-sizing: border-box; }
-  .modal label { display: block; margin-bottom: 0.5rem; color: #aaa; font-size: 0.9rem; }
+  .modal input[type="text"], .modal input[type="number"], .modal input:not([type]) { width: 100%; padding: 0.5rem; margin-bottom: 0.5rem; background: #1a1a2e; border: 1px solid #444; color: #eee; border-radius: 4px; box-sizing: border-box; }
+  .modal label { display: block; margin-bottom: 0.75rem; color: #aaa; font-size: 0.9rem; }
   .modal label input { margin-top: 0.25rem; }
   .modal label select { display: block; width: 100%; padding: 0.5rem; margin-top: 0.25rem; background: #1a1a2e; border: 1px solid #444; color: #eee; border-radius: 4px; }
   .modal .checkbox { display: flex; align-items: center; gap: 0.5rem; }
