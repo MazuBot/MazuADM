@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mazuadm
+      POSTGRES_USER: mazuadm
+      POSTGRES_PASSWORD: mazuadm
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./core/migrations/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mazuadm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://mazuadm:mazuadm@db/mazuadm
+      LISTEN_ADDR: 0.0.0.0:3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  pgdata:

@@ -1,0 +1,17 @@
+[package]
+name = "mazuadm-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mazuadm-core = { path = "../core" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { version = "4", features = ["derive", "env"] }
+reqwest = { version = "0.12", features = ["json"] }
+tabled = "0.17"
