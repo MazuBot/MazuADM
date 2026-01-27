@@ -34,7 +34,12 @@ impl ContainerManager {
 
     /// Spawn a new persistent container for an exploit
     pub async fn spawn_container(&self, exploit: &Exploit) -> Result<ExploitContainer> {
-        let container_name = format!("mazuadm-exp-{}-{}", exploit.id, chrono::Utc::now().timestamp());
+        let normalized: String = exploit.name.chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+            .take(20)
+            .collect();
+        let rand_id: String = (0..8).map(|_| format!("{:x}", rand::random::<u8>() % 16)).collect();
+        let container_name = format!("mazuadm-{}-{}", normalized, rand_id);
         
         let config = ContainerCreateBody {
             image: Some(exploit.docker_image.clone()),

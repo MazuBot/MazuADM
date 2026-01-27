@@ -16,4 +16,5 @@ tracing = { workspace = true }
 bollard = "0.20"
 regex = "1"
 futures = "0.3"
+rand = "0.8"
 utoipa = { version = "5", features = ["chrono"] }
