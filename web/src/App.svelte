@@ -20,7 +20,14 @@
   let settings = $state([]);
   let containers = $state([]);
   let containerRunners = $state({});
-  let tab = $state('board');
+  let tab = $state(location.hash.slice(1) || 'board');
+
+  // Sync tab with URL hash
+  function setTab(t) {
+    tab = t;
+    history.pushState(null, '', '#' + t);
+  }
+  window.addEventListener('popstate', () => { tab = location.hash.slice(1) || 'board'; });
 
   // Challenge form
   let showChallengeModal = $state(false);
@@ -190,13 +197,13 @@
   <header>
     <h1>MazuADM</h1>
     <nav>
-      <button class:active={tab === 'board'} onclick={() => tab = 'board'}>Board</button>
-      <button class:active={tab === 'challenges'} onclick={() => tab = 'challenges'}>Challenges</button>
-      <button class:active={tab === 'teams'} onclick={() => tab = 'teams'}>Teams</button>
-      <button class:active={tab === 'rounds'} onclick={() => tab = 'rounds'}>Rounds</button>
-      <button class:active={tab === 'flags'} onclick={() => tab = 'flags'}>Flags</button>
-      <button class:active={tab === 'containers'} onclick={() => tab = 'containers'}>Containers</button>
-      <button class:active={tab === 'settings'} onclick={() => tab = 'settings'}>Settings</button>
+      <button class:active={tab === 'board'} onclick={() => setTab('board')}>Board</button>
+      <button class:active={tab === 'challenges'} onclick={() => setTab('challenges')}>Challenges</button>
+      <button class:active={tab === 'teams'} onclick={() => setTab('teams')}>Teams</button>
+      <button class:active={tab === 'rounds'} onclick={() => setTab('rounds')}>Rounds</button>
+      <button class:active={tab === 'flags'} onclick={() => setTab('flags')}>Flags</button>
+      <button class:active={tab === 'containers'} onclick={() => setTab('containers')}>Containers</button>
+      <button class:active={tab === 'settings'} onclick={() => setTab('settings')}>Settings</button>
     </nav>
   </header>
 
