@@ -106,6 +106,9 @@ impl Executor {
         let skip_on_flag: bool = self.db.get_setting("skip_on_flag").await
             .ok().map(|v| v == "true").unwrap_or(false);
 
+        // Pre-warm containers
+        self.container_manager.prewarm_for_round(concurrent_limit).await?;
+
         let jobs = self.db.get_pending_jobs(round_id).await?;
         let semaphore = Arc::new(Semaphore::new(concurrent_limit));
         let mut handles = Vec::new();

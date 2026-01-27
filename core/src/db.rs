@@ -159,6 +159,10 @@ impl Database {
         }
     }
 
+    pub async fn get_exploit_runs_for_exploit(&self, exploit_id: i32) -> Result<Vec<ExploitRun>> {
+        Ok(sqlx::query_as!(ExploitRun, "SELECT * FROM exploit_runs WHERE exploit_id = $1 AND enabled = true", exploit_id).fetch_all(&self.pool).await?)
+    }
+
     pub async fn update_exploit_run(&self, id: i32, priority: Option<i32>, sequence: Option<i32>, enabled: Option<bool>) -> Result<ExploitRun> {
         Ok(sqlx::query_as!(ExploitRun,
             "UPDATE exploit_runs SET priority = COALESCE($2, priority), sequence = COALESCE($3, sequence), enabled = COALESCE($4, enabled) WHERE id = $1 RETURNING *",

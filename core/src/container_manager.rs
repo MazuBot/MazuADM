@@ -201,6 +201,34 @@ impl ContainerManager {
         }
         Ok(())
     }
+
+    /// Pre-warm containers based on concurrent limit
+    pub async fn prewarm_for_round(&self, concurrent_limit: usize) -> Result<()> {
+        let exploits = self.db.list_enabled_exploits().await?;
+        
+        for exploit in exploits {
+            let runs = self.db.get_exploit_runs_for_exploit(exploit.id).await?;
+            if runs.is_empty() { continue; }
+            
+            // Calculate needed containers: min(runs, concurrent_limit) / max_per_container
+            let active_runs = runs.len().min(concurrent_limit);
+            let needed = (active_runs + exploit.max_per_container as usize - 1) / exploit.max_per_container as usize;
+            
+            let existing = self.db.get_exploit_containers(exploit.id).await?;
+            let healthy: Vec<_> = existing.iter().filter(|c| c.counter > 0).collect();
+            
+            let to_spawn = needed.saturating_sub(healthy.len());
+            if to_spawn > 0 {
+                info!("Pre-warming {} containers for exploit {} (need {}, have {})", to_spawn, exploit.name, needed, healthy.len());
+                for _ in 0..to_spawn {
+                    if let Err(e) = self.spawn_container(&exploit).await {
+                        error!("Failed to spawn container for {}: {}", exploit.name, e);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 pub struct ExecResult {
