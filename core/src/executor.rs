@@ -127,19 +127,23 @@ impl Executor {
                 
                 let rel = relations.iter().find(|r| r.team_id == team.id);
                 
-                if let Some(rel) = rel {
-                    if let Some(conn) = rel.connection_info(&challenge, &team) {
-                        match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), worker_timeout).await {
-                            Ok(result) => {
-                                for flag in result.flags {
-                                    let _ = db.create_flag(job.id, round_id, challenge.id, team.id, &flag).await;
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!("Job {} failed: {}", job.id, e);
-                                let _ = db.finish_job(job.id, "error", None, Some(&e.to_string()), 0).await;
-                            }
+                let conn = match rel.and_then(|r| r.connection_info(&challenge, &team)) {
+                    Some(c) => c,
+                    None => {
+                        let _ = db.finish_job(job.id, "error", None, Some("No connection info (missing IP or port)"), 0).await;
+                        return;
+                    }
+                };
+
+                match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), worker_timeout).await {
+                    Ok(result) => {
+                        for flag in result.flags {
+                            let _ = db.create_flag(job.id, round_id, challenge.id, team.id, &flag).await;
                         }
+                    }
+                    Err(e) => {
+                        tracing::error!("Job {} failed: {}", job.id, e);
+                        let _ = db.finish_job(job.id, "error", None, Some(&e.to_string()), 0).await;
                     }
                 }
             });
