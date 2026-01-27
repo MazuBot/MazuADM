@@ -215,13 +215,14 @@
         <button onclick={openAddChallenge}>+ Add Challenge</button>
       </div>
       <table>
-        <thead><tr><th>ID</th><th>Name</th><th>Port</th><th>Priority</th><th>Enabled</th><th></th></tr></thead>
+        <thead><tr><th>ID</th><th>Name</th><th>Port</th><th>Flag Regex</th><th>Priority</th><th>Enabled</th><th></th></tr></thead>
         <tbody>
           {#each challenges as c}
             <tr class:disabled={!c.enabled}>
               <td>{c.id}</td>
               <td>{c.name}</td>
               <td>{c.default_port ?? '-'}</td>
+              <td><code>{c.flag_regex ?? '-'}</code></td>
               <td>{c.priority}</td>
               <td>{c.enabled ? '✓' : '✗'}</td>
               <td><button class="small" onclick={() => openEditChallenge(c)}>Edit</button></td>
