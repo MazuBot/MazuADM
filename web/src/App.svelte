@@ -20,14 +20,36 @@
   let settings = $state([]);
   let containers = $state([]);
   let containerRunners = $state({});
-  let tab = $state(location.hash.slice(1) || 'board');
 
-  // Sync tab with URL hash
+  // Parse hash: #tab or #tab/id
+  function parseHash() {
+    const h = location.hash.slice(1);
+    const [t, id] = h.split('/');
+    return { tab: t || 'board', id: id ? parseInt(id) : null };
+  }
+
+  let tab = $state(parseHash().tab);
+
   function setTab(t) {
     tab = t;
     history.pushState(null, '', '#' + t);
   }
-  window.addEventListener('popstate', () => { tab = location.hash.slice(1) || 'board'; });
+
+  function updateHash() {
+    let h = tab;
+    if (tab === 'board' && selectedChallenge) h = `board/${selectedChallenge}`;
+    else if (tab === 'rounds' && selectedRound) h = `rounds/${selectedRound}`;
+    history.replaceState(null, '', '#' + h);
+  }
+
+  function applyHash() {
+    const { tab: t, id } = parseHash();
+    tab = t;
+    if (t === 'board' && id) selectedChallenge = id;
+    else if (t === 'rounds' && id) { selectedRound = id; loadJobs(); }
+  }
+
+  window.addEventListener('popstate', applyHash);
 
   // Challenge form
   let showChallengeModal = $state(false);
@@ -46,8 +68,13 @@
     exploitRuns = await api.exploitRuns();
     rounds = await api.rounds();
     settings = await api.settings();
-    if (challenges.length && !selectedChallenge) selectedChallenge = challenges[0].id;
-    if (rounds.length && !selectedRound) {
+    
+    const { tab: t, id } = parseHash();
+    if (t === 'board' && id && challenges.find(c => c.id === id)) selectedChallenge = id;
+    else if (challenges.length && !selectedChallenge) selectedChallenge = challenges[0].id;
+    
+    if (t === 'rounds' && id && rounds.find(r => r.id === id)) { selectedRound = id; loadJobs(); }
+    else if (rounds.length && !selectedRound) {
       const nonPending = rounds.filter(r => r.status !== 'pending');
       selectedRound = nonPending.length ? nonPending[0].id : rounds[0].id;
       loadJobs();
@@ -58,7 +85,13 @@
     if (selectedRound) {
       jobs = await api.jobs(selectedRound);
       flags = await api.flags(selectedRound);
+      updateHash();
     }
+  }
+
+  function selectChallenge(id) {
+    selectedChallenge = id;
+    updateHash();
   }
 
   async function newRound() {
@@ -215,7 +248,7 @@
   {#if tab === 'board'}
     <div class="challenge-tabs">
       {#each challenges as c}
-        <button class:active={selectedChallenge === c.id} onclick={() => selectedChallenge = c.id}>{c.name}</button>
+        <button class:active={selectedChallenge === c.id} onclick={() => selectChallenge(c.id)}>{c.name}</button>
       {/each}
     </div>
     <Board {teams} {exploits} {exploitRuns} challengeId={selectedChallenge} onRefresh={load} />
@@ -272,7 +305,7 @@
     <div class="rounds-panel">
       <div class="controls">
         <button onclick={newRound}>New Round</button>
-        <select bind:value={selectedRound}>
+        <select bind:value={selectedRound} onchange={() => { loadJobs(); updateHash(); }}>
           <option value={null}>Select round</option>
           {#each rounds as r}
             <option value={r.id}>Round {r.id} ({r.status})</option>
