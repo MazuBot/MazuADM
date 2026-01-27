@@ -62,10 +62,10 @@ impl Executor {
         
         let status = if timed_out { 
             "timeout" 
-        } else if ole {
-            "ole"
         } else if !flags.is_empty() {
             "flag"
+        } else if ole {
+            "ole"
         } else if exit_code == 0 { 
             "success" 
         } else { 
