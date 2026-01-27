@@ -15,6 +15,7 @@
   let rounds = $state([]);
   let selectedChallenge = $state(null);
   let selectedRound = $state(null);
+  let selectedFlagRound = $state(null);
   let jobs = $state([]);
   let flags = $state([]);
   let settings = $state([]);
@@ -39,6 +40,7 @@
     let h = tab;
     if (tab === 'board' && selectedChallenge) h = `board/${selectedChallenge}`;
     else if (tab === 'rounds' && selectedRound) h = `rounds/${selectedRound}`;
+    else if (tab === 'flags' && selectedFlagRound) h = `flags/${selectedFlagRound}`;
     history.replaceState(null, '', '#' + h);
   }
 
@@ -47,6 +49,7 @@
     tab = t;
     if (t === 'board' && id) selectedChallenge = id;
     else if (t === 'rounds' && id) { selectedRound = id; loadJobs(); }
+    else if (t === 'flags' && id) { selectedFlagRound = id; loadFlags(); }
   }
 
   window.addEventListener('popstate', applyHash);
@@ -79,14 +82,21 @@
       selectedRound = nonPending.length ? nonPending[0].id : rounds[0].id;
       loadJobs();
     }
+
+    if (t === 'flags' && id && rounds.find(r => r.id === id)) { selectedFlagRound = id; }
+    loadFlags();
   }
 
   async function loadJobs() {
     if (selectedRound) {
       jobs = await api.jobs(selectedRound);
-      flags = await api.flags(selectedRound);
       updateHash();
     }
+  }
+
+  async function loadFlags() {
+    flags = await api.flags(selectedFlagRound);
+    updateHash();
   }
 
   function selectChallenge(id) {
@@ -335,11 +345,19 @@
     </div>
 
   {:else if tab === 'flags'}
+    <div class="controls">
+      <select bind:value={selectedFlagRound} onchange={() => loadFlags()}>
+        <option value={null}>All rounds</option>
+        {#each rounds as r}
+          <option value={r.id}>Round {r.id}</option>
+        {/each}
+      </select>
+    </div>
     <table>
       <thead><tr><th>ID</th><th>Round</th><th>Challenge</th><th>Team</th><th>Flag</th><th>Status</th></tr></thead>
       <tbody>
         {#each flags as f}
-          <tr><td>{f.id}</td><td>{f.round_id}</td><td>{f.challenge_id}</td><td>{f.team_id}</td><td><code>{f.flag_value}</code></td><td>{f.status}</td></tr>
+          <tr><td>{f.id}</td><td>{f.round_id}</td><td>{getChallengeName(f.challenge_id)}</td><td>{getTeamName(f.team_id)}</td><td><code>{f.flag_value}</code></td><td>{f.status}</td></tr>
         {/each}
       </tbody>
     </table>
