@@ -154,8 +154,8 @@
 
   <div class="columns">
     {#each teams as team}
-      <div class="column" ondragover={(e) => e.preventDefault()} ondrop={(e) => onColumnDrop(e, team.id)}>
-        <h3>{team.team_name}</h3>
+      <div class="column" class:disabled={!team.enabled} ondragover={(e) => e.preventDefault()} ondrop={(e) => onColumnDrop(e, team.id)}>
+        <h3>{team.team_name} {!team.enabled ? '(disabled)' : ''}</h3>
         <div class="cards">
           {#each getRunsForTeam(team.id) as run, idx}
             <div 
@@ -266,6 +266,7 @@
   .add-btn { width: 100%; margin-top: 0.5rem; }
   .columns { display: flex; gap: 1rem; flex: 1; overflow-x: auto; }
   .column { min-width: 200px; background: #252540; padding: 1rem; border-radius: 8px; }
+  .column.disabled { background: #1a1a25; opacity: 0.6; }
   .column h3 { margin-top: 0; font-size: 0.9rem; color: #aaa; }
   .cards { display: flex; flex-direction: column; gap: 0.5rem; min-height: 50px; }
   .card { background: #1a1a2e; padding: 0.75rem; border-radius: 4px; border-left: 3px solid #00d9ff; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
