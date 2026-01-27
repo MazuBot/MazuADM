@@ -11,7 +11,7 @@ impl Scheduler {
     }
 
     pub fn calculate_priority(challenge_priority: i32, team_priority: i32, sequence: i32, override_priority: Option<i32>) -> i32 {
-        override_priority.unwrap_or_else(|| challenge_priority * 10000 + team_priority * 100 + sequence)
+        override_priority.unwrap_or_else(|| challenge_priority + team_priority * 100 - sequence * 10000)
     }
 
     pub async fn generate_round(&self) -> Result<i32> {
