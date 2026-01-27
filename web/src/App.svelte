@@ -388,8 +388,16 @@
             <option value="true" selected={settings.find(s => s.key === 'skip_on_flag')?.value === 'true'}>Yes</option>
           </select>
         </div>
+        <div class="setting-row">
+          <label>sequential_per_target</label>
+          <select onchange={(e) => api.updateSetting('sequential_per_target', e.target.value).then(load)}>
+            <option value="false" selected={settings.find(s => s.key === 'sequential_per_target')?.value !== 'true'}>No</option>
+            <option value="true" selected={settings.find(s => s.key === 'sequential_per_target')?.value === 'true'}>Yes</option>
+          </select>
+        </div>
       </div>
       <p class="hint">skip_on_flag: Skip remaining exploits for a chal/team once a flag is found in this round.</p>
+      <p class="hint">sequential_per_target: Run exploits sequentially per chal/team (don't run multiple exploits for same target at once).</p>
     </div>
 
   {:else if tab === 'containers'}

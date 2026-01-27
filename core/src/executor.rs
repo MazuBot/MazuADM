@@ -3,7 +3,8 @@ use crate::container_manager::ContainerManager;
 use anyhow::Result;
 use std::time::{Instant, Duration};
 use std::sync::Arc;
-use tokio::sync::Semaphore;
+use std::collections::HashMap;
+use tokio::sync::{Semaphore, Mutex};
 use regex::Regex;
 
 pub struct Executor {
@@ -109,18 +110,25 @@ impl Executor {
             .ok().and_then(|v| v.parse().ok()).unwrap_or(50);
         let skip_on_flag: bool = self.db.get_setting("skip_on_flag").await
             .ok().map(|v| v == "true").unwrap_or(false);
+        let sequential_per_target: bool = self.db.get_setting("sequential_per_target").await
+            .ok().map(|v| v == "true").unwrap_or(false);
 
         // Pre-warm containers
         self.container_manager.prewarm_for_round(concurrent_limit).await?;
 
         let jobs = self.db.get_pending_jobs(round_id).await?;
         let semaphore = Arc::new(Semaphore::new(concurrent_limit));
+        
+        // Per-target locks for sequential execution
+        let target_locks: Arc<Mutex<HashMap<(i32, i32), Arc<Mutex<()>>>>> = Arc::new(Mutex::new(HashMap::new()));
+        
         let mut handles = Vec::new();
 
         for job in jobs {
             let permit = semaphore.clone().acquire_owned().await?;
             let db = self.db.clone();
             let executor = Executor::new(db.clone())?;
+            let target_locks = target_locks.clone();
 
             let handle = tokio::spawn(async move {
                 let _permit = permit;
@@ -177,6 +185,28 @@ impl Executor {
                         return;
                     }
                 };
+
+                // Get or create per-target lock
+                let target_lock = if sequential_per_target {
+                    let mut locks = target_locks.lock().await;
+                    Some(locks.entry((challenge.id, team.id)).or_insert_with(|| Arc::new(Mutex::new(()))).clone())
+                } else {
+                    None
+                };
+
+                // Acquire target lock if sequential mode
+                let _target_guard = match &target_lock {
+                    Some(lock) => Some(lock.lock().await),
+                    None => None,
+                };
+
+                // Re-check skip_on_flag after acquiring lock
+                if skip_on_flag {
+                    if let Ok(true) = db.has_flag_for(round_id, challenge.id, team.id).await {
+                        let _ = db.finish_job(job.id, "skipped", None, Some("Flag already found"), 0).await;
+                        return;
+                    }
+                }
 
                 // Random delay 0-500ms to spread container reuse
                 let delay = rand::random::<u64>() % 500;
