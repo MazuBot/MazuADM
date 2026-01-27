@@ -344,4 +344,11 @@ impl Database {
         sqlx::query!("DELETE FROM exploit_runners WHERE exploit_container_id = $1", container_id).execute(&self.pool).await?;
         Ok(())
     }
+
+    // Reset stale running jobs on startup
+    pub async fn reset_stale_jobs(&self) -> Result<u64> {
+        let result = sqlx::query("UPDATE exploit_jobs SET status = 'error', stdout = COALESCE(stdout, '') || '\n[interrupted by server restart]' WHERE status = 'running'")
+            .execute(&self.pool).await?;
+        Ok(result.rows_affected())
+    }
 }

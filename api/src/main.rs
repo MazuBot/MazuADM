@@ -18,6 +18,13 @@ async fn main() -> Result<()> {
     
     let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost/mazuadm".to_string());
     let db = Database::connect(&db_url).await?;
+    
+    // Reset any jobs stuck in "running" state from previous run
+    let reset = db.reset_stale_jobs().await?;
+    if reset > 0 {
+        tracing::warn!("Reset {} stale running jobs to error status", reset);
+    }
+    
     let state = Arc::new(AppState { db });
 
     let app = routes::routes()
