@@ -115,7 +115,7 @@ pub struct Round {
 pub struct ExploitJob {
     pub id: i32,
     pub round_id: i32,
-    pub exploit_run_id: i32,
+    pub exploit_run_id: Option<i32>,
     pub team_id: i32,
     pub priority: i32,
     pub status: String,
@@ -131,7 +131,7 @@ pub struct ExploitJob {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct Flag {
     pub id: i32,
-    pub job_id: i32,
+    pub job_id: Option<i32>,
     pub round_id: i32,
     pub challenge_id: i32,
     pub team_id: i32,

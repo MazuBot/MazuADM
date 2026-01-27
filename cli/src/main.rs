@@ -142,7 +142,7 @@ async fn main() -> Result<()> {
                 println!("Round {} completed", id);
             }
             RoundCmd::Jobs { id } => {
-                let rows: Vec<_> = db.list_jobs(id).await?.into_iter().map(|j| JobRow { id: j.id, run: j.exploit_run_id, team: j.team_id, priority: j.priority, status: j.status }).collect();
+                let rows: Vec<_> = db.list_jobs(id).await?.into_iter().map(|j| JobRow { id: j.id, run: j.exploit_run_id.unwrap_or(-1), team: j.team_id, priority: j.priority, status: j.status }).collect();
                 println!("{}", Table::new(rows));
             }
         },
