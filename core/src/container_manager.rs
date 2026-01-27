@@ -92,13 +92,14 @@ impl ContainerManager {
     pub async fn execute_in_container(&self, container: &ExploitContainer, cmd: Vec<String>, env: Vec<String>) -> Result<ExecResult> {
         let exec = self.docker.create_exec(&container.container_id, CreateExecOptions {
             cmd: Some(cmd),
-            env: Some(env),
+            env: Some(env.into_iter().chain(std::iter::once("TERM=xterm".to_string())).collect()),
             attach_stdout: Some(true),
             attach_stderr: Some(true),
+            tty: Some(true),
             ..Default::default()
         }).await?;
 
-        let output = self.docker.start_exec(&exec.id, Some(StartExecOptions { detach: false, ..Default::default() })).await?;
+        let output = self.docker.start_exec(&exec.id, Some(StartExecOptions { detach: false, tty: true, ..Default::default() })).await?;
         
         let mut stdout = String::new();
         let mut stderr = String::new();
