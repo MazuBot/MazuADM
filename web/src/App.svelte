@@ -303,16 +303,21 @@
       <div class="settings-grid">
         <div class="setting-row">
           <label>concurrent_limit</label>
-          <input value={settings.find(s => s.key === 'concurrent_limit')?.value || '4'} 
+          <input value={settings.find(s => s.key === 'concurrent_limit')?.value || '10'} 
                  onchange={(e) => api.updateSetting('concurrent_limit', e.target.value).then(load)} />
         </div>
         <div class="setting-row">
           <label>worker_timeout</label>
-          <input value={settings.find(s => s.key === 'worker_timeout')?.value || '30'} 
+          <input value={settings.find(s => s.key === 'worker_timeout')?.value || '60'} 
                  onchange={(e) => api.updateSetting('worker_timeout', e.target.value).then(load)} />
         </div>
+        <div class="setting-row">
+          <label>max_flags_per_job</label>
+          <input value={settings.find(s => s.key === 'max_flags_per_job')?.value || '50'} 
+                 onchange={(e) => api.updateSetting('max_flags_per_job', e.target.value).then(load)} />
+        </div>
       </div>
-      <p class="hint">concurrent_limit: Max parallel exploit executions. worker_timeout: Seconds before killing a container.</p>
+      <p class="hint">concurrent_limit: Max parallel executions. worker_timeout: Seconds before timeout. max_flags_per_job: Max unique flags per job output.</p>
     </div>
 
   {:else if tab === 'containers'}

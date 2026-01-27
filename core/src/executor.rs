@@ -17,7 +17,7 @@ impl Executor {
         Ok(Self { db, container_manager })
     }
 
-    pub async fn execute_job(&self, job: &ExploitJob, run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64) -> Result<JobResult> {
+    pub async fn execute_job(&self, job: &ExploitJob, run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64, max_flags: usize) -> Result<JobResult> {
         let start = Instant::now();
         self.db.update_job_status(job.id, "running", true).await?;
 
@@ -58,7 +58,7 @@ impl Executor {
         }
 
         let duration_ms = start.elapsed().as_millis() as i32;
-        let flags = Self::extract_flags(&stdout, flag_regex);
+        let flags = Self::extract_flags(&stdout, flag_regex, max_flags);
         
         let status = if timed_out { 
             "timeout" 
@@ -77,10 +77,17 @@ impl Executor {
         Ok(JobResult { stdout, stderr, duration_ms, exit_code, flags })
     }
 
-    pub fn extract_flags(output: &str, pattern: Option<&str>) -> Vec<String> {
+    pub fn extract_flags(output: &str, pattern: Option<&str>, max_flags: usize) -> Vec<String> {
         let pattern = pattern.unwrap_or(r"[A-Za-z0-9]{31}=");
         let Ok(re) = Regex::new(pattern) else { return vec![] };
-        re.find_iter(output).map(|m| m.as_str().to_string()).collect()
+        let mut seen = std::collections::HashSet::new();
+        re.find_iter(output)
+            .filter_map(|m| {
+                let s = m.as_str().to_string();
+                if seen.insert(s.clone()) { Some(s) } else { None }
+            })
+            .take(max_flags)
+            .collect()
     }
 
     pub async fn run_round(&self, round_id: i32) -> Result<()> {
@@ -91,6 +98,8 @@ impl Executor {
             .ok().and_then(|v| v.parse().ok()).unwrap_or(10);
         let worker_timeout: u64 = self.db.get_setting("worker_timeout").await
             .ok().and_then(|v| v.parse().ok()).unwrap_or(60);
+        let max_flags: usize = self.db.get_setting("max_flags_per_job").await
+            .ok().and_then(|v| v.parse().ok()).unwrap_or(50);
 
         let jobs = self.db.get_pending_jobs(round_id).await?;
         let semaphore = Arc::new(Semaphore::new(concurrent_limit));
@@ -145,7 +154,7 @@ impl Executor {
                     }
                 };
 
-                match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), worker_timeout).await {
+                match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), worker_timeout, max_flags).await {
                     Ok(result) => {
                         for flag in result.flags {
                             let _ = db.create_flag(job.id, round_id, challenge.id, team.id, &flag).await;
