@@ -263,13 +263,14 @@
       </div>
       {#if jobs.length}
         <table>
-          <thead><tr><th>ID</th><th>Exploit</th><th>Team</th><th>Priority</th><th>Status</th><th>Duration</th></tr></thead>
+          <thead><tr><th>ID</th><th>Exploit</th><th>Team</th><th>Container</th><th>Priority</th><th>Status</th><th>Duration</th></tr></thead>
           <tbody>
             {#each jobs as j}
               <tr class={j.status} onclick={() => selectedJob = j} style="cursor:pointer">
                 <td>{j.id}</td>
                 <td>{getExploitName(getExploitRunInfo(j.exploit_run_id)?.exploit_id)}</td>
                 <td>{getTeamName(j.team_id)}</td>
+                <td>{j.container_id ? j.container_id.slice(0, 12) : '-'}</td>
                 <td>{j.priority}</td>
                 <td>{j.status}</td>
                 <td>{j.duration_ms ? `${j.duration_ms}ms` : '-'}</td>

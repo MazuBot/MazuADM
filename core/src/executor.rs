@@ -25,6 +25,7 @@ impl Executor {
         
         // Get or assign persistent container
         let container = self.container_manager.get_or_assign_container(run).await?;
+        self.db.set_job_container(job.id, &container.container_id).await?;
 
         // Build command - use entrypoint or default script
         let cmd = match &exploit.entrypoint {

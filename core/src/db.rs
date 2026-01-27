@@ -214,6 +214,11 @@ impl Database {
         Ok(())
     }
 
+    pub async fn set_job_container(&self, id: i32, container_id: &str) -> Result<()> {
+        sqlx::query!("UPDATE exploit_jobs SET container_id = $2 WHERE id = $1", id, container_id).execute(&self.pool).await?;
+        Ok(())
+    }
+
     pub async fn finish_job(&self, id: i32, status: &str, stdout: Option<&str>, stderr: Option<&str>, duration_ms: i32) -> Result<()> {
         sqlx::query!("UPDATE exploit_jobs SET status = $2, stdout = $3, stderr = $4, duration_ms = $5, finished_at = NOW() WHERE id = $1",
             id, status, stdout, stderr, duration_ms
