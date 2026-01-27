@@ -58,9 +58,17 @@ impl Executor {
         }
 
         let duration_ms = start.elapsed().as_millis() as i32;
-        let status = if timed_out { "timeout" } else if exit_code == 0 { "success" } else { "failed" };
-        
         let flags = Self::extract_flags(&stdout, flag_regex);
+        
+        let status = if timed_out { 
+            "timeout" 
+        } else if !flags.is_empty() {
+            "flag"
+        } else if exit_code == 0 { 
+            "success" 
+        } else { 
+            "failed" 
+        };
         
         self.db.finish_job(job.id, status, Some(&stdout), Some(&stderr), duration_ms).await?;
 
