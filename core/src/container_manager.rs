@@ -90,6 +90,8 @@ impl ContainerManager {
 
     /// Execute command in a persistent container
     pub async fn execute_in_container(&self, container: &ExploitContainer, cmd: Vec<String>, env: Vec<String>) -> Result<ExecResult> {
+        const MAX_OUTPUT: usize = 256 * 1024; // 256KB limit
+        
         let exec = self.docker.create_exec(&container.container_id, CreateExecOptions {
             cmd: Some(cmd),
             env: Some(env.into_iter().chain(std::iter::once("TERM=xterm".to_string())).collect()),
@@ -102,23 +104,33 @@ impl ContainerManager {
         let output = self.docker.start_exec(&exec.id, Some(StartExecOptions { detach: false, tty: true, ..Default::default() })).await?;
         
         let mut stdout = String::new();
+        let mut ole = false;
         
         // With TTY, all output comes as Raw bytes (stdout and stderr combined)
         if let bollard::exec::StartExecResults::Attached { output: mut stream, .. } = output {
             while let Some(Ok(log)) = stream.next().await {
-                match log {
-                    bollard::container::LogOutput::StdOut { message } => stdout.push_str(&String::from_utf8_lossy(&message)),
-                    bollard::container::LogOutput::StdErr { message } => stdout.push_str(&String::from_utf8_lossy(&message)),
-                    bollard::container::LogOutput::Console { message } => stdout.push_str(&String::from_utf8_lossy(&message)),
-                    _ => {}
+                if stdout.len() >= MAX_OUTPUT {
+                    ole = true;
+                    break;
+                }
+                let msg = match log {
+                    bollard::container::LogOutput::StdOut { message } => Some(message),
+                    bollard::container::LogOutput::StdErr { message } => Some(message),
+                    bollard::container::LogOutput::Console { message } => Some(message),
+                    _ => None,
+                };
+                if let Some(m) = msg {
+                    let remaining = MAX_OUTPUT.saturating_sub(stdout.len());
+                    let slice = &m[..m.len().min(remaining)];
+                    stdout.push_str(&String::from_utf8_lossy(slice));
                 }
             }
         }
 
         let inspect = self.docker.inspect_exec(&exec.id).await?;
-        let exit_code = inspect.exit_code.unwrap_or(-1);
+        let exit_code = if ole { -2 } else { inspect.exit_code.unwrap_or(-1) };
 
-        Ok(ExecResult { stdout, stderr: String::new(), exit_code })
+        Ok(ExecResult { stdout, stderr: String::new(), exit_code, ole })
     }
 
     /// Health check all containers, recreate dead ones
@@ -195,4 +207,5 @@ pub struct ExecResult {
     pub stdout: String,
     pub stderr: String,
     pub exit_code: i64,
+    pub ole: bool,
 }

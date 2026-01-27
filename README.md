@@ -2,6 +2,14 @@
 
 A Trello-like interface for managing CTF A/D exploits with persistent container support.
 
+## Features
+
+- Trello-style board for managing exploit runs per team
+- Persistent Docker containers with configurable lifetime counters
+- Parallel exploit execution with concurrency limits
+- ANSI color support in job output logs
+- Container management UI (view status, runners, restart/remove)
+
 ## Setup
 
 ### Database
@@ -56,8 +64,15 @@ mazuadm-cli flag list --round 1
 
 ## Exploit Container Interface
 
-Exploits receive target info via environment variables:
+Exploits run in persistent Docker containers. Each container has a lifetime counter that decrements per execution.
+
+Environment variables provided:
 - `TARGET_HOST` - Target IP/hostname
 - `TARGET_PORT` - Target port
+- `TARGET_TEAM_ID` - Target team identifier
+
+Container settings per exploit:
+- `max_per_container` - Max concurrent runners per container (default: 1)
+- `default_counter` - Lifetime counter for new containers (default: 999)
 
 Output flags to stdout. Default regex: `[A-Za-z0-9]{31}=`

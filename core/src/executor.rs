@@ -45,10 +45,10 @@ impl Executor {
             self.container_manager.execute_in_container(&container, cmd, env)
         ).await;
 
-        let (stdout, stderr, exit_code, timed_out) = match exec_result {
-            Ok(Ok(r)) => (r.stdout, r.stderr, r.exit_code, false),
-            Ok(Err(e)) => (String::new(), e.to_string(), -1, false),
-            Err(_) => (String::new(), "Timeout".to_string(), -1, true),
+        let (stdout, stderr, exit_code, timed_out, ole) = match exec_result {
+            Ok(Ok(r)) => (r.stdout, r.stderr, r.exit_code, false, r.ole),
+            Ok(Err(e)) => (String::new(), e.to_string(), -1, false, false),
+            Err(_) => (String::new(), "Timeout".to_string(), -1, true, false),
         };
 
         // Decrement counter and destroy if exhausted
@@ -62,6 +62,8 @@ impl Executor {
         
         let status = if timed_out { 
             "timeout" 
+        } else if ole {
+            "ole"
         } else if !flags.is_empty() {
             "flag"
         } else if exit_code == 0 { 
