@@ -1,4 +1,6 @@
 <script>
+  import FilterBar from '$lib/ui/FilterBar.svelte';
+  import { buildStatusOptions } from '$lib/utils/filters.js';
   import { getChallengeName, getTeamName } from '$lib/utils/lookup.js';
 
   let { rounds, flags, teams, challenges, selectedFlagRoundId, onSelectFlagRound } = $props();
@@ -19,7 +21,7 @@
   }
 
   let filteredFlags = $derived(filterFlags());
-  let availableStatuses = $derived([...new Set((flags ?? []).map((flag) => flag.status).filter(Boolean))].sort());
+  let availableStatuses = $derived(buildStatusOptions(flags));
 </script>
 
 <div class="controls">
@@ -32,37 +34,20 @@
       <option value={r.id}>Round {r.id}</option>
     {/each}
   </select>
-  <select bind:value={challengeFilterId}>
-    <option value="">All challenges</option>
-    {#each challenges as c}
-      <option value={c.id}>{c.name}</option>
-    {/each}
-  </select>
-  <select bind:value={teamFilterId}>
-    <option value="">All teams</option>
-    {#each teams as t}
-      <option value={t.id}>{t.team_name}</option>
-    {/each}
-  </select>
-  <select bind:value={statusFilter}>
-    <option value="">All statuses</option>
-    {#each availableStatuses as status}
-      <option value={status}>{status}</option>
-    {/each}
-  </select>
-  <button
-    class="small"
-    type="button"
-    onclick={() => {
-      challengeFilterId = '';
-      teamFilterId = '';
-      statusFilter = '';
-    }}
-    disabled={!challengeFilterId && !teamFilterId && !statusFilter}
-  >
-    Reset Filters
-  </button>
 </div>
+<FilterBar
+  bind:challengeId={challengeFilterId}
+  bind:teamId={teamFilterId}
+  bind:status={statusFilter}
+  {challenges}
+  {teams}
+  statuses={availableStatuses}
+  onReset={() => {
+    challengeFilterId = '';
+    teamFilterId = '';
+    statusFilter = '';
+  }}
+/>
 
 <table>
   <thead>
