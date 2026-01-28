@@ -14,6 +14,8 @@
     enabled: true
   });
   let challengeFormInitial = $state(null);
+  let pendingToggleChallengeId = $state(null);
+  let pendingToggleChallengeTimer = null;
 
   function normalizeField(value) {
     if (typeof value === 'boolean') return value;
@@ -73,7 +75,53 @@
     showChallengeModal = false;
   }
 
+  function clearPendingChallengeToggle() {
+    pendingToggleChallengeId = null;
+    if (pendingToggleChallengeTimer) {
+      clearTimeout(pendingToggleChallengeTimer);
+      pendingToggleChallengeTimer = null;
+    }
+  }
+
+  function startPendingChallengeToggle(challengeId) {
+    clearPendingChallengeToggle();
+    pendingToggleChallengeId = challengeId;
+    pendingToggleChallengeTimer = setTimeout(() => {
+      pendingToggleChallengeId = null;
+      pendingToggleChallengeTimer = null;
+    }, 2000);
+  }
+
+  function queueChallengeToggle(challenge, e) {
+    e.stopPropagation();
+    if (pendingToggleChallengeId === challenge.id) {
+      startPendingChallengeToggle(challenge.id);
+      return;
+    }
+    startPendingChallengeToggle(challenge.id);
+  }
+
+  function confirmChallengeToggle(challenge, e) {
+    e.stopPropagation();
+    if (pendingToggleChallengeId !== challenge.id) return;
+    toggleChallengeEnabled(challenge);
+  }
+
+  async function toggleChallengeEnabled(challenge) {
+    clearPendingChallengeToggle();
+    await api.updateChallenge(challenge.id, {
+      name: challenge.name,
+      default_port: challenge.default_port ?? null,
+      priority: challenge.priority,
+      flag_regex: challenge.flag_regex ?? null,
+      enabled: !challenge.enabled
+    });
+    await onRefresh();
+  }
+
 </script>
+
+<svelte:window on:click={clearPendingChallengeToggle} />
 
 <div class="panel">
   <div class="panel-header">
@@ -100,7 +148,28 @@
           <td>{c.default_port ?? '-'}</td>
           <td><code>{c.flag_regex ?? '-'}</code></td>
           <td>{c.priority}</td>
-          <td>{c.enabled ? '✓' : '✗'}</td>
+          <td class="enable-cell" class:pending={pendingToggleChallengeId === c.id}>
+            <span class="enable-wrap">
+              <button
+                type="button"
+                class="enable-toggle"
+                aria-label={`Toggle challenge ${c.name} ${c.enabled ? 'off' : 'on'}`}
+                onclick={(e) => queueChallengeToggle(c, e)}
+              >
+                {c.enabled ? '✓' : '✗'}
+              </button>
+              {#if pendingToggleChallengeId === c.id}
+                <button
+                  type="button"
+                  class="toggle-popup small"
+                  aria-label={`Confirm ${c.enabled ? 'disable' : 'enable'} ${c.name}`}
+                  onclick={(e) => confirmChallengeToggle(c, e)}
+                >
+                  {c.enabled ? '✗' : '✓'}
+                </button>
+              {/if}
+            </span>
+          </td>
           <td><button class="small" onclick={() => openEditChallenge(c)}>Edit</button></td>
         </tr>
       {/each}
@@ -135,3 +204,45 @@
     </form>
   </Modal>
 {/if}
+
+<style>
+  .enable-cell {
+    white-space: nowrap;
+  }
+
+  .enable-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .enable-toggle {
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+    text-align: left;
+  }
+
+  .enable-cell.pending .enable-toggle {
+    color: #00d9ff;
+  }
+
+  .toggle-popup {
+    position: absolute;
+    top: 50%;
+    left: calc(100% + 0.5rem);
+    transform: translateY(-50%);
+    min-width: 1.6rem;
+    padding: 0.2rem 0.45rem;
+    white-space: nowrap;
+    z-index: 5;
+  }
+
+  .toggle-popup:focus-visible,
+  .toggle-popup:hover {
+    border-color: #00d9ff;
+  }
+</style>

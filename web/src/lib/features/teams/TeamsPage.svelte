@@ -8,6 +8,8 @@
   let editingTeam = $state(null);
   let teamForm = $state({ team_id: '', team_name: '', default_ip: '', priority: 0, enabled: true });
   let teamFormInitial = $state(null);
+  let pendingToggleTeamId = $state(null);
+  let pendingToggleTeamTimer = null;
 
   function normalizeField(value) {
     if (typeof value === 'boolean') return value;
@@ -67,7 +69,53 @@
     showTeamModal = false;
   }
 
+  function clearPendingTeamToggle() {
+    pendingToggleTeamId = null;
+    if (pendingToggleTeamTimer) {
+      clearTimeout(pendingToggleTeamTimer);
+      pendingToggleTeamTimer = null;
+    }
+  }
+
+  function startPendingTeamToggle(teamId) {
+    clearPendingTeamToggle();
+    pendingToggleTeamId = teamId;
+    pendingToggleTeamTimer = setTimeout(() => {
+      pendingToggleTeamId = null;
+      pendingToggleTeamTimer = null;
+    }, 2000);
+  }
+
+  function queueTeamToggle(team, e) {
+    e.stopPropagation();
+    if (pendingToggleTeamId === team.id) {
+      startPendingTeamToggle(team.id);
+      return;
+    }
+    startPendingTeamToggle(team.id);
+  }
+
+  function confirmTeamToggle(team, e) {
+    e.stopPropagation();
+    if (pendingToggleTeamId !== team.id) return;
+    toggleTeamEnabled(team);
+  }
+
+  async function toggleTeamEnabled(team) {
+    clearPendingTeamToggle();
+    await api.updateTeam(team.id, {
+      team_id: team.team_id,
+      team_name: team.team_name,
+      default_ip: team.default_ip ?? null,
+      priority: team.priority,
+      enabled: !team.enabled
+    });
+    await onRefresh();
+  }
+
 </script>
+
+<svelte:window on:click={clearPendingTeamToggle} />
 
 <div class="panel">
   <div class="panel-header">
@@ -94,7 +142,28 @@
           <td>{t.team_name}</td>
           <td>{t.default_ip ?? '-'}</td>
           <td>{t.priority}</td>
-          <td>{t.enabled ? '✓' : '✗'}</td>
+          <td class="enable-cell" class:pending={pendingToggleTeamId === t.id}>
+            <span class="enable-wrap">
+              <button
+                type="button"
+                class="enable-toggle"
+                aria-label={`Toggle team ${t.team_name} ${t.enabled ? 'off' : 'on'}`}
+                onclick={(e) => queueTeamToggle(t, e)}
+              >
+                {t.enabled ? '✓' : '✗'}
+              </button>
+              {#if pendingToggleTeamId === t.id}
+                <button
+                  type="button"
+                  class="toggle-popup small"
+                  aria-label={`Confirm ${t.enabled ? 'disable' : 'enable'} ${t.team_name}`}
+                  onclick={(e) => confirmTeamToggle(t, e)}
+                >
+                  {t.enabled ? '✗' : '✓'}
+                </button>
+              {/if}
+            </span>
+          </td>
           <td><button class="small" onclick={() => openEditTeam(t)}>Edit</button></td>
         </tr>
       {/each}
@@ -129,3 +198,45 @@
     </form>
   </Modal>
 {/if}
+
+<style>
+  .enable-cell {
+    white-space: nowrap;
+  }
+
+  .enable-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .enable-toggle {
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+    text-align: left;
+  }
+
+  .enable-cell.pending .enable-toggle {
+    color: #00d9ff;
+  }
+
+  .toggle-popup {
+    position: absolute;
+    top: 50%;
+    left: calc(100% + 0.5rem);
+    transform: translateY(-50%);
+    min-width: 1.6rem;
+    padding: 0.2rem 0.45rem;
+    white-space: nowrap;
+    z-index: 5;
+  }
+
+  .toggle-popup:focus-visible,
+  .toggle-popup:hover {
+    border-color: #00d9ff;
+  }
+</style>
