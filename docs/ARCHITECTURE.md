@@ -71,6 +71,8 @@ CRUD operations for all entities. Key methods:
 ```rust
 pub struct Scheduler {
     db: Database,
+    executor: Executor,
+    tx: broadcast::Sender<WsMessage>,
 }
 ```
 
@@ -78,6 +80,9 @@ pub struct Scheduler {
 |--------|-------------|
 | `calculate_priority(challenge_priority, team_priority, sequence, override)` | Compute job priority |
 | `generate_round()` | Create round and generate all jobs from enabled exploit_runs |
+| `create_round()` | Create round and pre-warm containers |
+| `run_round(round_id)` | Execute all pending jobs in priority order |
+| `rerun_round(round_id)` | Reset round state and re-run |
 
 Priority formula (when no override):
 ```
@@ -106,7 +111,6 @@ pub struct JobResult {
 |--------|-------------|
 | `execute_job(job, exploit, conn)` | Run single container, capture output |
 | `extract_flags(output, pattern)` | Extract flags using regex |
-| `run_round(round_id)` | Execute all pending jobs in priority order |
 | `run_job_immediately(job_id)` | Execute an ad-hoc job immediately |
 | `stop_job(job_id, reason)` | Stop a running job (kills exec PID only) |
 
@@ -173,10 +177,12 @@ Query parameters: `challenge_id`, `team_id`, `round_id`
 ## Container Lifecycle (Current)
 
 1. Containers are pre-warmed when a round is created.
-2. Each container has a `counter` that decrements on assignment.
-3. Runners (exploit_run + team) are pinned to containers.
-4. When `counter` reaches 0 and no jobs are running, the container is destroyed.
-5. `max_containers` caps active containers per exploit (0 = unlimited).
+2. Each container has a `counter` that decrements per job execution.
+3. Each container enforces `max_per_container` concurrent execs.
+4. When `counter` reaches 0 and no execs remain, the container is destroyed.
+5. Dead containers are removed and recreated on demand.
+6. `max_containers` caps active containers per exploit (0 = unlimited).
+7. Containers are restored from Docker labels on restart.
 
 ---
 
@@ -223,10 +229,10 @@ flag list [--round <ID>]
            └─→ Creates ExploitJobs from enabled ExploitRuns
    
    round run <id>
-     └─→ Executor.run_round()
+     └─→ Scheduler.run_round()
            └─→ For each pending job (by priority):
                  └─→ execute_job()
-                       ├─→ Create container with TARGET_HOST/PORT
+                       ├─→ Lease container (per-exploit pool)
                        ├─→ Wait for completion
                        ├─→ extract_flags() from stdout
                        └─→ Store flags in DB

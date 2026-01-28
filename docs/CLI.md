@@ -104,15 +104,16 @@ mazuadm-cli flag list --round 1
 ```bash
 mazuadm-cli setting list
 mazuadm-cli setting set concurrent_limit 10
+mazuadm-cli setting set concurrent_create_limit 1
 ```
 
 ### Container Management
 
 ```bash
 mazuadm-cli container list
-mazuadm-cli container runners 1
-mazuadm-cli container delete 1
-mazuadm-cli container restart 1
+mazuadm-cli container runners <container_id>
+mazuadm-cli container delete <container_id>
+mazuadm-cli container restart <container_id>
 ```
 
 ### Relation Management

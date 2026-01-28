@@ -76,28 +76,8 @@ Cards in the board view - which exploits run against which teams.
 
 Unique constraint: (exploit_id, challenge_id, team_id)
 
-### exploit_containers
-Persistent Docker containers for exploits.
-
-| Column | Type | Nullable | Description |
-|--------|------|----------|-------------|
-| id | SERIAL | NO | Primary key |
-| exploit_id | INTEGER | NO | FK → exploits (CASCADE) |
-| container_id | VARCHAR(100) | NO | Docker container ID |
-| counter | INTEGER | NO | Remaining uses before destroy |
-| status | VARCHAR(50) | NO | running/dead/destroyed (default: running) |
-| created_at | TIMESTAMPTZ | NO | Creation timestamp |
-
-### exploit_runners
-Pins exploit_runs to specific containers.
-
-| Column | Type | Nullable | Description |
-|--------|------|----------|-------------|
-| id | SERIAL | NO | Primary key |
-| exploit_container_id | INTEGER | NO | FK → exploit_containers (CASCADE) |
-| exploit_run_id | INTEGER | NO | FK → exploit_runs (CASCADE), unique |
-| team_id | INTEGER | NO | FK → teams (CASCADE) |
-| created_at | TIMESTAMPTZ | NO | Creation timestamp |
+### container_runtime
+Managed containers are tracked in Docker labels and restored on startup.
 
 ### rounds
 Execution rounds grouping jobs.
@@ -153,6 +133,7 @@ Runtime configuration key-value store.
 
 Known settings:
 - `concurrent_limit` - Max parallel container executions (default: 10)
+- `concurrent_create_limit` - Max concurrent container creations (default: 1)
 - `worker_timeout` - Container timeout override in seconds (default: 60)
 - `max_flags_per_job` - Max flags to extract per job (default: 50)
 - `sequential_per_target` - Run one job per target at a time (default: false)
@@ -166,9 +147,6 @@ Known settings:
 | exploit_jobs | idx_exploit_jobs_status | status |
 | flags | idx_flags_round | round_id |
 | flags | idx_flags_status | status |
-| exploit_containers | idx_exploit_containers_exploit | exploit_id |
-| exploit_containers | idx_exploit_containers_status | status |
-| exploit_runners | idx_exploit_runners_container | exploit_container_id |
 
 ## Relationships
 
@@ -176,16 +154,12 @@ Known settings:
 challenges ─┬─< challenge_team_relations >─┬─ teams
             │                              │
             ├─< exploit_runs >─────────────┤
-            │       │                      │
-            │       └──< exploit_runners ──┤
-            │               │              │
-            └─< exploits ───┴─< exploit_containers
-                    │
-                    v
-              exploit_jobs ──> flags
-                    │
-                    v
-                  rounds
+            └─< exploits ────────────────┐
+                                         v
+                                   exploit_jobs ──> flags
+                                         │
+                                         v
+                                       rounds
 ```
 
 ## Job Status Values
@@ -205,12 +179,12 @@ challenges ─┬─< challenge_team_relations >─┬─ teams
 ## Container Lifecycle
 
 1. Containers are pre-warmed when a round is created
-2. Each container has a `counter` (default 999) that decrements on assignment
-3. Runners (exploit_run + team) are pinned to containers
-4. When counter reaches 0 and no running jobs remain, the container is destroyed
-5. Dead containers are auto-detected and recreated with runners reassigned
+2. Each container has a `counter` (default 999) that decrements per job execution
+3. Each container enforces `max_per_container` concurrent execs
+4. When counter reaches 0 and no execs remain, the container is destroyed
+5. Dead containers are removed and recreated on demand
 6. `max_containers` caps active containers per exploit (0 = unlimited)
-7. Containers stay running between rounds
+7. Containers are restored from Docker labels on restart
 
 ## Ad-hoc Jobs
 

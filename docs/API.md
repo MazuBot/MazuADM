@@ -293,20 +293,23 @@ Update a setting.
 ### `GET /api/containers`
 List containers.
 
-**Query:** `challenge_id?: int` (filters by exploit's challenge_id)
+**Query:** `challenge_id?: int` (filters by exploit_id)
 
-**Response:** `ExploitContainer[]`
+**Response:** `ContainerInfo[]`
 
 ### `DELETE /api/containers/{id}`
 Destroy a container.
+`id` is the Docker container ID.
 
 ### `GET /api/containers/{id}/runners`
-Get runners for a container.
+Get running jobs for a container.
+`id` is the Docker container ID.
 
-**Response:** `ExploitRunner[]`
+**Response:** `ExploitJob[]`
 
 ### `POST /api/containers/{id}/restart`
-Restart a container (destroys and recreates with same runners).
+Restart a container (destroys and recreates the container).
+`id` is the Docker container ID.
 
 ---
 
@@ -441,25 +444,15 @@ Update a relation.
 }
 ```
 
-### ExploitContainer
+### ContainerInfo
 ```json
 {
-  "id": "int",
+  "id": "string",
   "exploit_id": "int",
-  "container_id": "string",
   "counter": "int",
   "status": "string",
-  "created_at": "datetime"
-}
-```
-
-### ExploitRunner
-```json
-{
-  "id": "int",
-  "exploit_container_id": "int",
-  "exploit_run_id": "int",
-  "team_id": "int",
+  "running_execs": "int",
+  "max_execs": "int",
   "created_at": "datetime"
 }
 ```
