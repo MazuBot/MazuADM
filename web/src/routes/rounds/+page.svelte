@@ -1,5 +1,5 @@
 <script>
-  import RoundsRoute from '$lib/routes/RoundsRoute.svelte'
+  import { RoundsRoute } from '$lib/features/rounds'
 
   const routeId = null
 </script>

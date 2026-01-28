@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation'
   import { app } from '$lib/data/stores/app.js'
   import { resolveBoardSelection } from '$lib/stores/app-logic.js'
-  import BoardPage from '$lib/pages/BoardPage.svelte'
+  import BoardPage from './BoardPage.svelte'
 
   export let routeId = null
 

@@ -1,5 +1,5 @@
 <script>
-  import FlagsRoute from '$lib/routes/FlagsRoute.svelte'
+  import { FlagsRoute } from '$lib/features/flags'
 
   const routeId = null
 </script>

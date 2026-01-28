@@ -1,7 +1,7 @@
 <script>
   import { AnsiUp } from 'ansi_up';
   import * as api from '$lib/data/api';
-  import Modal from '$lib/components/Modal.svelte';
+  import Modal from '$lib/ui/Modal.svelte';
   import FilterBar from '$lib/ui/FilterBar.svelte';
   import { buildStatusOptions } from '$lib/utils/filters.js';
   import { getChallengeName, getExploitName, getTeamName } from '$lib/utils/lookup.js';

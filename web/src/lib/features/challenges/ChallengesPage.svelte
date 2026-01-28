@@ -1,6 +1,6 @@
 <script>
   import * as api from '$lib/data/api';
-  import Modal from '$lib/components/Modal.svelte';
+  import Modal from '$lib/ui/Modal.svelte';
 
   let { challenges, onRefresh } = $props();
 

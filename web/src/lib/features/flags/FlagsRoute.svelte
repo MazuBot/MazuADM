@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation'
   import { app } from '$lib/data/stores/app.js'
   import { resolveFlagSelection } from '$lib/stores/app-logic.js'
-  import FlagsPage from '$lib/pages/FlagsPage.svelte'
+  import FlagsPage from './FlagsPage.svelte'
 
   export let routeId = null
 

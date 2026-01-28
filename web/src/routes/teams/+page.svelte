@@ -1,6 +1,6 @@
 <script>
   import { app } from '$lib/data/stores/app.js'
-  import TeamsPage from '$lib/pages/TeamsPage.svelte'
+  import { TeamsPage } from '$lib/features/teams'
 
   const { teams, loadAll } = app
 </script>

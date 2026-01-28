@@ -1,5 +1,5 @@
 <script>
-  import Board from '$lib/components/Board.svelte';
+  import Board from './Board.svelte';
 
   let { challenges, teams, exploits, exploitRuns, selectedChallengeId, onSelectChallenge, onRefresh } = $props();
 </script>

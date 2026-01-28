@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte'
   import { app } from '$lib/data/stores/app.js'
-  import ContainersPage from '$lib/pages/ContainersPage.svelte'
+  import { ContainersPage } from '$lib/features/containers'
 
   const {
     exploits,

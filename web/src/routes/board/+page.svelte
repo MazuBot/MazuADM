@@ -1,5 +1,5 @@
 <script>
-  import BoardRoute from '$lib/routes/BoardRoute.svelte'
+  import { BoardRoute } from '$lib/features/board'
 
   const routeId = null
 </script>

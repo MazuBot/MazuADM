@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation'
   import { app } from '$lib/data/stores/app.js'
   import { resolveRoundSelection } from '$lib/stores/app-logic.js'
-  import RoundsPage from '$lib/pages/RoundsPage.svelte'
+  import RoundsPage from './RoundsPage.svelte'
 
   export let routeId = null
 

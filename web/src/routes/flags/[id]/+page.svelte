@@ -1,6 +1,6 @@
 <script>
   import { page } from '$app/stores'
-  import FlagsRoute from '$lib/routes/FlagsRoute.svelte'
+  import { FlagsRoute } from '$lib/features/flags'
 
   $: param = $page.params.id
   $: routeId = param && /^\d+$/.test(param) ? Number(param) : null
