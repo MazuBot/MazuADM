@@ -260,7 +260,7 @@ impl ContainerManager {
             .into_iter()
             .map(|r| r.id)
             .collect::<Vec<_>>();
-        let groups = build_affinity_groups(&run_ids, max_containers);
+        let groups = build_affinity_groups(&run_ids, max_containers, exploit.max_per_container);
         let bucket = groups.iter().find(|g| g.contains(&exploit_run_id)).cloned().unwrap_or_else(|| vec![exploit_run_id]);
 
         if let Some(lease) = self.try_acquire_from_bucket(exploit_id, &bucket, exploit_run_id).await? {
@@ -269,6 +269,14 @@ impl ContainerManager {
 
         let unmapped = self.filter_unmapped_runs(&bucket).await;
         let assigned = if unmapped.is_empty() { vec![exploit_run_id] } else { unmapped };
+
+        let pool_len = {
+            let guard = self.registry.lock().await;
+            guard.pools.get(&exploit_id).map(|p| p.len()).unwrap_or(0)
+        };
+        if max_containers > 0 && (pool_len as i32) >= max_containers {
+            return Err(anyhow::anyhow!("Max containers reached for exploit {}", exploit_id));
+        }
 
         let container = self.spawn_container(exploit, max_execs, Some(assigned.clone())).await?;
         let permit = container.exec_sem.clone().acquire_owned().await?;
@@ -416,7 +424,7 @@ impl ContainerManager {
         };
         if existing == 0 {
             let runs = self.db.get_exploit_runs_for_exploit(exploit_id).await?.into_iter().map(|r| r.id).collect::<Vec<_>>();
-            let groups = build_affinity_groups(&runs, exploit.max_containers);
+        let groups = build_affinity_groups(&runs, exploit.max_containers, exploit.max_per_container);
             let affinity = groups.get(0).cloned().filter(|g| !g.is_empty());
             let _ = self.spawn_container(&exploit, exploit.max_per_container.max(1) as usize, affinity).await?;
         }
@@ -689,7 +697,7 @@ impl ContainerManager {
             if runs.is_empty() { continue; }
 
             let run_ids = runs.iter().map(|r| r.id).collect::<Vec<_>>();
-            let groups = build_affinity_groups(&run_ids, exploit.max_containers);
+            let groups = build_affinity_groups(&run_ids, exploit.max_containers, exploit.max_per_container);
 
             let active_runs = runs.len().min(concurrent_limit);
             let mut needed = needed_containers(active_runs, exploit.max_per_container);
@@ -739,24 +747,25 @@ fn needed_containers(active_runs: usize, max_per_container: i32) -> usize {
     (active_runs + per_container - 1) / per_container
 }
 
-fn build_affinity_groups(run_ids: &[i32], max_containers: i32) -> Vec<Vec<i32>> {
+fn build_affinity_groups(run_ids: &[i32], max_containers: i32, max_per_container: i32) -> Vec<Vec<i32>> {
     if run_ids.is_empty() {
         return Vec::new();
     }
     let mut ids = run_ids.to_vec();
     ids.sort_unstable();
     ids.dedup();
-    let bucket_count = if max_containers > 0 {
-        max_containers as usize
-    } else {
-        ids.len()
-    };
-    let bucket_count = bucket_count.max(1).min(ids.len());
-    let mut buckets = vec![Vec::new(); bucket_count];
-    for (idx, run_id) in ids.iter().enumerate() {
-        buckets[idx % bucket_count].push(*run_id);
+    let group_size = max_per_container.max(1) as usize;
+    let groups: Vec<Vec<i32>> = ids
+        .chunks(group_size)
+        .map(|chunk| chunk.to_vec())
+        .collect();
+    if max_containers > 0 {
+        let max = max_containers as usize;
+        if groups.len() > max {
+            warn!("Affinity groups ({}) exceed max_containers ({})", groups.len(), max);
+        }
     }
-    buckets
+    groups
 }
 
 fn parse_affinity_list(value: &str) -> Vec<i32> {
@@ -895,10 +904,10 @@ mod tests {
     }
 
     #[test]
-    fn build_affinity_groups_round_robin() {
-        let groups = build_affinity_groups(&[1, 2, 3, 4], 2);
+    fn build_affinity_groups_respects_max_per_container() {
+        let groups = build_affinity_groups(&[1, 2, 3, 4], 2, 2);
         assert_eq!(groups.len(), 2);
-        assert_eq!(groups[0], vec![1, 3]);
-        assert_eq!(groups[1], vec![2, 4]);
+        assert_eq!(groups[0], vec![1, 2]);
+        assert_eq!(groups[1], vec![3, 4]);
     }
 }
