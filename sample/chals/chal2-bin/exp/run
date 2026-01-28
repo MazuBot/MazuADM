@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 3 ]]; then
+  echo "Usage: $0 <TARGET_HOST> <TARGET_PORT> <TARGET_TEAM_ID>" >&2
+  exit 2
+fi
+
+TARGET_HOST="$1"
+TARGET_PORT="$2"
+TARGET_TEAM_ID="$3"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+IMAGE="chal2-exp"
+
+docker build -t "${IMAGE}" -f "${SCRIPT_DIR}/Dockerfile" "${SCRIPT_DIR}" >/dev/null
+docker run --rm --network host "${IMAGE}" /run "${TARGET_HOST}" "${TARGET_PORT}" "${TARGET_TEAM_ID}"

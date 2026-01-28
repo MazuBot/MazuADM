@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Ping Panel</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0b1020; color: #e8ecff; }
+      .wrap { max-width: 860px; margin: 0 auto; padding: 40px 18px; }
+      .card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); border-radius: 14px; padding: 18px; }
+      h1 { font-size: 22px; margin: 0 0 8px; }
+      p { margin: 8px 0; color: rgba(232,236,255,0.82); }
+      code { background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 8px; }
+      .row { display: flex; gap: 10px; margin-top: 14px; }
+      input { flex: 1; padding: 12px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.14); background: rgba(0,0,0,0.35); color: #e8ecff; outline: none; }
+      button { padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.14); background: rgba(126,231,135,0.16); color: #e8ecff; cursor: pointer; }
+      button:hover { background: rgba(126,231,135,0.24); }
+      pre { margin-top: 14px; padding: 12px; border-radius: 12px; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.12); overflow: auto; }
+      .muted { font-size: 13px; color: rgba(232,236,255,0.64); }
+      a { color: #a9c1ff; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>Ping Panel</h1>
+        <p>Submit a host and we'll ping it in the background.</p>
+        <p class="muted">API: <code>POST /api/ping</code> {"host":"example.com"} · Debug: <a href="/source">/source</a></p>
+
+        <div class="row">
+          <input id="host" placeholder="example.com" autocomplete="off" />
+          <button id="go">Ping</button>
+        </div>
+        <pre id="out">ready</pre>
+      </div>
+    </div>
+
+    <script>
+      const out = document.getElementById('out');
+      const host = document.getElementById('host');
+      const go = document.getElementById('go');
+
+      function setOut(obj) {
+        out.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+      }
+
+      go.addEventListener('click', async () => {
+        const h = host.value.trim();
+        if (!h) return setOut({ ok: false, error: "missing host" });
+        setOut("sending…");
+        try {
+          const resp = await fetch('/api/ping', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ host: h }),
+          });
+          setOut(await resp.json());
+        } catch (e) {
+          setOut(String(e));
+        }
+      });
+    </script>
+  </body>
+</html>
+
