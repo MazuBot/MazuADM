@@ -22,3 +22,7 @@ utoipa = { version = "5", features = ["chrono"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+[build-dependencies]
+serde = { workspace = true }
+toml = { workspace = true }
