@@ -5,10 +5,23 @@
 
   let { challenges, teams, exploits, exploitRuns, challengeId, onRefresh } = $props();
 
-  const emptyExploit = { name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, timeout_secs: 0, auto_add: 'none', insert_into_rounds: false };
+  function getNewExploitDefaults() {
+    return {
+      name: '',
+      docker_image: '',
+      entrypoint: '',
+      priority: 0,
+      max_per_container: Math.max(teams.length, 1),
+      default_counter: 999,
+      timeout_secs: 0,
+      auto_add: 'end',
+      insert_into_rounds: true
+    };
+  }
+
   let showAddExploit = $state(false);
-  let newExploit = $state({ ...emptyExploit });
-  let newExploitInitial = $state({ ...emptyExploit });
+  let newExploit = $state(getNewExploitDefaults());
+  let newExploitInitial = $state(getNewExploitDefaults());
 
   let editingRun = $state(null);
   let editForm = $state({ priority: '', sequence: 0, enabled: true });
@@ -87,15 +100,17 @@
       insert_into_rounds: newExploit.insert_into_rounds
     });
     showAddExploit = false;
-    newExploit = { ...emptyExploit };
-    newExploitInitial = { ...emptyExploit };
+    const defaults = getNewExploitDefaults();
+    newExploit = { ...defaults };
+    newExploitInitial = { ...defaults };
     onRefresh();
   }
 
   function openAddExploit() {
     showAddExploit = true;
-    newExploit = { ...emptyExploit };
-    newExploitInitial = { ...emptyExploit };
+    const defaults = getNewExploitDefaults();
+    newExploit = { ...defaults };
+    newExploitInitial = { ...defaults };
   }
 
   function openEditExploit(e) {
@@ -307,7 +322,7 @@
         Priority <input bind:value={newExploit.priority} type="number" />
       </label>
       <label class:field-changed={isNewExploitChanged('max_per_container')}>
-        Max per container <input bind:value={newExploit.max_per_container} type="number" placeholder="Default: 1" />
+        Max per container <input bind:value={newExploit.max_per_container} type="number" placeholder={`Default: ${Math.max(teams.length, 1)}`} />
       </label>
       <label class:field-changed={isNewExploitChanged('default_counter')}>
         Default counter <input bind:value={newExploit.default_counter} type="number" placeholder="Default: 999" />
