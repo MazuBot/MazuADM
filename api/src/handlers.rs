@@ -250,11 +250,16 @@ pub async fn create_round(State(s): S) -> R<i32> {
 }
 
 pub async fn run_round(State(s): S, Path(id): Path<i32>) -> R<String> {
-    // Finish any currently running rounds before starting new one
+    // Skip older pending rounds and finish older running rounds
     if let Ok(rounds) = s.db.get_active_rounds().await {
         for round in rounds {
-            if round.status == "running" && round.id != id {
-                let _ = s.db.finish_round(round.id).await;
+            if round.id < id {
+                let _ = s.db.skip_pending_jobs_for_round(round.id).await;
+                if round.status == "pending" {
+                    let _ = s.db.skip_round(round.id).await;
+                } else {
+                    let _ = s.db.finish_round(round.id).await;
+                }
                 if let Ok(r) = s.db.get_round(round.id).await {
                     broadcast(&s, "round_updated", &r);
                 }

@@ -213,6 +213,11 @@ impl Database {
         Ok(())
     }
 
+    pub async fn skip_round(&self, id: i32) -> Result<()> {
+        sqlx::query!("UPDATE rounds SET finished_at = NOW(), status = 'skipped' WHERE id = $1", id).execute(&self.pool).await?;
+        Ok(())
+    }
+
     pub async fn start_round(&self, id: i32) -> Result<()> {
         sqlx::query!("UPDATE rounds SET status = 'running' WHERE id = $1", id).execute(&self.pool).await?;
         Ok(())
@@ -297,6 +302,12 @@ impl Database {
     pub async fn update_job_priority(&self, id: i32, priority: i32) -> Result<()> {
         sqlx::query!("UPDATE exploit_jobs SET priority = $2 WHERE id = $1", id, priority).execute(&self.pool).await?;
         Ok(())
+    }
+
+    pub async fn skip_pending_jobs_for_round(&self, round_id: i32) -> Result<u64> {
+        let result = sqlx::query!("UPDATE exploit_jobs SET status = 'skipped', stderr = 'Round skipped' WHERE round_id = $1 AND status = 'pending'", round_id)
+            .execute(&self.pool).await?;
+        Ok(result.rows_affected())
     }
 
     // Flags

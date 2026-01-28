@@ -78,10 +78,10 @@ impl Executor {
         let duration_ms = start.elapsed().as_millis() as i32;
         let flags = Self::extract_flags(&stdout, flag_regex, max_flags);
         
-        let status = if timed_out { 
-            "timeout" 
-        } else if !flags.is_empty() {
+        let status = if !flags.is_empty() {
             "flag"
+        } else if timed_out { 
+            "timeout" 
         } else if ole {
             "ole"
         } else if exit_code == 0 { 
