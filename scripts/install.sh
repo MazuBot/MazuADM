@@ -13,8 +13,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$ROOT"
-cargo build --release -p mazuadm-cli -p mazuadm-api
-npm --prefix web run build
+cargo build --release -p mazuadm-cli -p mazuadm-api &
+npm --prefix web run build &
+wait
 
 BIN_DIR="/usr/local/bin"
 CLI_BIN="./target/release/mazuadm-cli"
