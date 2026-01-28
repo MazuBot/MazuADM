@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir httpx
 
 RUN rm -rf /run /var/run && mkdir -p /var/run
 COPY exploit.py /run
+COPY lib.py /lib.py
 RUN chmod 755 /run
 
 CMD ["/run"]
