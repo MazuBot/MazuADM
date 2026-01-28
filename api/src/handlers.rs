@@ -35,7 +35,7 @@ fn spawn_job_runner(db: Database, tx: tokio::sync::broadcast::Sender<WsMessage>,
         macro_rules! fail {
             ($msg:expr) => {{
                 let _ = db.finish_job(job_id, "error", None, Some($msg), 0).await;
-                if let Ok(j) = db.get_job(job_id).await { let _ = tx.send(WsMessage::new("job_updated", &j)); }
+                broadcast_job_update(&db, &tx, job_id).await;
                 return;
             }};
         }
@@ -65,9 +65,16 @@ fn spawn_job_runner(db: Database, tx: tokio::sync::broadcast::Sender<WsMessage>,
             }
             Err(e) => {
                 let _ = db.finish_job(job_id, "error", None, Some(&e.to_string()), 0).await;
+                broadcast_job_update(&db, &tx, job_id).await;
             }
         }
     });
+}
+
+async fn broadcast_job_update(db: &Database, tx: &tokio::sync::broadcast::Sender<WsMessage>, job_id: i32) {
+    if let Ok(j) = db.get_job(job_id).await {
+        let _ = tx.send(WsMessage::new("job_updated", &j));
+    }
 }
 
 // WebSocket handler
