@@ -1,10 +1,11 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { fade, scale } from 'svelte/transition';
 
   export let onClose = () => {};
   export let wide = false;
   export let ariaLabel = 'Close modal';
+  let modalEl;
 
   function onOverlayClick(e) {
     if (e.target === e.currentTarget) onClose();
@@ -24,6 +25,10 @@
   }
 
   onMount(() => {
+    tick().then(() => {
+      const target = modalEl?.querySelector('[data-autofocus]:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])');
+      target?.focus();
+    });
     window.addEventListener('keydown', onWindowKeydown);
     return () => window.removeEventListener('keydown', onWindowKeydown);
   });
@@ -43,6 +48,7 @@
     role="dialog"
     aria-modal="true"
     transition:scale|global={{ duration: 100, start: 0.98 }}
+    bind:this={modalEl}
   >
     <slot />
   </div>
