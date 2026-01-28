@@ -1,8 +1,9 @@
 # Build
 /target/
 
-# Environment
-.env
+# Config
+config.toml
+config.local.toml
 
 # Generated
 .sqlx/
