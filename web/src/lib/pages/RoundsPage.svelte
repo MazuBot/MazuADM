@@ -11,6 +11,8 @@
 
   let selectedJob = $state(null);
   let draggingJob = $state(null);
+  let challengeFilterId = $state(null);
+  let teamFilterId = $state(null);
 
   function getSelectedRound() {
     return rounds.find(r => r.id === selectedRoundId);
@@ -59,9 +61,20 @@
     if (e.key === 'Escape') closeModal();
   }
 
-  function sortedJobs() {
-    return [...jobs].sort((a, b) => b.priority - a.priority || a.id - b.id);
+  function sortedJobs(list = jobs) {
+    return [...list].sort((a, b) => b.priority - a.priority || a.id - b.id);
   }
+
+  let filteredJobs = $derived(() => {
+    return jobs.filter((job) => {
+      if (teamFilterId && job.team_id !== teamFilterId) return false;
+      if (challengeFilterId) {
+        const run = getExploitRunInfo(job.exploit_run_id);
+        if (!run || run.challenge_id !== challengeFilterId) return false;
+      }
+      return true;
+    });
+  });
 
   function onDragStart(e, job) {
     if (job.status !== 'pending') { e.preventDefault(); return; }
@@ -107,9 +120,27 @@
       {/each}
     </select>
     <button onclick={handleRunClick} disabled={!selectedRoundId}>Run</button>
+    <select
+      value={challengeFilterId ?? ''}
+      onchange={(e) => (challengeFilterId = e.target.value ? Number(e.target.value) : null)}
+    >
+      <option value="">All challenges</option>
+      {#each challenges as c}
+        <option value={c.id}>{c.name}</option>
+      {/each}
+    </select>
+    <select
+      value={teamFilterId ?? ''}
+      onchange={(e) => (teamFilterId = e.target.value ? Number(e.target.value) : null)}
+    >
+      <option value="">All teams</option>
+      {#each teams as t}
+        <option value={t.id}>{t.team_name}</option>
+      {/each}
+    </select>
   </div>
 
-  {#if jobs.length}
+  {#if filteredJobs.length}
     <table>
       <thead>
         <tr>
@@ -125,7 +156,7 @@
         </tr>
       </thead>
       <tbody>
-        {#each sortedJobs() as j}
+        {#each sortedJobs(filteredJobs) as j}
           <tr 
             class={j.status} 
             class:draggable={j.status === 'pending'}
