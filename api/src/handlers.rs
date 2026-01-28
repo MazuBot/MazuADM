@@ -3,6 +3,7 @@ use crate::AppState;
 use axum::{extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade}}, Json, response::Response};
 use futures_util::StreamExt;
 use mazuadm_core::*;
+use mazuadm_core::settings::{compute_timeout, load_job_settings};
 use mazuadm_core::scheduler::Scheduler;
 use mazuadm_core::executor::Executor;
 use mazuadm_core::container_manager::ContainerManager;
@@ -123,32 +124,7 @@ struct RoundFinalizePlan {
     finish_running_ids: Vec<i32>,
 }
 
-struct JobSettings {
-    worker_timeout: u64,
-    max_flags: usize,
-}
-
-fn parse_setting_u64(value: Option<String>, default: u64) -> u64 {
-    value.and_then(|v| v.parse().ok()).unwrap_or(default)
-}
-
-fn parse_setting_usize(value: Option<String>, default: usize) -> usize {
-    value.and_then(|v| v.parse().ok()).unwrap_or(default)
-}
-
-async fn load_job_settings(db: &Database) -> JobSettings {
-    let worker_timeout = parse_setting_u64(db.get_setting("worker_timeout").await.ok(), 60);
-    let max_flags = parse_setting_usize(db.get_setting("max_flags_per_job").await.ok(), 50);
-    JobSettings { worker_timeout, max_flags }
-}
-
-fn compute_timeout(exploit_timeout_secs: i32, worker_timeout: u64) -> u64 {
-    if exploit_timeout_secs > 0 {
-        exploit_timeout_secs as u64
-    } else {
-        worker_timeout
-    }
-}
+// settings helpers live in mazuadm_core::settings
 
 fn rounds_to_finalize(rounds: &[Round], current_id: i32) -> RoundFinalizePlan {
     let mut skip_pending_ids = Vec::new();
@@ -579,14 +555,12 @@ pub async fn update_relation(State(s): S, Path((challenge_id, team_id)): Path<(i
 #[cfg(test)]
 mod tests {
     use super::{
-        compute_timeout,
-        parse_setting_u64,
-        parse_setting_usize,
         rounds_to_finalize,
         rounds_to_reset_after,
         select_running_round_id,
         should_continue_ws,
     };
+    use mazuadm_core::settings::compute_timeout;
     use mazuadm_core::Round;
     use chrono::{TimeZone, Utc};
 
@@ -640,26 +614,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_setting_u64_falls_back() {
-        assert_eq!(parse_setting_u64(None, 60), 60);
-        assert_eq!(parse_setting_u64(Some("bad".to_string()), 60), 60);
-        assert_eq!(parse_setting_u64(Some("30".to_string()), 60), 30);
-    }
-
-    #[test]
-    fn parse_setting_usize_falls_back() {
-        assert_eq!(parse_setting_usize(None, 50), 50);
-        assert_eq!(parse_setting_usize(Some("bad".to_string()), 50), 50);
-        assert_eq!(parse_setting_usize(Some("25".to_string()), 50), 25);
-    }
-
-    #[test]
-    fn compute_timeout_prefers_exploit() {
+    fn compute_timeout_uses_exploit_or_worker() {
         assert_eq!(compute_timeout(10, 60), 10);
-    }
-
-    #[test]
-    fn compute_timeout_falls_back_to_worker() {
         assert_eq!(compute_timeout(0, 60), 60);
     }
 }
