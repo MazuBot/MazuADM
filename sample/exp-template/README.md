@@ -24,4 +24,8 @@ The runner injects:
 
 If those are not set, the template accepts args: `exploit.py <host> <port> <team_id>`.
 
+Optional overrides:
+
+- `TARGET_PORT_OVERRIDE` - Replace the resolved port if set.
+
 Your exploit should print any flags to stdout. Update the HTTP request path and regex in `exploit.py` to match your service.
