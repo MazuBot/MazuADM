@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir pwntools
 COPY --from=build_chall /build/chall /opt/chall
 RUN rm -rf /run /var/run && mkdir -p /var/run
 COPY exploit.py /run
+COPY lib.py /lib.py
 RUN chmod 755 /run
 
 CMD ["/run"]
