@@ -118,16 +118,12 @@ impl Executor {
         // Health check containers before round
         self.container_manager.health_check().await?;
 
-        let concurrent_limit: usize = self.db.get_setting("concurrent_limit").await
-            .ok().and_then(|v| v.parse().ok()).unwrap_or(10);
-        let worker_timeout: u64 = self.db.get_setting("worker_timeout").await
-            .ok().and_then(|v| v.parse().ok()).unwrap_or(60);
-        let max_flags: usize = self.db.get_setting("max_flags_per_job").await
-            .ok().and_then(|v| v.parse().ok()).unwrap_or(50);
-        let skip_on_flag: bool = self.db.get_setting("skip_on_flag").await
-            .ok().map(|v| v == "true").unwrap_or(false);
-        let sequential_per_target: bool = self.db.get_setting("sequential_per_target").await
-            .ok().map(|v| v == "true").unwrap_or(false);
+        let settings = load_executor_settings(&self.db).await;
+        let concurrent_limit = settings.concurrent_limit;
+        let worker_timeout = settings.worker_timeout;
+        let max_flags = settings.max_flags;
+        let skip_on_flag = settings.skip_on_flag;
+        let sequential_per_target = settings.sequential_per_target;
 
         // Pre-warm containers
         self.container_manager.prewarm_for_round(concurrent_limit).await?;
@@ -282,6 +278,35 @@ fn compute_timeout(exploit_timeout_secs: i32, worker_timeout: u64) -> u64 {
     }
 }
 
+struct ExecutorSettings {
+    concurrent_limit: usize,
+    worker_timeout: u64,
+    max_flags: usize,
+    skip_on_flag: bool,
+    sequential_per_target: bool,
+}
+
+fn parse_setting_u64(value: Option<String>, default: u64) -> u64 {
+    value.and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+fn parse_setting_usize(value: Option<String>, default: usize) -> usize {
+    value.and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+fn parse_setting_bool(value: Option<String>, default: bool) -> bool {
+    value.map(|v| v == "true").unwrap_or(default)
+}
+
+async fn load_executor_settings(db: &Database) -> ExecutorSettings {
+    let concurrent_limit = parse_setting_usize(db.get_setting("concurrent_limit").await.ok(), 10);
+    let worker_timeout = parse_setting_u64(db.get_setting("worker_timeout").await.ok(), 60);
+    let max_flags = parse_setting_usize(db.get_setting("max_flags_per_job").await.ok(), 50);
+    let skip_on_flag = parse_setting_bool(db.get_setting("skip_on_flag").await.ok(), false);
+    let sequential_per_target = parse_setting_bool(db.get_setting("sequential_per_target").await.ok(), false);
+    ExecutorSettings { concurrent_limit, worker_timeout, max_flags, skip_on_flag, sequential_per_target }
+}
+
 fn derive_job_status(flags_found: bool, timed_out: bool, ole: bool, exit_code: i64) -> &'static str {
     if flags_found {
         "flag"
@@ -310,7 +335,14 @@ pub struct JobResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_timeout, derive_job_status, stagger_delay_ms};
+    use super::{
+        compute_timeout,
+        derive_job_status,
+        parse_setting_bool,
+        parse_setting_u64,
+        parse_setting_usize,
+        stagger_delay_ms,
+    };
 
     #[test]
     fn compute_timeout_prefers_exploit() {
@@ -350,5 +382,26 @@ mod tests {
     #[test]
     fn stagger_delay_is_deterministic() {
         assert_eq!(stagger_delay_ms(123), (123_u64 % 500));
+    }
+
+    #[test]
+    fn parse_setting_u64_falls_back() {
+        assert_eq!(parse_setting_u64(None, 60), 60);
+        assert_eq!(parse_setting_u64(Some("bad".to_string()), 60), 60);
+        assert_eq!(parse_setting_u64(Some("30".to_string()), 60), 30);
+    }
+
+    #[test]
+    fn parse_setting_usize_falls_back() {
+        assert_eq!(parse_setting_usize(None, 50), 50);
+        assert_eq!(parse_setting_usize(Some("bad".to_string()), 50), 50);
+        assert_eq!(parse_setting_usize(Some("25".to_string()), 50), 25);
+    }
+
+    #[test]
+    fn parse_setting_bool_falls_back() {
+        assert!(!parse_setting_bool(None, false));
+        assert!(!parse_setting_bool(Some("bad".to_string()), false));
+        assert!(parse_setting_bool(Some("true".to_string()), false));
     }
 }
