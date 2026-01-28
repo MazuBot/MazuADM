@@ -102,8 +102,13 @@ impl Executor {
         let flags = Self::extract_flags(&stdout, flag_regex, max_flags);
         
         let status = derive_job_status(!flags.is_empty(), timed_out, ole, exit_code);
+        let final_status = if let Ok(current) = self.db.get_job(job.id).await {
+            if current.status == "stopped" && status != "flag" { "stopped" } else { status }
+        } else {
+            status
+        };
         
-        self.db.finish_job(job.id, status, Some(&stdout), Some(&stderr), duration_ms).await?;
+        self.db.finish_job(job.id, final_status, Some(&stdout), Some(&stderr), duration_ms).await?;
         
         // Broadcast job finished
         if let Ok(updated_job) = self.db.get_job(job.id).await {

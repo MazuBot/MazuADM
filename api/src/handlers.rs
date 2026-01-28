@@ -65,6 +65,12 @@ fn spawn_job_runner(db: Database, tx: tokio::sync::broadcast::Sender<WsMessage>,
                 }
             }
             Err(e) => {
+                if let Ok(current) = db.get_job(job_id).await {
+                    if current.status == "stopped" {
+                        broadcast_job_update(&db, &tx, job_id).await;
+                        return;
+                    }
+                }
                 let _ = db.finish_job(job_id, "error", None, Some(&e.to_string()), 0).await;
                 broadcast_job_update(&db, &tx, job_id).await;
             }
@@ -379,7 +385,7 @@ async fn stop_running_jobs_with_flag_check(s: &AppState) {
             let stdout = job.stdout.as_deref().unwrap_or("");
             let flags = Executor::extract_flags(stdout, None, settings.max_flags);
             let has_flag = !flags.is_empty();
-            let _ = s.db.mark_job_stopped(job.id, has_flag).await;
+            let _ = s.db.mark_job_stopped_with_reason(job.id, has_flag, "stopped by new round").await;
             if let Ok(j) = s.db.get_job(job.id).await {
                 broadcast(s, "job_updated", &j);
             }
@@ -475,6 +481,43 @@ pub async fn run_existing_job(State(s): S, Path(job_id): Path<i32>) -> R<Exploit
     
     spawn_job_runner(s.db.clone(), s.tx.clone(), job_id, exploit_run_id, job.team_id);
     
+    Ok(Json(job))
+}
+
+pub async fn stop_job(State(s): S, Path(job_id): Path<i32>) -> R<ExploitJob> {
+    let job = s.db.get_job(job_id).await.map_err(err)?;
+    if job.status != "running" {
+        return Ok(Json(job));
+    }
+
+    let mut updated_jobs = Vec::new();
+    if let Some(container_id) = job.container_id.clone() {
+        if let Ok(jobs) = s.db.get_running_jobs_by_container(&container_id).await {
+            for running in jobs {
+                let _ = s.db.mark_job_stopped_with_reason(running.id, false, "stopped by user").await;
+                if let Ok(j) = s.db.get_job(running.id).await {
+                    updated_jobs.push(j);
+                }
+            }
+        }
+
+        if let Ok(Some(container)) = s.db.get_container_by_container_id(&container_id).await {
+            if let Ok(cm) = ContainerManager::new(s.db.clone()) {
+                let _ = cm.destroy_container(container.id).await;
+            }
+        }
+    } else {
+        let _ = s.db.mark_job_stopped_with_reason(job_id, false, "stopped by user").await;
+        if let Ok(j) = s.db.get_job(job_id).await {
+            updated_jobs.push(j);
+        }
+    }
+
+    for j in &updated_jobs {
+        broadcast(&s, "job_updated", j);
+    }
+
+    let job = s.db.get_job(job_id).await.map_err(err)?;
     Ok(Json(job))
 }
 

@@ -259,10 +259,27 @@ impl Database {
         Ok(jobs)
     }
 
+    pub async fn get_running_jobs_by_container(&self, container_id: &str) -> Result<Vec<ExploitJob>> {
+        Ok(sqlx::query_as!(ExploitJob,
+            "SELECT * FROM exploit_jobs WHERE container_id = $1 AND status = 'running'",
+            container_id
+        ).fetch_all(&self.pool).await?)
+    }
+
     pub async fn mark_job_stopped(&self, id: i32, has_flag: bool) -> Result<()> {
+        self.mark_job_stopped_with_reason(id, has_flag, "stopped by new round").await
+    }
+
+    pub async fn mark_job_stopped_with_reason(&self, id: i32, has_flag: bool, reason: &str) -> Result<()> {
         let status = if has_flag { "flag" } else { "stopped" };
-        sqlx::query!("UPDATE exploit_jobs SET status = $2, stderr = COALESCE(stderr, '') || E'\\n[stopped by new round]' WHERE id = $1", id, status)
-            .execute(&self.pool).await?;
+        sqlx::query!(
+            "UPDATE exploit_jobs SET status = $2, stderr = COALESCE(stderr, '') || E'\\n[' || $3 || ']' WHERE id = $1",
+            id,
+            status,
+            reason
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -423,6 +440,13 @@ impl Database {
 
     pub async fn get_container(&self, id: i32) -> Result<ExploitContainer> {
         Ok(sqlx::query_as!(ExploitContainer, "SELECT * FROM exploit_containers WHERE id = $1", id).fetch_one(&self.pool).await?)
+    }
+
+    pub async fn get_container_by_container_id(&self, container_id: &str) -> Result<Option<ExploitContainer>> {
+        Ok(sqlx::query_as!(ExploitContainer,
+            "SELECT * FROM exploit_containers WHERE container_id = $1",
+            container_id
+        ).fetch_optional(&self.pool).await?)
     }
 
     pub async fn get_available_container(&self, exploit_id: i32, max_per_container: i32) -> Result<Option<ExploitContainer>> {

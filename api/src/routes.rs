@@ -22,6 +22,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/jobs/reorder", post(reorder_jobs))
         .route("/api/jobs/run", post(run_single_job))
         .route("/api/jobs/{id}/run", post(run_existing_job))
+        .route("/api/jobs/{id}/stop", post(stop_job))
         .route("/api/flags", get(list_flags))
         .route("/api/settings", get(list_settings).post(update_setting))
         .route("/api/containers", get(list_containers))
