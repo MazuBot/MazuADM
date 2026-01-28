@@ -1,14 +1,10 @@
 # Build
 /target/
 
-# Dependencies
-/web/node_modules/
-
 # Environment
 .env
 
 # Generated
 .sqlx/
-/web/dist/
 
 AGENTS.md

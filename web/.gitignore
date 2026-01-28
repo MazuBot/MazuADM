@@ -1,0 +1,6 @@
+# Dependencies
+node_modules/
+
+# Generated
+dist/
+.svelte-kit/
