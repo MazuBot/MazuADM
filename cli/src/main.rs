@@ -110,7 +110,7 @@ enum ExploitCmd {
 #[derive(Subcommand)]
 enum RunCmd {
     /// Add a new exploit run
-    Add { #[arg(long)] exploit: i32, #[arg(long)] challenge: i32, #[arg(long, value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String, #[arg(long)] priority: Option<i32>, #[arg(long)] sequence: Option<i32> },
+    Add { #[arg(long, value_name = "EXPLOIT", help = "Exploit name")] exploit: String, #[arg(long)] challenge: i32, #[arg(long, value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String, #[arg(long)] priority: Option<i32>, #[arg(long)] sequence: Option<i32> },
     /// List exploit runs
     List { #[arg(long)] challenge: Option<i32>, #[arg(long, value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: Option<String> },
     /// Update an exploit run
@@ -118,9 +118,9 @@ enum RunCmd {
     /// Delete an exploit run
     Delete { id: i32 },
     /// Append exploit run to all teams for an exploit/challenge pair
-    AppendAll { #[arg(long)] exploit: i32, #[arg(long)] challenge: i32, #[arg(long)] priority: Option<i32> },
+    AppendAll { #[arg(long, value_name = "EXPLOIT", help = "Exploit name")] exploit: String, #[arg(long)] challenge: i32, #[arg(long)] priority: Option<i32> },
     /// Prepend exploit run to all teams for an exploit/challenge pair
-    PrependAll { #[arg(long)] exploit: i32, #[arg(long)] challenge: i32, #[arg(long)] priority: Option<i32> },
+    PrependAll { #[arg(long, value_name = "EXPLOIT", help = "Exploit name")] exploit: String, #[arg(long)] challenge: i32, #[arg(long)] priority: Option<i32> },
 }
 
 #[derive(Subcommand)]
@@ -662,8 +662,17 @@ async fn main() -> Result<()> {
         },
         Cmd::Run { cmd } => match cmd {
             RunCmd::Add { exploit, challenge, team, priority, sequence } => {
+                let exploit = resolve_exploit(&db, challenge, &exploit).await?;
                 let team = resolve_team_ref(&db, &team).await?;
-                let r = db.create_exploit_run(CreateExploitRun { exploit_id: exploit, challenge_id: challenge, team_id: team.id, priority, sequence }).await?;
+                let r = db
+                    .create_exploit_run(CreateExploitRun {
+                        exploit_id: exploit.id,
+                        challenge_id: challenge,
+                        team_id: team.id,
+                        priority,
+                        sequence,
+                    })
+                    .await?;
                 println!("Created run {}", r.id);
             }
             RunCmd::List { challenge, team } => {
@@ -697,16 +706,17 @@ async fn main() -> Result<()> {
             }
             RunCmd::Delete { id } => { db.delete_exploit_run(id).await?; println!("Deleted run {}", id); }
             RunCmd::AppendAll { exploit, challenge, priority } => {
+                let exploit = resolve_exploit(&db, challenge, &exploit).await?;
                 let teams = db.list_teams().await?;
                 let mut created = 0usize;
                 let mut updated = 0usize;
                 for team in teams.iter() {
                     let runs = db.list_exploit_runs(Some(challenge), Some(team.id)).await?;
                     let sequence = next_sequence(RunInsertPosition::Append, &runs)?;
-                    let existed = has_exploit_run(&runs, exploit);
+                    let existed = has_exploit_run(&runs, exploit.id);
                     let run = db
                         .create_exploit_run(CreateExploitRun {
-                            exploit_id: exploit,
+                            exploit_id: exploit.id,
                             challenge_id: challenge,
                             team_id: team.id,
                             priority,
@@ -723,19 +733,26 @@ async fn main() -> Result<()> {
                         team.team_id, team.team_name, run.id, run.sequence
                     );
                 }
-                println!("Appended run to {} teams (created {}, updated {})", teams.len(), created, updated);
+                println!(
+                    "Appended run {} to {} teams (created {}, updated {})",
+                    exploit.name,
+                    teams.len(),
+                    created,
+                    updated
+                );
             }
             RunCmd::PrependAll { exploit, challenge, priority } => {
+                let exploit = resolve_exploit(&db, challenge, &exploit).await?;
                 let teams = db.list_teams().await?;
                 let mut created = 0usize;
                 let mut updated = 0usize;
                 for team in teams.iter() {
                     let runs = db.list_exploit_runs(Some(challenge), Some(team.id)).await?;
                     let sequence = next_sequence(RunInsertPosition::Prepend, &runs)?;
-                    let existed = has_exploit_run(&runs, exploit);
+                    let existed = has_exploit_run(&runs, exploit.id);
                     let run = db
                         .create_exploit_run(CreateExploitRun {
-                            exploit_id: exploit,
+                            exploit_id: exploit.id,
                             challenge_id: challenge,
                             team_id: team.id,
                             priority,
@@ -752,7 +769,13 @@ async fn main() -> Result<()> {
                         team.team_id, team.team_name, run.id, run.sequence
                     );
                 }
-                println!("Prepended run to {} teams (created {}, updated {})", teams.len(), created, updated);
+                println!(
+                    "Prepended run {} to {} teams (created {}, updated {})",
+                    exploit.name,
+                    teams.len(),
+                    created,
+                    updated
+                );
             }
         },
         Cmd::Round { cmd } => match cmd {
