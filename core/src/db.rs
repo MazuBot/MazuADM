@@ -74,6 +74,11 @@ impl Database {
         Ok(())
     }
 
+    pub async fn set_team_enabled(&self, id: i32, enabled: bool) -> Result<()> {
+        sqlx::query!("UPDATE teams SET enabled = $2 WHERE id = $1", id, enabled).execute(&self.pool).await?;
+        Ok(())
+    }
+
     // Relations
     pub async fn create_relation(&self, challenge_id: i32, team_id: i32, addr: Option<String>, port: Option<i32>) -> Result<ChallengeTeamRelation> {
         Ok(sqlx::query_as!(ChallengeTeamRelation,
@@ -139,6 +144,11 @@ impl Database {
 
     pub async fn delete_exploit(&self, id: i32) -> Result<()> {
         sqlx::query!("DELETE FROM exploits WHERE id = $1", id).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn set_exploit_enabled(&self, id: i32, enabled: bool) -> Result<()> {
+        sqlx::query!("UPDATE exploits SET enabled = $2 WHERE id = $1", id, enabled).execute(&self.pool).await?;
         Ok(())
     }
 
@@ -251,10 +261,9 @@ impl Database {
     }
 
     pub async fn count_running_jobs_for_container(&self, container_id: &str) -> Result<i64> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM exploit_jobs WHERE container_id = $1 AND status = 'running'")
-            .bind(container_id)
+        let row = sqlx::query_scalar!("SELECT COUNT(*) FROM exploit_jobs WHERE container_id = $1 AND status = 'running'", container_id)
             .fetch_one(&self.pool).await?;
-        Ok(count)
+        Ok(row.unwrap_or(0))
     }
 
     pub async fn update_job_status(&self, id: i32, status: &str, set_started: bool) -> Result<()> {
@@ -285,6 +294,11 @@ impl Database {
         Ok(())
     }
 
+    pub async fn update_job_priority(&self, id: i32, priority: i32) -> Result<()> {
+        sqlx::query!("UPDATE exploit_jobs SET priority = $2 WHERE id = $1", id, priority).execute(&self.pool).await?;
+        Ok(())
+    }
+
     // Flags
     pub async fn create_flag(&self, job_id: i32, round_id: i32, challenge_id: i32, team_id: i32, flag_value: &str) -> Result<Flag> {
         Ok(sqlx::query_as!(Flag,
@@ -301,10 +315,9 @@ impl Database {
     }
 
     pub async fn has_flag_for(&self, round_id: i32, challenge_id: i32, team_id: i32) -> Result<bool> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM flags WHERE round_id = $1 AND challenge_id = $2 AND team_id = $3")
-            .bind(round_id).bind(challenge_id).bind(team_id)
+        let count = sqlx::query_scalar!("SELECT COUNT(*) FROM flags WHERE round_id = $1 AND challenge_id = $2 AND team_id = $3", round_id, challenge_id, team_id)
             .fetch_one(&self.pool).await?;
-        Ok(count > 0)
+        Ok(count.unwrap_or(0) > 0)
     }
 
     pub async fn list_flags(&self, round_id: Option<i32>) -> Result<Vec<Flag>> {
@@ -407,7 +420,7 @@ impl Database {
 
     // Reset stale running jobs on startup
     pub async fn reset_stale_jobs(&self) -> Result<u64> {
-        let result = sqlx::query("UPDATE exploit_jobs SET status = 'error', stdout = COALESCE(stdout, '') || '\n[interrupted by server restart]' WHERE status = 'running'")
+        let result = sqlx::query!(r#"UPDATE exploit_jobs SET status = 'error', stdout = COALESCE(stdout, '') || E'\n[interrupted by server restart]' WHERE status = 'running'"#)
             .execute(&self.pool).await?;
         Ok(result.rows_affected())
     }

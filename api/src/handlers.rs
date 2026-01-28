@@ -340,8 +340,7 @@ async fn run_job_internal(db: Database, tx: tokio::sync::broadcast::Sender<WsMes
             }};
         }
         let executor = match Executor::new(db.clone(), tx.clone()) { Ok(e) => e, Err(e) => fail!(&e.to_string()) };
-        let run: ExploitRun = match sqlx::query_as("SELECT * FROM exploit_runs WHERE id = $1")
-            .bind(exploit_run_id).fetch_one(&db.pool).await { Ok(r) => r, Err(e) => fail!(&e.to_string()) };
+        let run = match db.get_exploit_run(exploit_run_id).await { Ok(r) => r, Err(e) => fail!(&e.to_string()) };
         let exploit = match db.get_exploit(run.exploit_id).await { Ok(e) => e, Err(e) => fail!(&e.to_string()) };
         let challenge = match db.get_challenge(run.challenge_id).await { Ok(c) => c, Err(e) => fail!(&e.to_string()) };
         let team = match db.get_team(team_id).await { Ok(t) => t, Err(e) => fail!(&e.to_string()) };

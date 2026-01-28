@@ -210,11 +210,11 @@ async fn main() -> Result<()> {
             }
             TeamCmd::Delete { id } => { db.delete_team(id).await?; println!("Deleted team {}", id); }
             TeamCmd::Enable { id } => {
-                sqlx::query!("UPDATE teams SET enabled = true WHERE id = $1", id).execute(&db.pool).await?;
+                db.set_team_enabled(id, true).await?;
                 println!("Enabled");
             }
             TeamCmd::Disable { id } => {
-                sqlx::query!("UPDATE teams SET enabled = false WHERE id = $1", id).execute(&db.pool).await?;
+                db.set_team_enabled(id, false).await?;
                 println!("Disabled");
             }
         },
@@ -234,11 +234,11 @@ async fn main() -> Result<()> {
             }
             ExploitCmd::Delete { id } => { db.delete_exploit(id).await?; println!("Deleted exploit {}", id); }
             ExploitCmd::Enable { id } => {
-                sqlx::query!("UPDATE exploits SET enabled = true WHERE id = $1", id).execute(&db.pool).await?;
+                db.set_exploit_enabled(id, true).await?;
                 println!("Enabled");
             }
             ExploitCmd::Disable { id } => {
-                sqlx::query!("UPDATE exploits SET enabled = false WHERE id = $1", id).execute(&db.pool).await?;
+                db.set_exploit_enabled(id, false).await?;
                 println!("Disabled");
             }
             ExploitCmd::Run { id, team } => {
@@ -320,7 +320,7 @@ async fn main() -> Result<()> {
                 for flag in result.flags { println!("  {}", flag); }
             }
             JobCmd::SetPriority { id, priority } => {
-                sqlx::query!("UPDATE exploit_jobs SET priority = $2 WHERE id = $1", id, priority).execute(&db.pool).await?;
+                db.update_job_priority(id, priority).await?;
                 println!("Set job {} priority to {}", id, priority);
             }
         },
