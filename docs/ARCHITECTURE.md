@@ -179,10 +179,11 @@ Query parameters: `challenge_id`, `team_id`, `round_id`
 1. Containers are pre-warmed when a round is created.
 2. Each container has a `counter` that decrements per job execution.
 3. Each container enforces `max_per_container` concurrent execs.
-4. When `counter` reaches 0 and no execs remain, the container is destroyed.
-5. Dead containers are removed and recreated on demand.
-6. `max_containers` caps active containers per exploit (0 = unlimited).
-7. Containers are restored from Docker labels on restart.
+4. Containers carry `mazuadm.affinity` with a CSV list of `exploit_run_id` values.
+5. When `counter` reaches 0 and no execs remain, the container is destroyed.
+6. Dead containers are removed and recreated on demand.
+7. `max_containers` caps active containers per exploit (0 = unlimited).
+8. Containers and affinities are restored from Docker labels on restart.
 
 ---
 

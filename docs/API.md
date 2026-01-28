@@ -453,6 +453,7 @@ Update a relation.
   "status": "string",
   "running_execs": "int",
   "max_execs": "int",
+  "affinity_runs": "int[]",
   "created_at": "datetime"
 }
 ```
