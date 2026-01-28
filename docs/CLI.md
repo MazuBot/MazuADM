@@ -4,12 +4,21 @@
 
 The MazuADM CLI provides command-line access to all features of the CTF Attack/Defense Manager.
 
+## Install
+
+```bash
+./scripts/install.sh
+```
+
+This installs `mazuadm-cli` and `mazuadm-api` to `/usr/local/bin`, copies the exploit template to `/etc/mazuadm/exp-template`, and copies `config.toml` from your current directory to `/etc/mazuadm/config.toml` if it exists.
+
 ```bash
 mazuadm-cli [OPTIONS] <COMMAND>
 ```
 
 ## Global Options
 
+- `--config <PATH>` - Path to TOML config (overrides `MAZUADM_CONFIG` and default search)
 - `--db <URL>` - Database connection URL (default: `postgres://localhost/mazuadm`, env: `DATABASE_URL`)
 
 ## Commands

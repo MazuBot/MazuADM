@@ -12,6 +12,13 @@ A Trello-like interface for managing CTF A/D exploits with persistent container 
 
 ## Setup
 
+### Install binaries
+```bash
+./scripts/install.sh
+```
+
+The installer copies `config.toml` from your current directory to `/etc/mazuadm/config.toml` if it exists.
+
 ### Database
 ```bash
 createdb mazuadm

@@ -1,0 +1,2 @@
+database_url = "postgres://user:password@localhost/mazuadm"
+listen_addr = "0.0.0.0:3000"

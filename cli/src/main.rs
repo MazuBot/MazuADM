@@ -6,8 +6,10 @@ use tabled::{Table, Tabled};
 #[derive(Parser)]
 #[command(name = "mazuadm", about = "MazuADM - CTF Attack/Defense Manager CLI")]
 struct Cli {
-    #[arg(long, env = "DATABASE_URL", default_value = "postgres://localhost/mazuadm")]
-    db: String,
+    #[arg(long, global = true, value_name = "PATH", help = "Path to TOML config (overrides MAZUADM_CONFIG and default search)")]
+    config: Option<std::path::PathBuf>,
+    #[arg(long, env = "DATABASE_URL")]
+    db: Option<String>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -171,7 +173,16 @@ enum RelationCmd {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let db = Database::connect(&cli.db).await?;
+    let config_path = mazuadm_core::config::resolve_config_path(cli.config)?;
+    let config = match config_path {
+        Some(path) => mazuadm_core::config::load_toml_config(&path)?,
+        None => mazuadm_core::AppConfig::default(),
+    };
+    let db_url = cli
+        .db
+        .or_else(|| config.database_url)
+        .unwrap_or_else(|| "postgres://localhost/mazuadm".to_string());
+    let db = Database::connect(&db_url).await?;
 
     match cli.cmd {
         Cmd::Challenge { cmd } => match cmd {
