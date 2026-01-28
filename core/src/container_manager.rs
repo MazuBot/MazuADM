@@ -4,13 +4,83 @@ use bollard::Docker;
 use bollard::query_parameters::{CreateContainerOptions, StartContainerOptions, RemoveContainerOptions, InspectContainerOptions};
 use bollard::exec::{CreateExecOptions, StartExecOptions};
 use bollard::secret::{ContainerCreateBody, HostConfig};
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 use std::time::Duration;
 use tracing::{info, warn, error};
 
 pub struct ContainerManager {
     pub db: Database,
     pub docker: Docker,
+}
+
+const MAX_OUTPUT: usize = 256 * 1024; // 256KB limit
+
+struct ExecOutput {
+    stdout: String,
+    stderr: String,
+    ole: bool,
+    timed_out: bool,
+}
+
+async fn collect_exec_output<S>(stream: S, timeout: Option<Duration>) -> ExecOutput
+where
+    S: Stream<Item = Result<bollard::container::LogOutput, bollard::errors::Error>>,
+{
+    let mut stream = Box::pin(stream);
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    let mut ole = false;
+    let mut timed_out = false;
+    let deadline = timeout.map(|t| tokio::time::Instant::now() + t);
+
+    loop {
+        let msg = if let Some(deadline) = deadline {
+            let mut pinned_stream = stream.as_mut();
+            tokio::select! {
+                _ = tokio::time::sleep_until(deadline) => {
+                    timed_out = true;
+                    None
+                }
+                msg = pinned_stream.next() => msg,
+            }
+        } else {
+            stream.as_mut().next().await
+        };
+
+        if timed_out {
+            break;
+        }
+
+        match msg {
+            Some(Ok(log)) => {
+                let total_len = stdout.len() + stderr.len();
+                if total_len >= MAX_OUTPUT {
+                    ole = true;
+                    break;
+                }
+                let remaining = MAX_OUTPUT - total_len;
+                match log {
+                    bollard::container::LogOutput::StdOut { message }
+                    | bollard::container::LogOutput::Console { message } => {
+                        let slice = &message[..message.len().min(remaining)];
+                        stdout.push_str(&String::from_utf8_lossy(slice));
+                    }
+                    bollard::container::LogOutput::StdErr { message } => {
+                        let slice = &message[..message.len().min(remaining)];
+                        stderr.push_str(&String::from_utf8_lossy(slice));
+                    }
+                    _ => {}
+                }
+                if stdout.len() + stderr.len() >= MAX_OUTPUT {
+                    ole = true;
+                    break;
+                }
+            }
+            Some(Err(_)) | None => break,
+        }
+    }
+
+    ExecOutput { stdout, stderr, ole, timed_out }
 }
 
 impl ContainerManager {
@@ -97,14 +167,12 @@ impl ContainerManager {
 
     /// Execute command in a persistent container with timeout support
     pub async fn execute_in_container_with_timeout(&self, container: &ExploitContainer, cmd: Vec<String>, env: Vec<String>, timeout: Duration) -> Result<ExecResult> {
-        const MAX_OUTPUT: usize = 256 * 1024; // 256KB limit
-        
         let exec = self.docker.create_exec(&container.container_id, CreateExecOptions {
             cmd: Some(cmd),
             env: Some(env.into_iter().chain(std::iter::once("TERM=xterm".to_string())).collect()),
             attach_stdout: Some(true),
             attach_stderr: Some(true),
-            tty: Some(true),
+            tty: Some(false),
             ..Default::default()
         }).await?;
 
@@ -128,49 +196,24 @@ impl ContainerManager {
             }
         };
         
-        let output = self.docker.start_exec(&exec_id, Some(StartExecOptions { detach: false, tty: true, ..Default::default() })).await?;
-        
-        let mut stdout = String::new();
-        let mut ole = false;
-        let mut timed_out = false;
+        let output = self.docker.start_exec(&exec_id, Some(StartExecOptions { detach: false, tty: false, ..Default::default() })).await?;
+
         let mut pid: Option<i64> = None;
         
         // Spawn PID fetcher
         let pid_handle = tokio::spawn(pid_future);
-        
-        if let bollard::exec::StartExecResults::Attached { output: mut stream, .. } = output {
-            let deadline = tokio::time::Instant::now() + timeout;
-            
-            loop {
-                tokio::select! {
-                    _ = tokio::time::sleep_until(deadline) => {
-                        timed_out = true;
-                        break;
-                    }
-                    msg = stream.next() => {
-                        match msg {
-                            Some(Ok(log)) => {
-                                if stdout.len() >= MAX_OUTPUT {
-                                    ole = true;
-                                    break;
-                                }
-                                let data = match log {
-                                    bollard::container::LogOutput::StdOut { message } => Some(message),
-                                    bollard::container::LogOutput::StdErr { message } => Some(message),
-                                    bollard::container::LogOutput::Console { message } => Some(message),
-                                    _ => None,
-                                };
-                                if let Some(m) = data {
-                                    let remaining = MAX_OUTPUT.saturating_sub(stdout.len());
-                                    let slice = &m[..m.len().min(remaining)];
-                                    stdout.push_str(&String::from_utf8_lossy(slice));
-                                }
-                            }
-                            Some(Err(_)) | None => break,
-                        }
-                    }
-                }
-            }
+
+        let mut stdout = String::new();
+        let mut stderr = String::new();
+        let mut ole = false;
+        let mut timed_out = false;
+
+        if let bollard::exec::StartExecResults::Attached { output: stream, .. } = output {
+            let capture = collect_exec_output(stream, Some(timeout)).await;
+            stdout = capture.stdout;
+            stderr = capture.stderr;
+            ole = capture.ole;
+            timed_out = capture.timed_out;
         }
         
         // Get PID if we need to kill
@@ -183,53 +226,38 @@ impl ContainerManager {
             inspect.and_then(|i| i.exit_code).unwrap_or(-1) 
         };
 
-        Ok(ExecResult { stdout, stderr: String::new(), exit_code, ole, timed_out, pid })
+        Ok(ExecResult { stdout, stderr, exit_code, ole, timed_out, pid })
     }
 
     /// Execute command in a persistent container (legacy method for compatibility)
     pub async fn execute_in_container(&self, container: &ExploitContainer, cmd: Vec<String>, env: Vec<String>) -> Result<ExecResult> {
-        const MAX_OUTPUT: usize = 256 * 1024; // 256KB limit
-        
         let exec = self.docker.create_exec(&container.container_id, CreateExecOptions {
             cmd: Some(cmd),
             env: Some(env.into_iter().chain(std::iter::once("TERM=xterm".to_string())).collect()),
             attach_stdout: Some(true),
             attach_stderr: Some(true),
-            tty: Some(true),
+            tty: Some(false),
             ..Default::default()
         }).await?;
 
         let exec_id = exec.id.clone();
-        let output = self.docker.start_exec(&exec_id, Some(StartExecOptions { detach: false, tty: true, ..Default::default() })).await?;
-        
+        let output = self.docker.start_exec(&exec_id, Some(StartExecOptions { detach: false, tty: false, ..Default::default() })).await?;
+
         let mut stdout = String::new();
+        let mut stderr = String::new();
         let mut ole = false;
-        
-        // With TTY, all output comes as Raw bytes (stdout and stderr combined)
-        if let bollard::exec::StartExecResults::Attached { output: mut stream, .. } = output {
-            while let Some(Ok(log)) = stream.next().await {
-                if stdout.len() >= MAX_OUTPUT {
-                    ole = true;
-                    break;
-                }
-                let msg = match log {
-                    bollard::container::LogOutput::StdOut { message } => Some(message),
-                    bollard::container::LogOutput::StdErr { message } => Some(message),
-                    bollard::container::LogOutput::Console { message } => Some(message),
-                    _ => None,
-                };
-                if let Some(m) = msg {
-                    let remaining = MAX_OUTPUT.saturating_sub(stdout.len());
-                    let slice = &m[..m.len().min(remaining)];
-                    stdout.push_str(&String::from_utf8_lossy(slice));
-                }
-            }
+
+        if let bollard::exec::StartExecResults::Attached { output: stream, .. } = output {
+            let capture = collect_exec_output(stream, None).await;
+            stdout = capture.stdout;
+            stderr = capture.stderr;
+            ole = capture.ole;
         }
 
         let inspect = self.docker.inspect_exec(&exec_id).await?;
         let exit_code = if ole { -2 } else { inspect.exit_code.unwrap_or(-1) };
 
-        Ok(ExecResult { stdout, stderr: String::new(), exit_code, ole, timed_out: false, pid: inspect.pid })
+        Ok(ExecResult { stdout, stderr, exit_code, ole, timed_out: false, pid: inspect.pid })
     }
 
     /// Kill a process inside a container by host PID (translates to container PID)
@@ -368,4 +396,53 @@ pub struct ExecResult {
     pub ole: bool,
     pub timed_out: bool,
     pub pid: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{collect_exec_output, MAX_OUTPUT};
+    use bollard::container::LogOutput;
+    use futures::stream;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn collect_exec_output_separates_streams() {
+        let items = vec![
+            Ok(LogOutput::StdOut { message: "out".into() }),
+            Ok(LogOutput::StdErr { message: "err".into() }),
+            Ok(LogOutput::Console { message: "con".into() }),
+        ];
+        let stream = stream::iter(items);
+        let out = collect_exec_output(stream, None).await;
+        assert_eq!(out.stdout, "outcon");
+        assert_eq!(out.stderr, "err");
+        assert!(!out.ole);
+        assert!(!out.timed_out);
+    }
+
+    #[tokio::test]
+    async fn collect_exec_output_times_out() {
+        let stream = stream::unfold((), |_| async {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            Some((Ok(LogOutput::StdOut { message: "late".into() }), ()))
+        });
+        let out = collect_exec_output(stream, Some(Duration::from_millis(20))).await;
+        assert!(out.timed_out);
+        assert!(out.stdout.is_empty());
+        assert!(out.stderr.is_empty());
+    }
+
+    #[tokio::test]
+    async fn collect_exec_output_enforces_max_output() {
+        let chunk = vec![b'a'; MAX_OUTPUT / 2];
+        let items = vec![
+            Ok(LogOutput::StdOut { message: chunk.clone().into() }),
+            Ok(LogOutput::StdErr { message: chunk.clone().into() }),
+            Ok(LogOutput::StdOut { message: chunk.clone().into() }),
+        ];
+        let stream = stream::iter(items);
+        let out = collect_exec_output(stream, None).await;
+        assert!(out.ole);
+        assert_eq!(out.stdout.len() + out.stderr.len(), MAX_OUTPUT);
+    }
 }
