@@ -101,7 +101,7 @@ enum RelationCmd { List { challenge: String }, Get { challenge: String, team: St
 #[derive(Tabled)] struct JobRow { id: i32, run: String, team_id: String, team_name: String, priority: i32, status: String }
 #[derive(Tabled)] struct FlagRow { id: i32, round: String, challenge: i32, team_id: String, team_name: String, flag: String, status: String }
 #[derive(Tabled)] struct SettingRow { key: String, value: String }
-#[derive(Tabled)] struct ContainerRow { id: String, exploit: i32, status: String, counter: i32, execs: String }
+#[derive(Tabled)] struct ContainerRow { id: String, exploit: i32, status: String, counter: i32, execs: String, affinity: String }
 #[derive(Tabled)] struct RunnerRow { id: i32, run: String, team_id: String, team_name: String, status: String }
 #[derive(Tabled)] struct RelationRow { challenge: i32, team_id: String, team_name: String, addr: String, port: String }
 
@@ -346,7 +346,7 @@ async fn main() -> Result<()> {
         },
         Cmd::Container { cmd } => match cmd {
             ContainerCmd::List => {
-                let rows: Vec<_> = ctx.api.list_containers().await?.into_iter().map(|c| ContainerRow { id: c.id[..12.min(c.id.len())].to_string(), exploit: c.exploit_id, status: c.status, counter: c.counter, execs: format!("{}/{}", c.running_execs, c.max_execs) }).collect();
+                let rows: Vec<_> = ctx.api.list_containers().await?.into_iter().map(|c| ContainerRow { id: c.id[..12.min(c.id.len())].to_string(), exploit: c.exploit_id, status: c.status, counter: c.counter, execs: format!("{}/{}", c.running_execs, c.max_execs), affinity: if c.affinity_runs.is_empty() { "-".into() } else { c.affinity_runs.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",") } }).collect();
                 println!("{}", Table::new(rows));
             }
             ContainerCmd::Runners { id } => {

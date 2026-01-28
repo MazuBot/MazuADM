@@ -195,6 +195,7 @@ pub struct ContainerInfo {
     pub running_execs: usize,
     pub max_execs: usize,
     pub created_at: DateTime<Utc>,
+    pub affinity_runs: Vec<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
