@@ -51,12 +51,13 @@
       <h3>{getChallengeName(challenges, exploit.challenge_id)} / {exploit.name}</h3>
       <table class="containers-table">
         <colgroup>
+          <col style="width: 16%" />
+          <col style="width: 10%" />
+          <col style="width: 8%" />
+          <col style="width: 10%" />
+          <col style="width: 16%" />
+          <col style="width: 22%" />
           <col style="width: 18%" />
-          <col style="width: 12%" />
-          <col style="width: 10%" />
-          <col style="width: 10%" />
-          <col style="width: 30%" />
-          <col style="width: 20%" />
         </colgroup>
         <thead>
           <tr>
@@ -64,6 +65,7 @@
             <th>Status</th>
             <th>Counter</th>
             <th>Execs</th>
+            <th>Affinity</th>
             <th>Jobs</th>
             <th>Actions</th>
           </tr>
@@ -75,6 +77,15 @@
               <td>{c.status}</td>
               <td>{c.counter}</td>
               <td>{c.running_execs}/{c.max_execs}</td>
+              <td class="runners-cell">
+                {#if c.affinity_runs?.length}
+                  {#each c.affinity_runs as runId}
+                    <div>{getExploitRunName(exploitRuns, exploits, runId)}</div>
+                  {/each}
+                {:else}
+                  <span class="muted">-</span>
+                {/if}
+              </td>
               <td class="runners-cell">
                 {#if containerRunners[c.id]}
                   {#each containerRunners[c.id] as r}
