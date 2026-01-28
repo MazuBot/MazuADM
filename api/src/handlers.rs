@@ -301,13 +301,18 @@ pub async fn create_exploit_run(State(s): S, Json(r): Json<CreateExploitRun>) ->
 
 #[derive(Deserialize)]
 pub struct UpdateExploitRun {
-    pub priority: Option<i32>,
+    #[serde(default)]
+    pub priority: Option<Option<i32>>,
     pub sequence: Option<i32>,
     pub enabled: Option<bool>,
 }
 
 pub async fn update_exploit_run(State(s): S, Path(id): Path<i32>, Json(u): Json<UpdateExploitRun>) -> R<ExploitRun> {
-    let run = s.db.update_exploit_run(id, u.priority, u.sequence, u.enabled).await.map_err(err)?;
+    let (priority_set, priority_value) = match u.priority {
+        None => (false, None),
+        Some(value) => (true, value),
+    };
+    let run = s.db.update_exploit_run(id, priority_set, priority_value, u.sequence, u.enabled).await.map_err(err)?;
     broadcast(&s, "exploit_run_updated", &run);
     Ok(Json(run))
 }
