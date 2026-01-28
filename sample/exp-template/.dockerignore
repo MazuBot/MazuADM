@@ -1,6 +1,7 @@
 .git
 .gitignore
 .env
+config.toml
 __pycache__/
 *.pyc
 *.pyo

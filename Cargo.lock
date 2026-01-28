@@ -1272,7 +1272,9 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tabled",
+ "tempfile",
  "tokio",
+ "toml",
  "tracing",
  "tracing-subscriber",
 ]

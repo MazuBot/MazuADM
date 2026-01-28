@@ -3,6 +3,8 @@ use clap::{Parser, Subcommand};
 use mazuadm_core::*;
 use tabled::{Table, Tabled};
 
+mod exploit_config;
+
 #[derive(Parser)]
 #[command(name = "mazuadm", about = "MazuADM - CTF Attack/Defense Manager CLI")]
 struct Cli {
@@ -73,11 +75,33 @@ enum TeamCmd {
 #[derive(Subcommand)]
 enum ExploitCmd {
     /// Add a new exploit
-    Add { #[arg(long)] name: String, #[arg(long)] challenge: i32, #[arg(long)] image: String, #[arg(long)] entrypoint: Option<String>, #[arg(long)] priority: Option<i32>, #[arg(long)] max_per_container: Option<i32>, #[arg(long)] timeout: Option<i32> },
+    Add {
+        #[arg(long, value_name = "PATH", num_args = 0..=1, default_missing_value = "config.toml")]
+        config: Option<std::path::PathBuf>,
+        #[arg(long)] name: Option<String>,
+        #[arg(long)] challenge: Option<i32>,
+        #[arg(long)] image: Option<String>,
+        #[arg(long)] entrypoint: Option<String>,
+        #[arg(long)] priority: Option<i32>,
+        #[arg(long)] max_per_container: Option<i32>,
+        #[arg(long)] timeout: Option<i32>,
+        #[arg(long)] default_counter: Option<i32>,
+    },
     /// List exploits
     List { #[arg(long)] challenge: Option<i32> },
     /// Update an exploit
-    Update { id: i32, #[arg(long)] name: Option<String>, #[arg(long)] image: Option<String>, #[arg(long)] entrypoint: Option<String>, #[arg(long)] priority: Option<i32>, #[arg(long)] max_per_container: Option<i32>, #[arg(long)] timeout: Option<i32> },
+    Update {
+        id: i32,
+        #[arg(long, value_name = "PATH", num_args = 0..=1, default_missing_value = "config.toml")]
+        config: Option<std::path::PathBuf>,
+        #[arg(long)] name: Option<String>,
+        #[arg(long)] image: Option<String>,
+        #[arg(long)] entrypoint: Option<String>,
+        #[arg(long)] priority: Option<i32>,
+        #[arg(long)] max_per_container: Option<i32>,
+        #[arg(long)] timeout: Option<i32>,
+        #[arg(long)] default_counter: Option<i32>,
+    },
     /// Delete an exploit
     Delete { id: i32 },
     /// Enable an exploit
@@ -230,17 +254,68 @@ async fn main() -> Result<()> {
             }
         },
         Cmd::Exploit { cmd } => match cmd {
-            ExploitCmd::Add { name, challenge, image, priority, max_per_container, timeout, entrypoint } => {
-                let e = db.create_exploit(CreateExploit { name, challenge_id: challenge, docker_image: image, entrypoint, enabled: Some(true), priority, max_per_container, timeout_secs: timeout, default_counter: None, auto_add: None, insert_into_rounds: None }).await?;
+            ExploitCmd::Add { config, name, challenge, image, priority, max_per_container, timeout, entrypoint, default_counter } => {
+                let cfg = match config {
+                    Some(path) => exploit_config::load_exploit_config(&path)?,
+                    None => exploit_config::load_default_exploit_config()?,
+                };
+                let name = name.or(cfg.name).ok_or_else(|| anyhow::anyhow!("missing --name (or name in config)"))?;
+                let challenge_id = challenge.or(cfg.challenge_id).ok_or_else(|| anyhow::anyhow!("missing --challenge (or challenge in config)"))?;
+                let docker_image = image.or(cfg.docker_image).ok_or_else(|| anyhow::anyhow!("missing --image (or image in config)"))?;
+                let entrypoint = entrypoint.or(cfg.entrypoint);
+                let priority = priority.or(cfg.priority);
+                let max_per_container = max_per_container.or(cfg.max_per_container);
+                let timeout_secs = timeout.or(cfg.timeout_secs);
+                let default_counter = default_counter.or(cfg.default_counter);
+                let enabled = cfg.enabled.unwrap_or(true);
+
+                let e = db.create_exploit(CreateExploit {
+                    name,
+                    challenge_id,
+                    docker_image,
+                    entrypoint,
+                    enabled: Some(enabled),
+                    priority,
+                    max_per_container,
+                    timeout_secs,
+                    default_counter,
+                    auto_add: None,
+                    insert_into_rounds: None,
+                }).await?;
                 println!("Created exploit {}", e.id);
             }
             ExploitCmd::List { challenge } => {
                 let rows: Vec<_> = db.list_exploits(challenge).await?.into_iter().map(|e| ExploitRow { id: e.id, name: e.name, enabled: e.enabled, challenge: e.challenge_id, image: e.docker_image, priority: e.priority }).collect();
                 println!("{}", Table::new(rows));
             }
-            ExploitCmd::Update { id, name, image, entrypoint, priority, max_per_container, timeout } => {
+            ExploitCmd::Update { id, config, name, image, entrypoint, priority, max_per_container, timeout, default_counter } => {
+                let cfg = match config {
+                    Some(path) => exploit_config::load_exploit_config(&path)?,
+                    None => exploit_config::load_default_exploit_config()?,
+                };
                 let e = db.get_exploit(id).await?;
-                db.update_exploit(id, UpdateExploit { name: name.unwrap_or(e.name), docker_image: image.unwrap_or(e.docker_image), entrypoint: entrypoint.or(e.entrypoint), enabled: Some(e.enabled), priority: priority.or(Some(e.priority)), max_per_container: max_per_container.or(Some(e.max_per_container)), timeout_secs: timeout.or(Some(e.timeout_secs)), default_counter: Some(e.default_counter) }).await?;
+                let name = name.or(cfg.name).unwrap_or(e.name);
+                let docker_image = image.or(cfg.docker_image).unwrap_or(e.docker_image);
+                let entrypoint = entrypoint.or(cfg.entrypoint).or(e.entrypoint);
+                let enabled = cfg.enabled.unwrap_or(e.enabled);
+                let priority = priority.or(cfg.priority).or(Some(e.priority));
+                let max_per_container = max_per_container.or(cfg.max_per_container).or(Some(e.max_per_container));
+                let timeout_secs = timeout.or(cfg.timeout_secs).or(Some(e.timeout_secs));
+                let default_counter = default_counter.or(cfg.default_counter).or(Some(e.default_counter));
+
+                db.update_exploit(
+                    id,
+                    UpdateExploit {
+                        name,
+                        docker_image,
+                        entrypoint,
+                        enabled: Some(enabled),
+                        priority,
+                        max_per_container,
+                        timeout_secs,
+                        default_counter,
+                    },
+                ).await?;
                 println!("Updated exploit {}", id);
             }
             ExploitCmd::Delete { id } => { db.delete_exploit(id).await?; println!("Deleted exploit {}", id); }

@@ -1,0 +1,8 @@
+name = "example-exp"
+challenge = 1
+image = "example-exp:latest"
+priority = 100
+max_per_container = 1
+timeout = 30
+default_counter = 999
+enabled = true

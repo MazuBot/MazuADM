@@ -11,7 +11,13 @@ docker build -t my-exploit:latest .
 ## Register
 
 ```bash
-mazuadm-cli exploit add --name "example-exp" --challenge 1 --image "my-exploit:latest"
+mazuadm-cli exploit add --config config.toml
+```
+
+Update an existing exploit:
+
+```bash
+mazuadm-cli exploit update 1 --config config.toml
 ```
 
 ## Required Environment

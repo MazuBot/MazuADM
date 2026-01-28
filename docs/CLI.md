@@ -69,6 +69,7 @@ mazuadm-cli team disable 1
 # Add a new exploit
 mazuadm-cli exploit add --name "pwn1-exp" --challenge 1 --image "myexploit:latest" \
     --entrypoint "/run.sh" --priority 100 --max-per-container 2 --timeout 30
+mazuadm-cli exploit add --config config.toml
 
 # List exploits
 mazuadm-cli exploit list
@@ -76,6 +77,7 @@ mazuadm-cli exploit list --challenge 1
 
 # Update an exploit
 mazuadm-cli exploit update 1 --name "pwn1-exp-v2" --timeout 60
+mazuadm-cli exploit update 1 --config config.toml
 
 # Delete an exploit
 mazuadm-cli exploit delete 1

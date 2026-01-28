@@ -15,3 +15,7 @@ tracing-subscriber = { workspace = true }
 clap = { version = "4", features = ["derive", "env"] }
 reqwest = { version = "0.12", features = ["json"] }
 tabled = "0.20"
+toml = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
