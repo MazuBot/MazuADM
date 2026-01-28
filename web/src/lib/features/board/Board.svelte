@@ -316,6 +316,12 @@
     }
   }
 
+  async function toggleRunEnabled(run, e) {
+    e.stopPropagation();
+    await api.updateExploitRun(run.id, { enabled: !run.enabled });
+    onRefresh();
+  }
+
   function onCardDragStart(e, run) {
     draggingCard = run;
     e.dataTransfer.effectAllowed = 'move';
@@ -460,15 +466,26 @@
               <span class="card-seq">{idx + 1}</span>
               <span class="card-name">{getExploitName(exploits, run.exploit_id)}</span>
               <span class="card-priority">{run.priority ?? 'auto'}</span>
-              <button
-                type="button"
-                class="card-delete"
-                title="Delete run"
-                aria-label="Delete run"
-                onclick={(e) => deleteRunFromCard(run, e)}
-              >
-                ✕
-              </button>
+              <div class="card-actions">
+                <button
+                  type="button"
+                  class="exploit-action"
+                  title={run.enabled ? 'Disable run' : 'Enable run'}
+                  aria-label={run.enabled ? 'Disable run' : 'Enable run'}
+                  onclick={(e) => toggleRunEnabled(run, e)}
+                >
+                  {run.enabled ? '⏸' : '▶'}
+                </button>
+                <button
+                  type="button"
+                  class="exploit-action"
+                  title="Delete run"
+                  aria-label="Delete run"
+                  onclick={(e) => deleteRunFromCard(run, e)}
+                >
+                  ✕
+                </button>
+              </div>
               <button
                 type="button"
                 class="card-play"
@@ -636,13 +653,13 @@
   .board { display: flex; gap: 1rem; height: calc(100vh - 150px); }
   .sidebar { width: 200px; background: #252540; padding: 1rem; border-radius: 8px; }
   .sidebar h3 { margin-top: 0; color: #00d9ff; }
-  .exploit-item { background: #1a1a2e; padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 4px; cursor: grab; border: 1px solid #444; width: 100%; text-align: left; color: inherit; position: relative; overflow: hidden; box-sizing: border-box; }
+  .exploit-item { background: #1a1a2e; padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 4px; cursor: grab; border: 1px solid #444; width: 100%; text-align: left; color: inherit; position: relative; overflow: visible; box-sizing: border-box; }
   .exploit-item { appearance: none; background-color: #1a1a2e; }
   .exploit-item:hover { border-color: #00d9ff; }
   .exploit-item.disabled { opacity: 0.5; text-decoration: line-through; }
   .exploit-item.selected { border-color: #00d9ff; box-shadow: 0 0 0 1px #00d9ff inset; }
   .exploit-name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .exploit-actions { position: absolute; top: 0; right: 0; display: flex; gap: 0.2rem; opacity: 0; pointer-events: none; z-index: 1; }
+  .exploit-actions { position: absolute; top: -0.4rem; right: -0.2rem; display: flex; gap: 0.2rem; opacity: 0; pointer-events: none; z-index: 1; }
   .exploit-item:hover .exploit-actions, .exploit-item:focus-within .exploit-actions { opacity: 1; pointer-events: auto; }
   .exploit-action { background: #fff; border: none; color: #333; font-size: 0.7rem; line-height: 1; width: 1rem; height: 1rem; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; aspect-ratio: 1; box-sizing: border-box; appearance: none; cursor: pointer; }
   .exploit-action:hover { color: #111; }
@@ -667,9 +684,8 @@
   .card-seq { background: #333; color: #888; font-size: 0.75rem; padding: 0.1rem 0.4rem; border-radius: 3px; }
   .card-name { font-weight: 500; flex: 1; }
   .card-priority { color: #888; font-size: 0.8rem; }
-  .card-delete { position: absolute; top: 0; right: 0; background: #fff; border: none; color: #333; font-size: 0.7rem; line-height: 1; width: 1rem; height: 1rem; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; aspect-ratio: 1; box-sizing: border-box; appearance: none; cursor: pointer; opacity: 0; pointer-events: none; }
-  .card:hover .card-delete, .card:focus-within .card-delete { opacity: 0.9; pointer-events: auto; }
-  .card-delete:hover { color: #ff6b6b; opacity: 1; }
+  .card-actions { position: absolute; top: -0.4rem; right: -0.2rem; display: flex; gap: 0.2rem; opacity: 0; pointer-events: none; z-index: 1; }
+  .card:hover .card-actions, .card:focus-within .card-actions { opacity: 1; pointer-events: auto; }
   .card-play { cursor: pointer; opacity: 0.5; font-size: 0.7rem; margin-left: auto; background: transparent; border: none; padding: 0; color: inherit; }
   .card-play:hover { opacity: 1; }
   .danger { background: #d9534f; }
