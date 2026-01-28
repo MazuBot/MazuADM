@@ -17,6 +17,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/exploit-runs/{id}", put(update_exploit_run).delete(delete_exploit_run))
         .route("/api/rounds", get(list_rounds).post(create_round))
         .route("/api/rounds/{id}/run", post(run_round))
+        .route("/api/rounds/{id}/rerun", post(rerun_round))
         .route("/api/jobs", get(list_jobs))
         .route("/api/jobs/reorder", post(reorder_jobs))
         .route("/api/jobs/run", post(run_single_job))

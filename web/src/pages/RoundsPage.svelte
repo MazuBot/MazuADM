@@ -12,6 +12,22 @@
   let selectedJob = $state(null);
   let draggingJob = $state(null);
 
+  function getSelectedRound() {
+    return rounds.find(r => r.id === selectedRoundId);
+  }
+
+  async function handleRunClick() {
+    if (!selectedRoundId) return;
+    const round = getSelectedRound();
+    if (round && round.status !== 'pending') {
+      if (confirm(`Round ${selectedRoundId} is ${round.status}. Re-running will kill all running jobs and reset all later rounds. Continue?`)) {
+        await api.rerunRound(selectedRoundId);
+      }
+    } else {
+      onRunRound(selectedRoundId);
+    }
+  }
+
   function getTeamName(teamId) {
     const t = teams.find((t) => t.id === teamId);
     return t ? `${t.id} (${t.team_name})` : teamId;
@@ -90,7 +106,7 @@
         <option value={r.id}>Round {r.id} ({r.status})</option>
       {/each}
     </select>
-    <button onclick={() => selectedRoundId && onRunRound(selectedRoundId)} disabled={!selectedRoundId}>Run</button>
+    <button onclick={handleRunClick} disabled={!selectedRoundId}>Run</button>
   </div>
 
   {#if jobs.length}

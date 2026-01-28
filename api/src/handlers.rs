@@ -273,6 +273,37 @@ pub async fn run_round(State(s): S, Path(id): Path<i32>) -> R<String> {
     Ok(Json("started".to_string()))
 }
 
+pub async fn rerun_round(State(s): S, Path(id): Path<i32>) -> R<String> {
+    // Kill all running jobs
+    let _ = s.db.kill_running_jobs().await;
+    
+    // Reset all rounds after this one to pending
+    if let Ok(rounds) = s.db.list_rounds().await {
+        for round in rounds {
+            if round.id > id {
+                let _ = s.db.reset_jobs_for_round(round.id).await;
+                let _ = s.db.reset_round(round.id).await;
+                if let Ok(r) = s.db.get_round(round.id).await {
+                    broadcast(&s, "round_updated", &r);
+                }
+            }
+        }
+    }
+    
+    // Reset this round
+    let _ = s.db.reset_jobs_for_round(id).await;
+    let _ = s.db.reset_round(id).await;
+    if let Ok(r) = s.db.get_round(id).await {
+        broadcast(&s, "round_updated", &r);
+    }
+    
+    // Run the round
+    let tx = s.tx.clone();
+    let executor = Executor::new(s.db.clone(), tx).map_err(err)?;
+    tokio::spawn(async move { executor.run_round(id).await });
+    Ok(Json("restarted".to_string()))
+}
+
 // Jobs
 pub async fn list_jobs(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<ExploitJob>> {
     let round_id = q.round_id.unwrap_or(0);

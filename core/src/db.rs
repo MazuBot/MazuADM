@@ -218,6 +218,23 @@ impl Database {
         Ok(())
     }
 
+    pub async fn reset_round(&self, id: i32) -> Result<()> {
+        sqlx::query!("UPDATE rounds SET finished_at = NULL, status = 'pending' WHERE id = $1", id).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn reset_jobs_for_round(&self, round_id: i32) -> Result<u64> {
+        let result = sqlx::query!("UPDATE exploit_jobs SET status = 'pending', started_at = NULL, finished_at = NULL, stdout = NULL, stderr = NULL, duration_ms = NULL WHERE round_id = $1", round_id)
+            .execute(&self.pool).await?;
+        Ok(result.rows_affected())
+    }
+
+    pub async fn kill_running_jobs(&self) -> Result<u64> {
+        let result = sqlx::query!("UPDATE exploit_jobs SET status = 'error', stderr = 'Killed by re-run' WHERE status = 'running'")
+            .execute(&self.pool).await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn start_round(&self, id: i32) -> Result<()> {
         sqlx::query!("UPDATE rounds SET status = 'running' WHERE id = $1", id).execute(&self.pool).await?;
         Ok(())

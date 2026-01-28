@@ -32,6 +32,7 @@ export const api = {
   rounds: () => fetchJson('/rounds'),
   createRound: () => fetchJson('/rounds', { method: 'POST' }),
   runRound: (id) => fetchJson(`/rounds/${id}/run`, { method: 'POST' }),
+  rerunRound: (id) => fetchJson(`/rounds/${id}/rerun`, { method: 'POST' }),
   jobs: (roundId) => fetchJson(`/jobs?round_id=${roundId}`),
   reorderJobs: (updates) => fetchJson('/jobs/reorder', { method: 'POST', body: JSON.stringify(updates) }),
   runSingleJob: (exploit_run_id, team_id) => fetchJson('/jobs/run', { method: 'POST', body: JSON.stringify({ exploit_run_id, team_id }) }),
