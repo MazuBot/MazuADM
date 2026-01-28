@@ -1,4 +1,5 @@
 <script>
+  import { onMount, tick } from 'svelte';
   import * as api from '$lib/data/api';
   import Modal from '$lib/ui/Modal.svelte';
   import { getChallengeName, getExploitName, getTeamDisplay } from '$lib/utils/lookup.js';
@@ -22,6 +23,8 @@
 
   let showAddExploit = $state(false);
   let selectedExploitId = $state(null);
+  let selectedTeamId = $state(null);
+  let lastScrollKey = '';
   let newExploit = $state(getNewExploitDefaults());
   let newExploitInitial = $state(getNewExploitDefaults());
 
@@ -83,6 +86,64 @@
   function toggleExploitSelection(exploitId) {
     selectedExploitId = selectedExploitId === exploitId ? null : exploitId;
   }
+
+  function teamAnchor(team) {
+    return team?.team_id || String(team?.id ?? '');
+  }
+
+  async function scrollToTeamAnchor(anchor) {
+    await tick();
+    const el = document.getElementById(anchor);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+    }
+  }
+
+  function applyHashSelection(shouldScroll) {
+    const hash = window.location.hash.slice(1);
+    if (!hash) {
+      selectedTeamId = null;
+      return;
+    }
+    selectedTeamId = hash;
+    if (shouldScroll && teams.some((team) => team.team_id === hash)) {
+      scrollToTeamAnchor(hash);
+    }
+  }
+
+  async function jumpToTeam(team, e) {
+    e?.preventDefault();
+    const anchor = teamAnchor(team);
+    selectedTeamId = anchor || null;
+    const hash = `#${anchor}`;
+    if (window.location.hash !== hash) {
+      history.replaceState(null, '', hash);
+    }
+    await scrollToTeamAnchor(anchor);
+  }
+
+  onMount(() => {
+    const handleHash = () => {
+      applyHashSelection(true);
+    };
+    handleHash();
+    window.addEventListener('hashchange', handleHash);
+    return () => window.removeEventListener('hashchange', handleHash);
+  });
+
+  $effect(() => {
+    const hash = window.location.hash.slice(1);
+    if (!hash) {
+      selectedTeamId = null;
+      return;
+    }
+    selectedTeamId = hash;
+    if (!teams.some((team) => team.team_id === hash)) return;
+    const scrollKey = `${challengeId}:${hash}`;
+    if (lastScrollKey === scrollKey) return;
+    lastScrollKey = scrollKey;
+    scrollToTeamAnchor(hash);
+  });
 
   async function runNow(run, e) {
     e.stopPropagation();
@@ -338,13 +399,17 @@
       <div
         class="column"
         class:disabled={!team.enabled}
+        class:highlighted={selectedTeamId === team.team_id}
+        id={teamAnchor(team)}
         role="list"
         aria-label={`Runs for ${team.team_name}`}
         ondragover={(e) => e.preventDefault()}
         ondrop={(e) => onColumnDrop(e, team.id)}
       >
         <h3>
-          <span class="truncate">{getTeamDisplay(teams, team.id)}</span> {!team.enabled ? '(disabled)' : ''}
+          <a class="team-link" href={`#${team.team_id}`} onclick={(e) => jumpToTeam(team, e)}>
+            <span class="truncate">{getTeamDisplay(teams, team.id)}</span> {!team.enabled ? '(disabled)' : ''}
+          </a>
           <button
             type="button"
             class="gear"
@@ -564,8 +629,11 @@
   .add-btn { width: 100%; margin-top: 0.5rem; }
   .columns { display: flex; gap: 1rem; flex: 1; overflow-x: auto; }
   .column { min-width: 200px; background: #252540; padding: 1rem; border-radius: 8px; }
+  .column.highlighted { box-shadow: 0 0 0 2px #00d9ff inset; }
   .column.disabled { background: #1a1a25; opacity: 0.6; }
   .column h3 { margin-top: 0; font-size: 0.9rem; color: #aaa; display: flex; justify-content: space-between; align-items: center; }
+  .team-link { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem; }
+  .team-link:hover { color: #00d9ff; }
   .gear { cursor: pointer; opacity: 0.5; font-size: 0.8rem; background: transparent; border: none; padding: 0; color: inherit; }
   .gear:hover { opacity: 1; }
   .hint { color: #666; font-size: 0.85rem; margin: 0.5rem 0; }

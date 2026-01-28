@@ -17,13 +17,15 @@
 
     if (selectedId !== $selectedChallengeId) selectedChallengeId.set(selectedId)
     if (selectedId && routeId !== selectedId) {
-      goto(`/board/${selectedId}`, { replaceState: true, keepFocus: true, noScroll: true })
+      const hash = typeof window !== 'undefined' ? window.location.hash : ''
+      goto(`/board/${selectedId}${hash}`, { replaceState: true, keepFocus: true, noScroll: true })
     }
   }
 
   function selectChallenge(id) {
     selectedChallengeId.set(id)
-    goto(`/board/${id}`)
+    const hash = typeof window !== 'undefined' ? window.location.hash : ''
+    goto(`/board/${id}${hash}`)
   }
 </script>
 
