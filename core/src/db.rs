@@ -29,6 +29,12 @@ impl Database {
         Ok(sqlx::query_as!(Challenge, "SELECT * FROM challenges WHERE id = $1", id).fetch_one(&self.pool).await?)
     }
 
+    pub async fn get_challenge_by_name_optional(&self, name: &str) -> Result<Option<Challenge>> {
+        Ok(sqlx::query_as!(Challenge, "SELECT * FROM challenges WHERE name = $1", name)
+            .fetch_optional(&self.pool)
+            .await?)
+    }
+
     pub async fn get_challenge_by_name(&self, name: &str) -> Result<Challenge> {
         Ok(sqlx::query_as!(Challenge, "SELECT * FROM challenges WHERE name = $1", name)
             .fetch_one(&self.pool)
