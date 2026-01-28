@@ -1,5 +1,5 @@
 import { get, writable } from 'svelte/store'
-import { api } from '$lib/api.js'
+import * as api from '$lib/data/api'
 import { connect, disconnect } from '$lib/websocket.js'
 import { isValidId, pickDefaultRound } from './app-logic.js'
 

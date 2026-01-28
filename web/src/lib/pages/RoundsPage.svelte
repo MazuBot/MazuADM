@@ -1,6 +1,6 @@
 <script>
   import { AnsiUp } from 'ansi_up';
-  import { api } from '$lib/api.js';
+  import * as api from '$lib/data/api';
   import Modal from '$lib/components/Modal.svelte';
   import FilterBar from '$lib/ui/FilterBar.svelte';
   import { buildStatusOptions } from '$lib/utils/filters.js';

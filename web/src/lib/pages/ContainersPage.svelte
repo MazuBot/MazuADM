@@ -1,5 +1,5 @@
 <script>
-  import { api } from '$lib/api.js';
+  import * as api from '$lib/data/api';
   import { getChallengeName, getExploitName, getExploitRunName, getTeamName } from '$lib/utils/lookup.js';
 
   let { exploits, exploitRuns, challenges, teams, containers, containerRunners, onLoadContainers, onLoadRunners } = $props();
