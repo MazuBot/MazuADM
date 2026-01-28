@@ -289,6 +289,16 @@ impl Database {
         Ok(result.rows_affected())
     }
 
+    pub async fn reset_unflagged_jobs_for_round(&self, round_id: i32) -> Result<u64> {
+        let result = sqlx::query!(
+            "UPDATE exploit_jobs SET status = 'pending', started_at = NULL, finished_at = NULL, stdout = NULL, stderr = NULL, duration_ms = NULL WHERE round_id = $1 AND status != 'flag'",
+            round_id
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn kill_running_jobs(&self) -> Result<Vec<ExploitJob>> {
         let jobs = sqlx::query_as!(ExploitJob, "SELECT * FROM exploit_jobs WHERE status = 'running'")
             .fetch_all(&self.pool).await?;

@@ -37,6 +37,14 @@ fn spawn_round_rerunner(scheduler: Scheduler, round_id: i32) {
     });
 }
 
+fn spawn_round_unflagged_scheduler(scheduler: Scheduler, round_id: i32) {
+    tokio::spawn(async move {
+        if let Err(e) = scheduler.schedule_unflagged_round(round_id).await {
+            tracing::error!("Round {} unflagged schedule failed: {}", round_id, e);
+        }
+    });
+}
+
 fn spawn_job_runner(executor: Executor, job_id: i32) {
     tokio::spawn(async move {
         if let Err(e) = executor.run_job_immediately(job_id).await {
@@ -290,6 +298,12 @@ pub async fn rerun_round(State(s): S, Path(id): Path<i32>) -> R<String> {
     let scheduler = Scheduler::new(s.db.clone(), s.executor.clone(), s.tx.clone());
     spawn_round_rerunner(scheduler, id);
     Ok(Json("restarted".to_string()))
+}
+
+pub async fn schedule_unflagged_round(State(s): S, Path(id): Path<i32>) -> R<String> {
+    let scheduler = Scheduler::new(s.db.clone(), s.executor.clone(), s.tx.clone());
+    spawn_round_unflagged_scheduler(scheduler, id);
+    Ok(Json("scheduled".to_string()))
 }
 
 // Jobs

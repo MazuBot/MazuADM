@@ -34,3 +34,8 @@ export async function rerunRound(id) {
   if (!id) return
   await api.rerunRound(id)
 }
+
+export async function scheduleUnflaggedRound(id) {
+  if (!id) return
+  await api.scheduleUnflaggedRound(id)
+}

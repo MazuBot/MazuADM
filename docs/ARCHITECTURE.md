@@ -155,6 +155,7 @@ pub struct AppState {
 | `/api/rounds` | POST | `create_round` |
 | `/api/rounds/{id}/run` | POST | `run_round` |
 | `/api/rounds/{id}/rerun` | POST | `rerun_round` |
+| `/api/rounds/{id}/schedule-unflagged` | POST | `schedule_unflagged_round` |
 | `/api/jobs` | GET | `list_jobs` |
 | `/api/jobs/reorder` | POST | `reorder_jobs` |
 | `/api/jobs/run` | POST | `run_single_job` |
@@ -211,6 +212,7 @@ run list [--challenge <ID>] [--team <ID>]
 round new
 round list
 round run <ID>
+round schedule-unflagged <ID>
 round jobs <ID>
 
 flag list [--round <ID>]

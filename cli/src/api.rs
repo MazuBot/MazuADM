@@ -100,6 +100,7 @@ impl ApiClient {
     pub async fn create_round(&self) -> Result<i32> { self.post_empty("/api/rounds").await }
     pub async fn run_round(&self, id: i32) -> Result<()> { let _: String = self.post_empty(&format!("/api/rounds/{}/run", id)).await?; Ok(()) }
     pub async fn rerun_round(&self, id: i32) -> Result<()> { let _: String = self.post_empty(&format!("/api/rounds/{}/rerun", id)).await?; Ok(()) }
+    pub async fn schedule_unflagged_round(&self, id: i32) -> Result<()> { let _: String = self.post_empty(&format!("/api/rounds/{}/schedule-unflagged", id)).await?; Ok(()) }
 
     // Jobs
     pub async fn list_jobs(&self, round_id: i32) -> Result<Vec<ExploitJob>> { self.get(&format!("/api/jobs?round_id={}", round_id)).await }

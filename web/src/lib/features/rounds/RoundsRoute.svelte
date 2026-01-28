@@ -17,6 +17,7 @@
     selectedRoundId,
     createRound,
     runRound,
+    scheduleUnflaggedRound,
     loadJobs,
     loadAll
   } = app
@@ -55,6 +56,10 @@
   async function runRoundHandler(id) {
     await runRound(id)
   }
+
+  async function scheduleUnflaggedHandler(id) {
+    await scheduleUnflaggedRound(id)
+  }
 </script>
 
 <RoundsPage
@@ -68,5 +73,6 @@
   onSelectRound={selectRound}
   onNewRound={newRound}
   onRunRound={runRoundHandler}
+  onScheduleUnflagged={scheduleUnflaggedHandler}
   onRefresh={loadAll}
 />

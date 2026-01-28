@@ -6,7 +6,7 @@
   import { buildStatusOptions } from '$lib/utils/filters.js';
   import { getChallengeName, getExploitName, getTeamDisplay } from '$lib/utils/lookup.js';
 
-  let { rounds, jobs, teams, challenges, exploits, exploitRuns, selectedRoundId, onSelectRound, onNewRound, onRunRound, onRefresh } = $props();
+  let { rounds, jobs, teams, challenges, exploits, exploitRuns, selectedRoundId, onSelectRound, onNewRound, onRunRound, onScheduleUnflagged, onRefresh } = $props();
 
   const ansi_up = new AnsiUp();
   function renderAnsi(text) {
@@ -33,6 +33,15 @@
     } else {
       onRunRound(selectedRoundId);
     }
+  }
+
+  async function handleScheduleUnflaggedClick() {
+    if (!selectedRoundId) return;
+    const round = getSelectedRound();
+    const status = round ? ` (current status: ${round.status})` : '';
+    if (!confirm(`Schedule all non-flag jobs for round ${selectedRoundId}?${status}`)) return;
+    await onScheduleUnflagged?.(selectedRoundId);
+    onRefresh?.();
   }
 
   function getExploitRunInfo(runId) {
@@ -116,6 +125,7 @@
       {/each}
     </select>
     <button onclick={handleRunClick} disabled={!selectedRoundId}>Run</button>
+    <button onclick={handleScheduleUnflaggedClick} disabled={!selectedRoundId}>Schedule Unflagged</button>
   </div>
   <FilterBar
     bind:challengeId={challengeFilterId}
