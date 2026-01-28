@@ -157,9 +157,16 @@ impl Executor {
                 if current_job.status != "pending" {
                     return;
                 }
-                
-                let run: ExploitRun = match sqlx::query_as("SELECT * FROM exploit_runs WHERE id = $1")
-                    .bind(job.exploit_run_id).fetch_one(&db.pool).await {
+
+                let exploit_run_id = match job.exploit_run_id {
+                    Some(id) => id,
+                    None => {
+                        finish_job_and_broadcast(&db, &tx, job.id, "error", None, Some("Job missing exploit_run_id"), 0).await;
+                        return;
+                    }
+                };
+
+                let run: ExploitRun = match db.get_exploit_run(exploit_run_id).await {
                     Ok(r) => r,
                     Err(e) => { log_job_error(job.id, &e); return; }
                 };
