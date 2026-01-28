@@ -19,6 +19,24 @@
 
   let filteredExploits = $derived(exploits.filter(e => e.challenge_id === challengeId));
 
+  function onOverlayClick(e, close) {
+    if (e.target === e.currentTarget) close();
+  }
+
+  function onOverlayKeydown(e, close) {
+    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      close();
+    }
+  }
+
+  function onCardKeydown(e, run) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openEditModal(run, e);
+    }
+  }
+
   async function runNow(run, e) {
     e.stopPropagation();
     await api.runSingleJob(run.id, run.team_id);
@@ -169,19 +187,40 @@
   <div class="sidebar">
     <h3>Exploits</h3>
     {#each filteredExploits as e}
-      <div class="exploit-item" class:disabled={!e.enabled} draggable="true" ondragstart={(ev) => ev.dataTransfer.setData('exploitId', e.id)} onclick={() => openEditExploit(e)}>
+      <button
+        type="button"
+        class="exploit-item"
+        class:disabled={!e.enabled}
+        draggable="true"
+        ondragstart={(ev) => ev.dataTransfer.setData('exploitId', e.id)}
+        onclick={() => openEditExploit(e)}
+      >
         {e.name}
-      </div>
+      </button>
     {/each}
     <button class="add-btn" onclick={() => showAddExploit = true}>+ Add Exploit</button>
   </div>
 
   <div class="columns">
     {#each teams as team}
-      <div class="column" class:disabled={!team.enabled} ondragover={(e) => e.preventDefault()} ondrop={(e) => onColumnDrop(e, team.id)}>
+      <div
+        class="column"
+        class:disabled={!team.enabled}
+        role="list"
+        aria-label={`Runs for ${team.team_name}`}
+        ondragover={(e) => e.preventDefault()}
+        ondrop={(e) => onColumnDrop(e, team.id)}
+      >
         <h3>
           {team.team_name} {!team.enabled ? '(disabled)' : ''}
-          <span class="gear" onclick={(e) => { e.stopPropagation(); openRelationModal(team); }}>⚙️</span>
+          <button
+            type="button"
+            class="gear"
+            aria-label={`Edit connection for ${team.team_name}`}
+            onclick={(e) => { e.stopPropagation(); openRelationModal(team); }}
+          >
+            ⚙️
+          </button>
         </h3>
         <div class="cards">
           {#each getRunsForTeam(team.id) as run, idx}
@@ -189,17 +228,29 @@
               class="card" 
               class:disabled={!run.enabled || !getExploit(run.exploit_id)?.enabled}
               class:dragging={draggingCard?.id === run.id}
+              role="button"
+              tabindex="0"
+              aria-disabled={!run.enabled || !getExploit(run.exploit_id)?.enabled}
               draggable="true"
               ondragstart={(e) => onCardDragStart(e, run)}
               ondragover={(e) => e.preventDefault()}
               ondrop={(e) => onCardDrop(e, run, team.id)}
               ondragend={() => draggingCard = null}
               onclick={(e) => openEditModal(run, e)}
+              onkeydown={(e) => onCardKeydown(e, run)}
             >
               <span class="card-seq">{idx + 1}</span>
               <span class="card-name">{getExploitName(run.exploit_id)}</span>
               <span class="card-priority">{run.priority ?? 'auto'}</span>
-              <span class="card-play" onclick={(e) => runNow(run, e)} title="Run now">▶</span>
+              <button
+                type="button"
+                class="card-play"
+                title="Run now"
+                aria-label="Run now"
+                onclick={(e) => runNow(run, e)}
+              >
+                ▶
+              </button>
             </div>
           {/each}
         </div>
@@ -209,12 +260,19 @@
 </div>
 
 {#if showAddExploit}
-  <div class="modal-overlay" onclick={() => showAddExploit = false}>
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
+  <div
+    class="modal-overlay"
+    role="button"
+    tabindex="0"
+    aria-label="Close modal"
+    onclick={(e) => onOverlayClick(e, () => showAddExploit = false)}
+    onkeydown={(e) => onOverlayKeydown(e, () => showAddExploit = false)}
+  >
+    <div class="modal" role="dialog" aria-modal="true">
       <h3>Add Exploit</h3>
-      <label>Name <input bind:value={newExploit.name} /></label>
-      <label>Docker Image <input bind:value={newExploit.docker_image} /></label>
-      <label>Entrypoint <input bind:value={newExploit.entrypoint} placeholder="Leave empty to use image CMD" /></label>
+      <label>Name <input type="text" bind:value={newExploit.name} /></label>
+      <label>Docker Image <input type="text" bind:value={newExploit.docker_image} /></label>
+      <label>Entrypoint <input type="text" bind:value={newExploit.entrypoint} placeholder="Leave empty to use image CMD" /></label>
       <label>Priority <input bind:value={newExploit.priority} type="number" /></label>
       <label>Max per container <input bind:value={newExploit.max_per_container} type="number" placeholder="Default: 1" /></label>
       <label>Default counter <input bind:value={newExploit.default_counter} type="number" placeholder="Default: 999" /></label>
@@ -236,8 +294,15 @@
 {/if}
 
 {#if editingRun}
-  <div class="modal-overlay" onclick={() => editingRun = null}>
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
+  <div
+    class="modal-overlay"
+    role="button"
+    tabindex="0"
+    aria-label="Close modal"
+    onclick={(e) => onOverlayClick(e, () => editingRun = null)}
+    onkeydown={(e) => onOverlayKeydown(e, () => editingRun = null)}
+  >
+    <div class="modal" role="dialog" aria-modal="true">
       <h3>Edit Exploit Run</h3>
       <div class="info">
         <p><strong>Exploit:</strong> {getExploitName(editingRun.exploit_id)}</p>
@@ -258,12 +323,19 @@
 {/if}
 
 {#if editingExploit}
-  <div class="modal-overlay" onclick={() => editingExploit = null}>
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
+  <div
+    class="modal-overlay"
+    role="button"
+    tabindex="0"
+    aria-label="Close modal"
+    onclick={(e) => onOverlayClick(e, () => editingExploit = null)}
+    onkeydown={(e) => onOverlayKeydown(e, () => editingExploit = null)}
+  >
+    <div class="modal" role="dialog" aria-modal="true">
       <h3>Edit Exploit</h3>
-      <label>Name <input bind:value={exploitForm.name} /></label>
-      <label>Docker Image <input bind:value={exploitForm.docker_image} /></label>
-      <label>Entrypoint <input bind:value={exploitForm.entrypoint} placeholder="Leave empty to use image CMD" /></label>
+      <label>Name <input type="text" bind:value={exploitForm.name} /></label>
+      <label>Docker Image <input type="text" bind:value={exploitForm.docker_image} /></label>
+      <label>Entrypoint <input type="text" bind:value={exploitForm.entrypoint} placeholder="Leave empty to use image CMD" /></label>
       <label>Priority <input bind:value={exploitForm.priority} type="number" /></label>
       <label>Max per container <input bind:value={exploitForm.max_per_container} type="number" /></label>
       <label>Default counter <input bind:value={exploitForm.default_counter} type="number" /></label>
@@ -279,11 +351,18 @@
 {/if}
 
 {#if editingRelation}
-  <div class="modal-overlay" onclick={() => editingRelation = null}>
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
+  <div
+    class="modal-overlay"
+    role="button"
+    tabindex="0"
+    aria-label="Close modal"
+    onclick={(e) => onOverlayClick(e, () => editingRelation = null)}
+    onkeydown={(e) => onOverlayKeydown(e, () => editingRelation = null)}
+  >
+    <div class="modal" role="dialog" aria-modal="true">
       <h3>Connection for {editingRelation.team_name}</h3>
       <p class="hint">Leave empty to use team default IP + challenge default port</p>
-      <label>IP/Host <input bind:value={relationForm.addr} placeholder="Team default" /></label>
+      <label>IP/Host <input type="text" bind:value={relationForm.addr} placeholder="Team default" /></label>
       <label>Port <input bind:value={relationForm.port} type="number" placeholder="Challenge default" /></label>
       <div class="modal-actions">
         <button onclick={() => editingRelation = null}>Cancel</button>
@@ -297,7 +376,8 @@
   .board { display: flex; gap: 1rem; height: calc(100vh - 150px); }
   .sidebar { width: 200px; background: #252540; padding: 1rem; border-radius: 8px; }
   .sidebar h3 { margin-top: 0; color: #00d9ff; }
-  .exploit-item { background: #1a1a2e; padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 4px; cursor: grab; border: 1px solid #444; }
+  .exploit-item { background: #1a1a2e; padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 4px; cursor: grab; border: 1px solid #444; width: 100%; text-align: left; color: inherit; }
+  .exploit-item { appearance: none; background-color: #1a1a2e; }
   .exploit-item:hover { border-color: #00d9ff; }
   .exploit-item.disabled { opacity: 0.5; text-decoration: line-through; }
   .add-btn { width: 100%; margin-top: 0.5rem; }
@@ -305,7 +385,7 @@
   .column { min-width: 200px; background: #252540; padding: 1rem; border-radius: 8px; }
   .column.disabled { background: #1a1a25; opacity: 0.6; }
   .column h3 { margin-top: 0; font-size: 0.9rem; color: #aaa; display: flex; justify-content: space-between; align-items: center; }
-  .gear { cursor: pointer; opacity: 0.5; font-size: 0.8rem; }
+  .gear { cursor: pointer; opacity: 0.5; font-size: 0.8rem; background: transparent; border: none; padding: 0; color: inherit; }
   .gear:hover { opacity: 1; }
   .hint { color: #666; font-size: 0.85rem; margin: 0.5rem 0; }
   .cards { display: flex; flex-direction: column; gap: 0.5rem; min-height: 50px; }
@@ -317,7 +397,7 @@
   .card-seq { background: #333; color: #888; font-size: 0.75rem; padding: 0.1rem 0.4rem; border-radius: 3px; }
   .card-name { font-weight: 500; flex: 1; }
   .card-priority { color: #888; font-size: 0.8rem; }
-  .card-play { cursor: pointer; opacity: 0.5; font-size: 0.7rem; margin-left: auto; }
+  .card-play { cursor: pointer; opacity: 0.5; font-size: 0.7rem; margin-left: auto; background: transparent; border: none; padding: 0; color: inherit; }
   .card-play:hover { opacity: 1; }
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 100; }
   .modal { background: #252540; padding: 1.5rem; border-radius: 8px; min-width: 320px; }
