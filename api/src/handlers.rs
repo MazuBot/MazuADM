@@ -49,8 +49,9 @@ fn spawn_job_runner(db: Database, tx: tokio::sync::broadcast::Sender<WsMessage>,
         let conn = match rel.and_then(|r| r.connection_info(&challenge, &team)) { Some(c) => c, None => fail!("No connection info") };
         let job = match db.get_job(job_id).await { Ok(j) => j, Err(e) => fail!(&e.to_string()) };
         let round_id = job.round_id;
-        let timeout = if exploit.timeout_secs > 0 { exploit.timeout_secs as u64 } else { 60 };
-        match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), timeout, 50).await {
+        let settings = load_job_settings(&db).await;
+        let timeout = compute_timeout(exploit.timeout_secs, settings.worker_timeout);
+        match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), timeout, settings.max_flags).await {
             Ok(result) => {
                 for flag in result.flags {
                     let f = if let Some(rid) = round_id {
@@ -114,6 +115,33 @@ pub struct ListQuery {
 struct RoundFinalizePlan {
     skip_pending_ids: Vec<i32>,
     finish_running_ids: Vec<i32>,
+}
+
+struct JobSettings {
+    worker_timeout: u64,
+    max_flags: usize,
+}
+
+fn parse_setting_u64(value: Option<String>, default: u64) -> u64 {
+    value.and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+fn parse_setting_usize(value: Option<String>, default: usize) -> usize {
+    value.and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+async fn load_job_settings(db: &Database) -> JobSettings {
+    let worker_timeout = parse_setting_u64(db.get_setting("worker_timeout").await.ok(), 60);
+    let max_flags = parse_setting_usize(db.get_setting("max_flags_per_job").await.ok(), 50);
+    JobSettings { worker_timeout, max_flags }
+}
+
+fn compute_timeout(exploit_timeout_secs: i32, worker_timeout: u64) -> u64 {
+    if exploit_timeout_secs > 0 {
+        exploit_timeout_secs as u64
+    } else {
+        worker_timeout
+    }
 }
 
 fn rounds_to_finalize(rounds: &[Round], current_id: i32) -> RoundFinalizePlan {
@@ -543,7 +571,15 @@ pub async fn update_relation(State(s): S, Path((challenge_id, team_id)): Path<(i
 
 #[cfg(test)]
 mod tests {
-    use super::{rounds_to_finalize, rounds_to_reset_after, select_running_round_id, should_continue_ws};
+    use super::{
+        compute_timeout,
+        parse_setting_u64,
+        parse_setting_usize,
+        rounds_to_finalize,
+        rounds_to_reset_after,
+        select_running_round_id,
+        should_continue_ws,
+    };
     use mazuadm_core::Round;
     use chrono::{TimeZone, Utc};
 
@@ -594,5 +630,29 @@ mod tests {
     fn should_continue_ws_only_on_lagged() {
         assert!(should_continue_ws(tokio::sync::broadcast::error::RecvError::Lagged(1)));
         assert!(!should_continue_ws(tokio::sync::broadcast::error::RecvError::Closed));
+    }
+
+    #[test]
+    fn parse_setting_u64_falls_back() {
+        assert_eq!(parse_setting_u64(None, 60), 60);
+        assert_eq!(parse_setting_u64(Some("bad".to_string()), 60), 60);
+        assert_eq!(parse_setting_u64(Some("30".to_string()), 60), 30);
+    }
+
+    #[test]
+    fn parse_setting_usize_falls_back() {
+        assert_eq!(parse_setting_usize(None, 50), 50);
+        assert_eq!(parse_setting_usize(Some("bad".to_string()), 50), 50);
+        assert_eq!(parse_setting_usize(Some("25".to_string()), 50), 25);
+    }
+
+    #[test]
+    fn compute_timeout_prefers_exploit() {
+        assert_eq!(compute_timeout(10, 60), 10);
+    }
+
+    #[test]
+    fn compute_timeout_falls_back_to_worker() {
+        assert_eq!(compute_timeout(0, 60), 60);
     }
 }
