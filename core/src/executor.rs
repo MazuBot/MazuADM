@@ -50,17 +50,20 @@ impl Executor {
             format!("TARGET_TEAM_ID={}", team.team_id),
         ];
 
-        // Execute with timeout
-        let exec_result = tokio::time::timeout(
-            Duration::from_secs(timeout_secs),
-            self.container_manager.execute_in_container(&container, cmd, env)
-        ).await;
+        // Execute with timeout and PID tracking
+        let result = self.container_manager.execute_in_container_with_timeout(
+            &container, cmd, env, Duration::from_secs(timeout_secs)
+        ).await?;
 
-        let (stdout, stderr, exit_code, timed_out, ole) = match exec_result {
-            Ok(Ok(r)) => (r.stdout, r.stderr, r.exit_code, false, r.ole),
-            Ok(Err(e)) => (String::new(), e.to_string(), -1, false, false),
-            Err(_) => (String::new(), "Timeout".to_string(), -1, true, false),
-        };
+        // Kill process on timeout or OLE
+        if result.timed_out || result.ole {
+            if let Some(p) = result.pid {
+                let _ = self.container_manager.kill_process_in_container(&container.container_id, p).await;
+            }
+        }
+
+        let (stdout, stderr, exit_code, timed_out, ole) = 
+            (result.stdout, result.stderr, result.exit_code, result.timed_out, result.ole);
 
         // Decrement counter and destroy if exhausted
         let new_counter = self.db.decrement_container_counter(container.id).await?;

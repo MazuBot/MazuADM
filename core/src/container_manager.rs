@@ -5,6 +5,7 @@ use bollard::query_parameters::{CreateContainerOptions, StartContainerOptions, R
 use bollard::exec::{CreateExecOptions, StartExecOptions};
 use bollard::secret::{ContainerCreateBody, HostConfig};
 use futures::StreamExt;
+use std::time::Duration;
 use tracing::{info, warn, error};
 
 pub struct ContainerManager {
@@ -88,7 +89,98 @@ impl ContainerManager {
         Ok(container)
     }
 
-    /// Execute command in a persistent container
+    /// Execute command in a persistent container with timeout support
+    pub async fn execute_in_container_with_timeout(&self, container: &ExploitContainer, cmd: Vec<String>, env: Vec<String>, timeout: Duration) -> Result<ExecResult> {
+        const MAX_OUTPUT: usize = 256 * 1024; // 256KB limit
+        
+        let exec = self.docker.create_exec(&container.container_id, CreateExecOptions {
+            cmd: Some(cmd),
+            env: Some(env.into_iter().chain(std::iter::once("TERM=xterm".to_string())).collect()),
+            attach_stdout: Some(true),
+            attach_stderr: Some(true),
+            tty: Some(true),
+            ..Default::default()
+        }).await?;
+
+        let exec_id = exec.id.clone();
+        
+        // Get PID right after creating exec (before it finishes)
+        let pid_future = {
+            let docker = self.docker.clone();
+            let eid = exec_id.clone();
+            async move {
+                // Poll until we get a PID
+                for _ in 0..100 {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    if let Ok(inspect) = docker.inspect_exec(&eid).await {
+                        if inspect.pid.is_some() {
+                            return inspect.pid;
+                        }
+                    }
+                }
+                None
+            }
+        };
+        
+        let output = self.docker.start_exec(&exec_id, Some(StartExecOptions { detach: false, tty: true, ..Default::default() })).await?;
+        
+        let mut stdout = String::new();
+        let mut ole = false;
+        let mut timed_out = false;
+        let mut pid: Option<i64> = None;
+        
+        // Spawn PID fetcher
+        let pid_handle = tokio::spawn(pid_future);
+        
+        if let bollard::exec::StartExecResults::Attached { output: mut stream, .. } = output {
+            let deadline = tokio::time::Instant::now() + timeout;
+            
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep_until(deadline) => {
+                        timed_out = true;
+                        break;
+                    }
+                    msg = stream.next() => {
+                        match msg {
+                            Some(Ok(log)) => {
+                                if stdout.len() >= MAX_OUTPUT {
+                                    ole = true;
+                                    break;
+                                }
+                                let data = match log {
+                                    bollard::container::LogOutput::StdOut { message } => Some(message),
+                                    bollard::container::LogOutput::StdErr { message } => Some(message),
+                                    bollard::container::LogOutput::Console { message } => Some(message),
+                                    _ => None,
+                                };
+                                if let Some(m) = data {
+                                    let remaining = MAX_OUTPUT.saturating_sub(stdout.len());
+                                    let slice = &m[..m.len().min(remaining)];
+                                    stdout.push_str(&String::from_utf8_lossy(slice));
+                                }
+                            }
+                            Some(Err(_)) | None => break,
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Get PID if we need to kill
+        if timed_out || ole {
+            pid = pid_handle.await.ok().flatten();
+        }
+        
+        let inspect = self.docker.inspect_exec(&exec_id).await.ok();
+        let exit_code = if ole { -2 } else if timed_out { -1 } else { 
+            inspect.and_then(|i| i.exit_code).unwrap_or(-1) 
+        };
+
+        Ok(ExecResult { stdout, stderr: String::new(), exit_code, ole, timed_out, pid })
+    }
+
+    /// Execute command in a persistent container (legacy method for compatibility)
     pub async fn execute_in_container(&self, container: &ExploitContainer, cmd: Vec<String>, env: Vec<String>) -> Result<ExecResult> {
         const MAX_OUTPUT: usize = 256 * 1024; // 256KB limit
         
@@ -101,7 +193,8 @@ impl ContainerManager {
             ..Default::default()
         }).await?;
 
-        let output = self.docker.start_exec(&exec.id, Some(StartExecOptions { detach: false, tty: true, ..Default::default() })).await?;
+        let exec_id = exec.id.clone();
+        let output = self.docker.start_exec(&exec_id, Some(StartExecOptions { detach: false, tty: true, ..Default::default() })).await?;
         
         let mut stdout = String::new();
         let mut ole = false;
@@ -127,10 +220,41 @@ impl ContainerManager {
             }
         }
 
-        let inspect = self.docker.inspect_exec(&exec.id).await?;
+        let inspect = self.docker.inspect_exec(&exec_id).await?;
         let exit_code = if ole { -2 } else { inspect.exit_code.unwrap_or(-1) };
 
-        Ok(ExecResult { stdout, stderr: String::new(), exit_code, ole })
+        Ok(ExecResult { stdout, stderr: String::new(), exit_code, ole, timed_out: false, pid: inspect.pid })
+    }
+
+    /// Kill a process inside a container by host PID (translates to container PID)
+    pub async fn kill_process_in_container(&self, container_id: &str, host_pid: i64) -> Result<()> {
+        // The PID from exec_inspect is the host PID, we need to translate it to container PID
+        // by reading /proc/<host_pid>/status and getting NSpid (last column is container PID)
+        let nspid_output = tokio::fs::read_to_string(format!("/proc/{}/status", host_pid)).await;
+        
+        let container_pid = match nspid_output {
+            Ok(status) => {
+                // Find NSpid line and get the last value (innermost namespace PID)
+                status.lines()
+                    .find(|line| line.starts_with("NSpid:"))
+                    .and_then(|line| line.split_whitespace().last())
+                    .and_then(|pid| pid.parse::<i64>().ok())
+            }
+            Err(_) => None,
+        };
+
+        let pid_to_kill = container_pid.unwrap_or(host_pid);
+        
+        // Use /bin/sh -c "kill" since some containers don't have kill binary
+        let exec = self.docker.create_exec(container_id, CreateExecOptions {
+            cmd: Some(vec!["/bin/sh".to_string(), "-c".to_string(), format!("kill -9 {}", pid_to_kill)]),
+            user: Some("root".to_string()),
+            ..Default::default()
+        }).await?;
+        
+        let _ = self.docker.start_exec(&exec.id, Some(StartExecOptions { detach: true, ..Default::default() })).await;
+        info!("Killed PID {} (host: {}) in container {}", pid_to_kill, host_pid, container_id);
+        Ok(())
     }
 
     /// Health check all containers, recreate dead ones
@@ -236,4 +360,6 @@ pub struct ExecResult {
     pub stderr: String,
     pub exit_code: i64,
     pub ole: bool,
+    pub timed_out: bool,
+    pub pid: Option<i64>,
 }
