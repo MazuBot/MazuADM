@@ -1,5 +1,5 @@
 name = "example-exp"
-challenge = 1
+challenge = "challenge-name"
 image = "example-exp:latest"
 priority = 100
 max_per_container = 1

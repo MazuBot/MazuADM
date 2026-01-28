@@ -74,27 +74,22 @@ enum TeamCmd {
 
 #[derive(Subcommand)]
 enum ExploitCmd {
-    /// Add a new exploit
-    Add {
+    /// Create a new exploit from template config
+    Create {
+        #[arg(value_name = "NAME", default_value = ".", num_args = 0..=1)]
+        name: String,
+        #[arg(long)] challenge: Option<String>,
         #[arg(long, value_name = "PATH", num_args = 0..=1, default_missing_value = "config.toml")]
         config: Option<std::path::PathBuf>,
-        #[arg(long)] name: Option<String>,
-        #[arg(long)] challenge: Option<i32>,
-        #[arg(long)] image: Option<String>,
-        #[arg(long)] entrypoint: Option<String>,
-        #[arg(long)] priority: Option<i32>,
-        #[arg(long)] max_per_container: Option<i32>,
-        #[arg(long)] timeout: Option<i32>,
-        #[arg(long)] default_counter: Option<i32>,
     },
     /// List exploits
-    List { #[arg(long)] challenge: Option<i32> },
+    List { #[arg(long)] challenge: Option<String> },
     /// Update an exploit
     Update {
-        id: i32,
+        name: String,
+        #[arg(long)] challenge: Option<String>,
         #[arg(long, value_name = "PATH", num_args = 0..=1, default_missing_value = "config.toml")]
         config: Option<std::path::PathBuf>,
-        #[arg(long)] name: Option<String>,
         #[arg(long)] image: Option<String>,
         #[arg(long)] entrypoint: Option<String>,
         #[arg(long)] priority: Option<i32>,
@@ -103,13 +98,13 @@ enum ExploitCmd {
         #[arg(long)] default_counter: Option<i32>,
     },
     /// Delete an exploit
-    Delete { id: i32 },
+    Delete { name: String, #[arg(long)] challenge: Option<String> },
     /// Enable an exploit
-    Enable { id: i32 },
+    Enable { name: String, #[arg(long)] challenge: Option<String> },
     /// Disable an exploit
-    Disable { id: i32 },
+    Disable { name: String, #[arg(long)] challenge: Option<String> },
     /// Run exploit immediately against a team
-    Run { #[arg(long)] id: i32, #[arg(long)] team: i32 },
+    Run { name: String, #[arg(long)] challenge: Option<String>, #[arg(long)] team: i32 },
 }
 
 #[derive(Subcommand)]
@@ -194,6 +189,74 @@ enum RelationCmd {
 #[derive(Tabled)] struct RunnerRow { id: i32, container: i32, run: i32, team: i32 }
 #[derive(Tabled)] struct RelationRow { challenge: i32, team: i32, addr: String, port: String }
 
+fn normalize_name(value: Option<String>) -> Option<String> {
+    value.and_then(|v| {
+        let trimmed = v.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn cwd_basename() -> Result<String> {
+    let dir = std::env::current_dir()?;
+    let name = dir
+        .file_name()
+        .and_then(|v| v.to_str())
+        .ok_or_else(|| anyhow::anyhow!("failed to determine current directory name"))?;
+    Ok(name.to_string())
+}
+
+async fn prompt_challenge(db: &Database) -> Result<Challenge> {
+    let challenges = db.list_challenges().await?;
+    if challenges.is_empty() {
+        return Err(anyhow::anyhow!("no challenges found"));
+    }
+
+    println!("Select a challenge:");
+    for (idx, challenge) in challenges.iter().enumerate() {
+        println!(
+            "  {}) {} (id: {}, enabled: {})",
+            idx + 1,
+            challenge.name,
+            challenge.id,
+            challenge.enabled
+        );
+    }
+    print!("Enter number: ");
+    use std::io::Write;
+    std::io::stdout().flush()?;
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let choice: usize = input.trim().parse().map_err(|_| anyhow::anyhow!("invalid choice"))?;
+    if choice == 0 || choice > challenges.len() {
+        return Err(anyhow::anyhow!("choice out of range"));
+    }
+    Ok(challenges[choice - 1].clone())
+}
+
+async fn resolve_challenge(db: &Database, name: Option<String>, cfg: Option<&exploit_config::ChallengeRef>) -> Result<Challenge> {
+    if let Some(name) = normalize_name(name) {
+        return db.get_challenge_by_name(&name).await;
+    }
+    if let Some(cfg) = cfg {
+        if let Some(id) = cfg.as_id() {
+            return db.get_challenge(id).await;
+        }
+        if let Some(name) = cfg.as_name() {
+            return db.get_challenge_by_name(name).await;
+        }
+    }
+    prompt_challenge(db).await
+}
+
+async fn resolve_exploit(db: &Database, challenge_id: i32, name: &str) -> Result<Exploit> {
+    db.get_exploit_by_name(challenge_id, name).await
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -254,57 +317,79 @@ async fn main() -> Result<()> {
             }
         },
         Cmd::Exploit { cmd } => match cmd {
-            ExploitCmd::Add { config, name, challenge, image, priority, max_per_container, timeout, entrypoint, default_counter } => {
+            ExploitCmd::Create { name, challenge, config } => {
                 let cfg = match config {
                     Some(path) => exploit_config::load_exploit_config(&path)?,
                     None => exploit_config::load_default_exploit_config()?,
                 };
-                let name = name.or(cfg.name).ok_or_else(|| anyhow::anyhow!("missing --name (or name in config)"))?;
-                let challenge_id = challenge.or(cfg.challenge_id).ok_or_else(|| anyhow::anyhow!("missing --challenge (or challenge in config)"))?;
-                let docker_image = image.or(cfg.docker_image).ok_or_else(|| anyhow::anyhow!("missing --image (or image in config)"))?;
-                let entrypoint = entrypoint.or(cfg.entrypoint);
-                let priority = priority.or(cfg.priority);
-                let max_per_container = max_per_container.or(cfg.max_per_container);
-                let timeout_secs = timeout.or(cfg.timeout_secs);
-                let default_counter = default_counter.or(cfg.default_counter);
+                let name = if name == "." { cwd_basename()? } else { name };
+                let name = normalize_name(Some(name)).ok_or_else(|| anyhow::anyhow!("missing exploit name"))?;
+                let challenge = resolve_challenge(&db, challenge, cfg.challenge.as_ref()).await?;
+
+                let docker_image = cfg.docker_image.ok_or_else(|| anyhow::anyhow!("missing image in config"))?;
+                let entrypoint = cfg.entrypoint;
+                let priority = cfg.priority;
+                let max_per_container = cfg.max_per_container;
+                let timeout_secs = cfg.timeout_secs;
+                let default_counter = cfg.default_counter;
                 let enabled = cfg.enabled.unwrap_or(true);
 
-                let e = db.create_exploit(CreateExploit {
-                    name,
-                    challenge_id,
-                    docker_image,
-                    entrypoint,
-                    enabled: Some(enabled),
-                    priority,
-                    max_per_container,
-                    timeout_secs,
-                    default_counter,
-                    auto_add: None,
-                    insert_into_rounds: None,
-                }).await?;
+                let e = db
+                    .create_exploit(CreateExploit {
+                        name,
+                        challenge_id: challenge.id,
+                        docker_image,
+                        entrypoint,
+                        enabled: Some(enabled),
+                        priority,
+                        max_per_container,
+                        timeout_secs,
+                        default_counter,
+                        auto_add: None,
+                        insert_into_rounds: None,
+                    })
+                    .await?;
                 println!("Created exploit {}", e.id);
             }
             ExploitCmd::List { challenge } => {
-                let rows: Vec<_> = db.list_exploits(challenge).await?.into_iter().map(|e| ExploitRow { id: e.id, name: e.name, enabled: e.enabled, challenge: e.challenge_id, image: e.docker_image, priority: e.priority }).collect();
+                let challenge_id = match normalize_name(challenge) {
+                    Some(name) => Some(db.get_challenge_by_name(&name).await?.id),
+                    None => None,
+                };
+                let rows: Vec<_> = db
+                    .list_exploits(challenge_id)
+                    .await?
+                    .into_iter()
+                    .map(|e| ExploitRow {
+                        id: e.id,
+                        name: e.name,
+                        enabled: e.enabled,
+                        challenge: e.challenge_id,
+                        image: e.docker_image,
+                        priority: e.priority,
+                    })
+                    .collect();
                 println!("{}", Table::new(rows));
             }
-            ExploitCmd::Update { id, config, name, image, entrypoint, priority, max_per_container, timeout, default_counter } => {
+            ExploitCmd::Update { name, challenge, config, image, entrypoint, priority, max_per_container, timeout, default_counter } => {
                 let cfg = match config {
                     Some(path) => exploit_config::load_exploit_config(&path)?,
                     None => exploit_config::load_default_exploit_config()?,
                 };
-                let e = db.get_exploit(id).await?;
-                let name = name.or(cfg.name).unwrap_or(e.name);
-                let docker_image = image.or(cfg.docker_image).unwrap_or(e.docker_image);
-                let entrypoint = entrypoint.or(cfg.entrypoint).or(e.entrypoint);
-                let enabled = cfg.enabled.unwrap_or(e.enabled);
-                let priority = priority.or(cfg.priority).or(Some(e.priority));
-                let max_per_container = max_per_container.or(cfg.max_per_container).or(Some(e.max_per_container));
-                let timeout_secs = timeout.or(cfg.timeout_secs).or(Some(e.timeout_secs));
-                let default_counter = default_counter.or(cfg.default_counter).or(Some(e.default_counter));
+                let challenge = resolve_challenge(&db, challenge, cfg.challenge.as_ref()).await?;
+                let exploit = resolve_exploit(&db, challenge.id, &name).await?;
+
+                let name = normalize_name(Some(name)).unwrap_or(exploit.name);
+                let docker_image = image.or(cfg.docker_image).unwrap_or(exploit.docker_image);
+                let entrypoint = entrypoint.or(cfg.entrypoint).or(exploit.entrypoint);
+                let enabled = cfg.enabled.unwrap_or(exploit.enabled);
+                let priority = priority.or(cfg.priority).or(Some(exploit.priority));
+                let max_per_container = max_per_container.or(cfg.max_per_container).or(Some(exploit.max_per_container));
+                let timeout_secs = timeout.or(cfg.timeout_secs).or(Some(exploit.timeout_secs));
+                let default_counter = default_counter.or(cfg.default_counter).or(Some(exploit.default_counter));
 
                 db.update_exploit(
-                    id,
+                    exploit.id,
                     UpdateExploit {
                         name,
                         docker_image,
@@ -315,23 +400,33 @@ async fn main() -> Result<()> {
                         timeout_secs,
                         default_counter,
                     },
-                ).await?;
-                println!("Updated exploit {}", id);
+                )
+                .await?;
+                println!("Updated exploit {}", exploit.id);
             }
-            ExploitCmd::Delete { id } => { db.delete_exploit(id).await?; println!("Deleted exploit {}", id); }
-            ExploitCmd::Enable { id } => {
-                db.set_exploit_enabled(id, true).await?;
+            ExploitCmd::Delete { name, challenge } => {
+                let challenge = resolve_challenge(&db, challenge, None).await?;
+                let exploit = resolve_exploit(&db, challenge.id, &name).await?;
+                db.delete_exploit(exploit.id).await?;
+                println!("Deleted exploit {}", exploit.id);
+            }
+            ExploitCmd::Enable { name, challenge } => {
+                let challenge = resolve_challenge(&db, challenge, None).await?;
+                let exploit = resolve_exploit(&db, challenge.id, &name).await?;
+                db.set_exploit_enabled(exploit.id, true).await?;
                 println!("Enabled");
             }
-            ExploitCmd::Disable { id } => {
-                db.set_exploit_enabled(id, false).await?;
+            ExploitCmd::Disable { name, challenge } => {
+                let challenge = resolve_challenge(&db, challenge, None).await?;
+                let exploit = resolve_exploit(&db, challenge.id, &name).await?;
+                db.set_exploit_enabled(exploit.id, false).await?;
                 println!("Disabled");
             }
-            ExploitCmd::Run { id, team } => {
-                let exploit = db.get_exploit(id).await?;
-                let challenge = db.get_challenge(exploit.challenge_id).await?;
+            ExploitCmd::Run { name, challenge, team } => {
+                let challenge = resolve_challenge(&db, challenge, None).await?;
+                let exploit = resolve_exploit(&db, challenge.id, &name).await?;
                 let team_obj = db.get_team(team).await?;
-                let run = db.create_exploit_run(CreateExploitRun { exploit_id: id, challenge_id: exploit.challenge_id, team_id: team, priority: None, sequence: None }).await?;
+                let run = db.create_exploit_run(CreateExploitRun { exploit_id: exploit.id, challenge_id: exploit.challenge_id, team_id: team, priority: None, sequence: None }).await?;
                 let job = db.create_adhoc_job(run.id, team).await?;
                 let relations = db.list_relations(challenge.id).await?;
                 let rel = relations.iter().find(|r| r.team_id == team);

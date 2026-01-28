@@ -29,6 +29,12 @@ impl Database {
         Ok(sqlx::query_as!(Challenge, "SELECT * FROM challenges WHERE id = $1", id).fetch_one(&self.pool).await?)
     }
 
+    pub async fn get_challenge_by_name(&self, name: &str) -> Result<Challenge> {
+        Ok(sqlx::query_as!(Challenge, "SELECT * FROM challenges WHERE name = $1", name)
+            .fetch_one(&self.pool)
+            .await?)
+    }
+
     pub async fn set_challenge_enabled(&self, id: i32, enabled: bool) -> Result<()> {
         sqlx::query!("UPDATE challenges SET enabled = $2 WHERE id = $1", id, enabled).execute(&self.pool).await?;
         Ok(())
@@ -129,6 +135,12 @@ impl Database {
 
     pub async fn get_exploit(&self, id: i32) -> Result<Exploit> {
         Ok(sqlx::query_as!(Exploit, "SELECT * FROM exploits WHERE id = $1", id).fetch_one(&self.pool).await?)
+    }
+
+    pub async fn get_exploit_by_name(&self, challenge_id: i32, name: &str) -> Result<Exploit> {
+        Ok(sqlx::query_as!(Exploit, "SELECT * FROM exploits WHERE challenge_id = $1 AND name = $2", challenge_id, name)
+            .fetch_one(&self.pool)
+            .await?)
     }
 
     pub async fn list_enabled_exploits(&self) -> Result<Vec<Exploit>> {

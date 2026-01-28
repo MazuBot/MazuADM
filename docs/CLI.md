@@ -66,28 +66,27 @@ mazuadm-cli team disable 1
 ### Exploit Management
 
 ```bash
-# Add a new exploit
-mazuadm-cli exploit add --name "pwn1-exp" --challenge 1 --image "myexploit:latest" \
-    --entrypoint "/run.sh" --priority 100 --max-per-container 2 --timeout 30
-mazuadm-cli exploit add --config config.toml
+# Create a new exploit from template config
+mazuadm-cli exploit create pwn1-exp --challenge pwn1 --config config.toml
+mazuadm-cli exploit create . --challenge pwn1
 
 # List exploits
 mazuadm-cli exploit list
-mazuadm-cli exploit list --challenge 1
+mazuadm-cli exploit list --challenge pwn1
 
 # Update an exploit
-mazuadm-cli exploit update 1 --name "pwn1-exp-v2" --timeout 60
-mazuadm-cli exploit update 1 --config config.toml
+mazuadm-cli exploit update pwn1-exp --challenge pwn1 --timeout 60
+mazuadm-cli exploit update pwn1-exp --challenge pwn1 --config config.toml
 
 # Delete an exploit
-mazuadm-cli exploit delete 1
+mazuadm-cli exploit delete pwn1-exp --challenge pwn1
 
 # Enable/disable an exploit
-mazuadm-cli exploit enable 1
-mazuadm-cli exploit disable 1
+mazuadm-cli exploit enable pwn1-exp --challenge pwn1
+mazuadm-cli exploit disable pwn1-exp --challenge pwn1
 
 # Run exploit immediately against a team (ad-hoc execution)
-mazuadm-cli exploit run --id 1 --team 1
+mazuadm-cli exploit run pwn1-exp --challenge pwn1 --team 1
 ```
 
 ### Exploit Run Management
@@ -204,7 +203,7 @@ mazuadm-cli team add --id "team1" --name "Team 1" --ip "10.0.1.1"
 mazuadm-cli team add --id "team2" --name "Team 2" --ip "10.0.2.1"
 
 # 3. Add an exploit
-mazuadm-cli exploit add --name "pwn1-exp" --challenge 1 --image "myexploit:latest"
+mazuadm-cli exploit create pwn1-exp --challenge pwn1 --config config.toml
 
 # 4. Add exploit runs (cards)
 mazuadm-cli run add --exploit 1 --challenge 1 --team 1
@@ -223,8 +222,8 @@ mazuadm-cli flag list --round 1
 Run an exploit immediately without creating a round:
 
 ```bash
-# Run exploit 1 against team 2 immediately
-mazuadm-cli exploit run --id 1 --team 2
+# Run exploit against team 2 immediately
+mazuadm-cli exploit run pwn1-exp --challenge pwn1 --team 2
 ```
 
 ### Re-run a Failed Job

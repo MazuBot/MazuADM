@@ -161,7 +161,7 @@ challenge disable <ID>
 team add --id <ID> --name <NAME> [--ip <IP>] [--priority <N>]
 team list
 
-exploit add --name <NAME> --challenge <ID> --image <IMAGE> [--priority <N>] [--timeout <SECS>] [--flag-regex <PATTERN>]
+exploit create <NAME|.> [--challenge <NAME>] [--config <PATH>]
 exploit list [--challenge <ID>]
 
 run add --exploit <ID> --challenge <ID> --team <ID> [--priority <N>] [--sequence <N>]
@@ -181,7 +181,7 @@ flag list [--round <ID>]
 
 ```
 1. Setup
-   challenge add → team add → exploit add → run add
+   challenge add → team add → exploit create → run add
 
 2. Round Execution
    round new
