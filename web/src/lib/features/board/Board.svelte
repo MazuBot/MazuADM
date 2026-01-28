@@ -230,6 +230,17 @@
     openEditExploit(exploit);
   }
 
+  async function toggleExploitEnabled(exploit, e) {
+    e.stopPropagation();
+    await api.updateExploit(exploit.id, {
+      name: exploit.name,
+      docker_image: exploit.docker_image,
+      entrypoint: exploit.entrypoint,
+      enabled: !exploit.enabled
+    });
+    onRefresh();
+  }
+
   async function appendExploitToAllTeams(exploitId, e) {
     e.stopPropagation();
     if (!confirm('Append this exploit to all teams?')) {
@@ -361,6 +372,15 @@
       >
         <span class="exploit-name">{e.name}</span>
         <div class="exploit-actions">
+          <button
+            type="button"
+            class="exploit-action"
+            title={e.enabled ? 'Disable exploit' : 'Enable exploit'}
+            aria-label={e.enabled ? 'Disable exploit' : 'Enable exploit'}
+            onclick={(ev) => toggleExploitEnabled(e, ev)}
+          >
+            {e.enabled ? '⏸' : '▶'}
+          </button>
           <button
             type="button"
             class="exploit-action"
