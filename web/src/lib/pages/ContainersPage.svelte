@@ -3,6 +3,8 @@
 
   let { exploits, exploitRuns, teams, containers, containerRunners, onLoadContainers, onLoadRunners } = $props();
 
+  let hasContainers = $derived((containers ?? []).length > 0);
+
   function getTeamName(teamId) {
     const t = teams.find((t) => t.id === teamId);
     return t ? `${t.id} (${t.team_name})` : teamId;
@@ -27,11 +29,35 @@
     await api.deleteContainer(id);
     await onLoadContainers();
   }
+
+  async function loadAllRunners() {
+    if (!containers?.length) return;
+    await Promise.all(containers.map((c) => onLoadRunners(c.id)));
+  }
+
+  async function restartAllContainers() {
+    if (!containers?.length) return;
+    if (!confirm(`Restart all ${containers.length} containers?`)) return;
+    await Promise.all(containers.map((c) => api.restartContainer(c.id)));
+    await onLoadContainers();
+  }
+
+  async function removeAllContainers() {
+    if (!containers?.length) return;
+    if (!confirm(`Remove all ${containers.length} containers?`)) return;
+    await Promise.all(containers.map((c) => api.deleteContainer(c.id)));
+    await onLoadContainers();
+  }
 </script>
 
 <div class="panel">
   <div class="panel-header">
     <h2>Containers</h2>
+    <div class="panel-actions">
+      <button class="small" onclick={loadAllRunners} disabled={!hasContainers}>Load All</button>
+      <button class="small" onclick={restartAllContainers} disabled={!hasContainers}>Restart All</button>
+      <button class="small danger" onclick={removeAllContainers} disabled={!hasContainers}>Remove All</button>
+    </div>
   </div>
   {#each exploits as exploit}
     {@const expContainers = containers.filter((c) => c.exploit_id === exploit.id)}

@@ -154,6 +154,13 @@ code {
   gap: 0.5rem;
 }
 
+.panel-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
