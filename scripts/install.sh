@@ -1,50 +1,55 @@
 #!/bin/sh
 set -eu
 
+if [ "$(id -u)" -ne 0 ]; then
+  echo require root
+  sudo id
+  SUDO="sudo"
+else
+  SUDO=""
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+cd "$ROOT"
 cargo build --release -p mazuadm-cli -p mazuadm-api
+npm --prefix web run build
 
 BIN_DIR="/usr/local/bin"
-CLI_BIN="$ROOT/target/release/mazuadm-cli"
-API_BIN="$ROOT/target/release/mazuadm-api"
+CLI_BIN="./target/release/mazuadm-cli"
+API_BIN="./target/release/mazuadm-api"
 
-if [ "$(id -u)" -ne 0 ]; then
-  sudo mkdir -p "$BIN_DIR"
-  sudo cp "$CLI_BIN" "$BIN_DIR/mazuadm-cli"
-  sudo cp "$API_BIN" "$BIN_DIR/mazuadm-api"
-  sudo chmod 0755 "$BIN_DIR/mazuadm-cli" "$BIN_DIR/mazuadm-api"
-else
-  mkdir -p "$BIN_DIR"
-  cp "$CLI_BIN" "$BIN_DIR/mazuadm-cli"
-  cp "$API_BIN" "$BIN_DIR/mazuadm-api"
-  chmod 0755 "$BIN_DIR/mazuadm-cli" "$BIN_DIR/mazuadm-api"
-fi
+$SUDO systemctl stop mazuadm-api.service 
+$SUDO mkdir -p "$BIN_DIR"
+$SUDO cp "$CLI_BIN" "$BIN_DIR/mazuadm-cli"
+$SUDO cp "$API_BIN" "$BIN_DIR/mazuadm-api"
+$SUDO chmod 0755 "$BIN_DIR/mazuadm-cli" "$BIN_DIR/mazuadm-api"
+$SUDO systemctl start mazuadm-api.service 
 
-TEMPLATE_SRC="$ROOT/sample/exp-template"
-TEMPLATE_DST="/etc/mazuadm/exp-template"
-CONFIG_SRC="$PWD/config.toml"
-CONFIG_DST="/etc/mazuadm/config.toml"
+CONFIG_DIR='/etc/mazuadm'
+$SUDO mkdir -p "$CONFIG_DIR"
 
-if [ "$(id -u)" -ne 0 ]; then
-  sudo mkdir -p "$TEMPLATE_DST"
-  sudo cp -R "$TEMPLATE_SRC/." "$TEMPLATE_DST/"
-  if [ -f "$CONFIG_SRC" ]; then
-    sudo mkdir -p "/etc/mazuadm"
-    sudo cp "$CONFIG_SRC" "$CONFIG_DST"
-  fi
-else
-  mkdir -p "$TEMPLATE_DST"
-  cp -R "$TEMPLATE_SRC/." "$TEMPLATE_DST/"
-  if [ -f "$CONFIG_SRC" ]; then
-    mkdir -p "/etc/mazuadm"
-    cp "$CONFIG_SRC" "$CONFIG_DST"
-  fi
+WEB_SRC="./web/dist"
+WEB_DST="$CONFIG_DIR/dist"
+TEMPLATE_SRC="./sample/exp-template"
+TEMPLATE_DST="$CONFIG_DIR/exp-template"
+CONFIG_SRC="./config.toml"
+CONFIG_DST="$CONFIG_DIR/config.toml"
+
+$SUDO mkdir -p "$WEB_DST/"
+$SUDO cp -R "$WEB_SRC/." "$WEB_DST/"
+$SUDO mkdir -p "$TEMPLATE_DST"
+$SUDO cp -R "$TEMPLATE_SRC/." "$TEMPLATE_DST/"
+if [ -f "$CONFIG_SRC" ]; then
+  $SUDO cp "$CONFIG_SRC" "$CONFIG_DST"
 fi
 
 echo "Installed mazuadm-cli and mazuadm-api to $BIN_DIR."
+echo "Web copied to $WEB_DST."
 echo "Exploit template copied to $TEMPLATE_DST."
 if [ -f "$CONFIG_SRC" ]; then
   echo "Config copied to $CONFIG_DST."
 fi
+
+$SUDO systemctl reload nginx.service 
