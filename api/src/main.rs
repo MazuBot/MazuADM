@@ -5,7 +5,7 @@ mod routes;
 use crate::events::WsMessage;
 use anyhow::Result;
 use mazuadm_core::executor::Executor;
-use mazuadm_core::scheduler::Scheduler;
+use mazuadm_core::scheduler::{Scheduler, SchedulerCommand, SchedulerHandle, SchedulerRunner};
 use mazuadm_core::settings::load_executor_settings;
 use mazuadm_core::Database;
 use std::sync::Arc;
@@ -18,6 +18,7 @@ pub struct AppState {
     pub db: Database,
     pub tx: broadcast::Sender<WsMessage>,
     pub executor: Executor,
+    pub scheduler: SchedulerHandle,
 }
 
 fn should_resume_running_round(pending_count: usize) -> bool {
@@ -30,12 +31,9 @@ async fn resume_running_round_if_needed(state: &AppState) -> Result<()> {
     if let Some(round_id) = running_round_id {
         let pending = state.db.get_pending_jobs(round_id).await?;
         if should_resume_running_round(pending.len()) {
-            let scheduler = Scheduler::new(state.db.clone(), state.executor.clone(), state.tx.clone());
-            tokio::spawn(async move {
-                if let Err(e) = scheduler.run_round(round_id).await {
-                    tracing::error!("Round {} resume failed: {}", round_id, e);
-                }
-            });
+            if let Err(e) = state.scheduler.send(SchedulerCommand::RunRound(round_id)) {
+                tracing::error!("Round {} resume failed: {}", round_id, e);
+            }
         }
     }
     Ok(())
@@ -69,7 +67,11 @@ async fn main() -> Result<()> {
         tracing::warn!("Reset {} stale running jobs to stopped status", reset);
     }
     
-    let state = Arc::new(AppState { db, tx, executor });
+    let scheduler = Scheduler::new(db.clone(), executor.clone(), tx.clone());
+    let (runner, scheduler_handle) = SchedulerRunner::new(scheduler);
+    tokio::spawn(runner.run());
+
+    let state = Arc::new(AppState { db, tx, executor, scheduler: scheduler_handle });
     resume_running_round_if_needed(state.as_ref()).await?;
 
     let app = routes::routes()

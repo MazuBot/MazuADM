@@ -22,7 +22,8 @@ Risks/notes:
 
 ### api/src/handlers.rs
 - WebSocket handler uses tokio::select! between broadcast receiver and client socket.
-- Round execution uses tokio::spawn to run executor.run_round detached.
+- Round execution is handled by a single SchedulerRunner background task.
+- Handlers enqueue scheduler commands and notify the runner.
 - Single job execution spawns a detached async task in run_job_internal.
 
 Risks/notes:

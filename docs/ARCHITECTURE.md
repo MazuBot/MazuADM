@@ -74,6 +74,18 @@ pub struct Scheduler {
     executor: Executor,
     tx: broadcast::Sender<WsMessage>,
 }
+
+pub struct SchedulerRunner {
+    scheduler: Scheduler,
+    notify: Arc<Notify>,
+    rx: mpsc::UnboundedReceiver<SchedulerCommand>,
+}
+
+#[derive(Clone)]
+pub struct SchedulerHandle {
+    tx: mpsc::UnboundedSender<SchedulerCommand>,
+    notify: Arc<Notify>,
+}
 ```
 
 | Method | Description |
@@ -83,11 +95,15 @@ pub struct Scheduler {
 | `create_round()` | Create round and pre-warm containers |
 | `run_round(round_id)` | Execute all pending jobs in priority order |
 | `rerun_round(round_id)` | Reset round state and re-run |
+| `schedule_unflagged_round(round_id)` | Reset non-flag jobs and execute |
 
 Priority formula (when no override):
 ```
 priority = challenge_priority + team_priority * 100 - sequence * 10000
 ```
+
+SchedulerRunner is started once at API startup; handlers enqueue `SchedulerCommand` values
+via `SchedulerHandle` and notify the runner.
 
 ### Executor (`executor.rs`)
 

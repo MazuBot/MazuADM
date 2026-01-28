@@ -3,7 +3,7 @@ use crate::AppState;
 use axum::{extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade}}, Json, response::Response};
 use futures_util::StreamExt;
 use mazuadm_core::*;
-use mazuadm_core::scheduler::{select_running_round_id, Scheduler};
+use mazuadm_core::scheduler::{select_running_round_id, SchedulerCommand};
 use mazuadm_core::executor::Executor;
 use std::sync::Arc;
 use serde::Deserialize;
@@ -19,30 +19,6 @@ fn broadcast<T: serde::Serialize>(s: &AppState, msg_type: &str, data: &T) {
 
 fn should_continue_ws(err: tokio::sync::broadcast::error::RecvError) -> bool {
     matches!(err, tokio::sync::broadcast::error::RecvError::Lagged(_))
-}
-
-fn spawn_round_runner(scheduler: Scheduler, round_id: i32) {
-    tokio::spawn(async move {
-        if let Err(e) = scheduler.run_round(round_id).await {
-            tracing::error!("Round {} failed: {}", round_id, e);
-        }
-    });
-}
-
-fn spawn_round_rerunner(scheduler: Scheduler, round_id: i32) {
-    tokio::spawn(async move {
-        if let Err(e) = scheduler.rerun_round(round_id).await {
-            tracing::error!("Round {} rerun failed: {}", round_id, e);
-        }
-    });
-}
-
-fn spawn_round_unflagged_scheduler(scheduler: Scheduler, round_id: i32) {
-    tokio::spawn(async move {
-        if let Err(e) = scheduler.schedule_unflagged_round(round_id).await {
-            tracing::error!("Round {} unflagged schedule failed: {}", round_id, e);
-        }
-    });
 }
 
 fn spawn_job_runner(executor: Executor, job_id: i32) {
@@ -187,6 +163,7 @@ pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Expl
     }
 
     // Insert jobs into active rounds if requested
+    let mut inserted_jobs = false;
     if insert_into_rounds.unwrap_or(false) {
         if let Ok(rounds) = s.db.get_active_rounds().await {
             let runs = s.db.list_exploit_runs(Some(exploit.challenge_id), None).await.unwrap_or_default();
@@ -194,11 +171,15 @@ pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Expl
             for round in rounds {
                 for run in &exploit_runs {
                     if let Ok(job) = s.db.create_job(round.id, run.id, run.team_id, 0).await {
+                        inserted_jobs = true;
                         broadcast(&s, "job_created", &job);
                     }
                 }
             }
         }
+    }
+    if inserted_jobs {
+        s.scheduler.notify();
     }
     
     // Pre-warm containers for enabled exploit
@@ -283,26 +264,23 @@ pub async fn list_rounds(State(s): S) -> R<Vec<Round>> {
 }
 
 pub async fn create_round(State(s): S) -> R<i32> {
-    let scheduler = Scheduler::new(s.db.clone(), s.executor.clone(), s.tx.clone());
+    let scheduler = mazuadm_core::scheduler::Scheduler::new(s.db.clone(), s.executor.clone(), s.tx.clone());
     let round_id = scheduler.create_round().await.map_err(err)?;
     Ok(Json(round_id))
 }
 
 pub async fn run_round(State(s): S, Path(id): Path<i32>) -> R<String> {
-    let scheduler = Scheduler::new(s.db.clone(), s.executor.clone(), s.tx.clone());
-    spawn_round_runner(scheduler, id);
+    s.scheduler.send(SchedulerCommand::RunRound(id)).map_err(err)?;
     Ok(Json("started".to_string()))
 }
 
 pub async fn rerun_round(State(s): S, Path(id): Path<i32>) -> R<String> {
-    let scheduler = Scheduler::new(s.db.clone(), s.executor.clone(), s.tx.clone());
-    spawn_round_rerunner(scheduler, id);
+    s.scheduler.send(SchedulerCommand::RerunRound(id)).map_err(err)?;
     Ok(Json("restarted".to_string()))
 }
 
 pub async fn schedule_unflagged_round(State(s): S, Path(id): Path<i32>) -> R<String> {
-    let scheduler = Scheduler::new(s.db.clone(), s.executor.clone(), s.tx.clone());
-    spawn_round_unflagged_scheduler(scheduler, id);
+    s.scheduler.send(SchedulerCommand::ScheduleUnflagged(id)).map_err(err)?;
     Ok(Json("scheduled".to_string()))
 }
 

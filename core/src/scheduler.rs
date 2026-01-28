@@ -13,12 +13,107 @@ use crate::settings::{compute_timeout, load_executor_settings, load_job_settings
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{broadcast, Mutex, Semaphore};
+use tokio::sync::{broadcast, mpsc, Mutex, Notify, Semaphore};
 use tokio::task::JoinSet;
 use std::time::Duration;
 
 fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &str, data: &T) {
     let _ = tx.send(WsMessage::new(msg_type, data));
+}
+
+#[derive(Debug, Clone)]
+pub enum SchedulerCommand {
+    RunRound(i32),
+    RerunRound(i32),
+    ScheduleUnflagged(i32),
+}
+
+pub struct SchedulerRunner {
+    scheduler: Scheduler,
+    notify: Arc<Notify>,
+    rx: mpsc::UnboundedReceiver<SchedulerCommand>,
+}
+
+#[derive(Clone)]
+pub struct SchedulerHandle {
+    tx: mpsc::UnboundedSender<SchedulerCommand>,
+    notify: Arc<Notify>,
+}
+
+impl SchedulerRunner {
+    pub fn new(scheduler: Scheduler) -> (Self, SchedulerHandle) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let notify = Arc::new(Notify::new());
+        let runner = Self {
+            scheduler,
+            notify: notify.clone(),
+            rx,
+        };
+        let handle = SchedulerHandle { tx, notify };
+        (runner, handle)
+    }
+
+    pub async fn run(mut self) {
+        loop {
+            let mut did_work = false;
+
+            while let Ok(cmd) = self.rx.try_recv() {
+                did_work = true;
+                if let Err(e) = self.handle_command(cmd).await {
+                    tracing::error!("Scheduler command failed: {}", e);
+                }
+            }
+
+            if !did_work {
+                match self.run_pending_running_round().await {
+                    Ok(ran) => {
+                        did_work = ran;
+                    }
+                    Err(e) => {
+                        tracing::error!("Scheduler pending run failed: {}", e);
+                        did_work = true;
+                    }
+                }
+            }
+
+            if !did_work {
+                self.notify.notified().await;
+            }
+        }
+    }
+
+    async fn handle_command(&self, cmd: SchedulerCommand) -> Result<()> {
+        match cmd {
+            SchedulerCommand::RunRound(id) => self.scheduler.run_round(id).await,
+            SchedulerCommand::RerunRound(id) => self.scheduler.rerun_round(id).await,
+            SchedulerCommand::ScheduleUnflagged(id) => self.scheduler.schedule_unflagged_round(id).await,
+        }
+    }
+
+    async fn run_pending_running_round(&self) -> Result<bool> {
+        let rounds = self.scheduler.db.get_active_rounds().await?;
+        let Some(round_id) = select_running_round_id(&rounds) else {
+            return Ok(false);
+        };
+        let pending = self.scheduler.db.get_pending_jobs(round_id).await?;
+        if pending.is_empty() {
+            return Ok(false);
+        }
+        self.scheduler.run_round(round_id).await?;
+        Ok(true)
+    }
+}
+
+impl SchedulerHandle {
+    pub fn send(&self, cmd: SchedulerCommand) -> Result<(), mpsc::error::SendError<SchedulerCommand>> {
+        let res = self.tx.send(cmd);
+        self.notify.notify_one();
+        res
+    }
+
+    pub fn notify(&self) {
+        self.notify.notify_one();
+    }
 }
 
 pub struct Scheduler {
