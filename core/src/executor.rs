@@ -161,22 +161,22 @@ impl Executor {
                 let run: ExploitRun = match sqlx::query_as("SELECT * FROM exploit_runs WHERE id = $1")
                     .bind(job.exploit_run_id).fetch_one(&db.pool).await {
                     Ok(r) => r,
-                    Err(e) => { tracing::error!("Job {} failed: {}", job.id, e); return; }
+                    Err(e) => { log_job_error(job.id, &e); return; }
                 };
                 
                 let exploit = match db.get_exploit(run.exploit_id).await {
                     Ok(e) => e,
-                    Err(e) => { tracing::error!("Job {} failed: {}", job.id, e); return; }
+                    Err(e) => { log_job_error(job.id, &e); return; }
                 };
                 
                 let challenge = match db.get_challenge(run.challenge_id).await {
                     Ok(c) => c,
-                    Err(e) => { tracing::error!("Job {} failed: {}", job.id, e); return; }
+                    Err(e) => { log_job_error(job.id, &e); return; }
                 };
                 
                 let team = match db.get_team(job.team_id).await {
                     Ok(t) => t,
-                    Err(e) => { tracing::error!("Job {} failed: {}", job.id, e); return; }
+                    Err(e) => { log_job_error(job.id, &e); return; }
                 };
 
                 if !exploit.enabled {
@@ -195,7 +195,7 @@ impl Executor {
 
                 let rel = match db.get_relation(challenge.id, team.id).await {
                     Ok(r) => r,
-                    Err(e) => { tracing::error!("Job {} failed: {}", job.id, e); return; }
+                    Err(e) => { log_job_error(job.id, &e); return; }
                 };
                 
                 let conn = match rel.and_then(|r| r.connection_info(&challenge, &team)) {
@@ -241,7 +241,7 @@ impl Executor {
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Job {} failed: {}", job.id, e);
+                        log_job_error(job.id, &e);
                         finish_job_and_broadcast(&db, &tx, job.id, "error", None, Some(&e.to_string()), 0).await;
                     }
                 }
@@ -324,6 +324,10 @@ async fn finish_job_and_broadcast(
     if let Ok(j) = db.get_job(job_id).await {
         broadcast(tx, "job_updated", &j);
     }
+}
+
+fn log_job_error<E: std::fmt::Display>(job_id: i32, err: &E) {
+    tracing::error!("Job {} failed: {}", job_id, err);
 }
 
 fn derive_job_status(flags_found: bool, timed_out: bool, ole: bool, exit_code: i64) -> &'static str {
