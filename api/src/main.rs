@@ -4,6 +4,7 @@ mod routes;
 
 use crate::events::WsMessage;
 use anyhow::Result;
+use mazuadm_core::executor::Executor;
 use mazuadm_core::Database;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -14,6 +15,7 @@ use tower_http::trace::TraceLayer;
 pub struct AppState {
     pub db: Database,
     pub tx: broadcast::Sender<WsMessage>,
+    pub executor: Executor,
 }
 
 #[tokio::main]
@@ -33,14 +35,15 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|| "postgres://localhost/mazuadm".to_string());
     let db = Database::connect(&db_url).await?;
     
+    let (tx, _) = broadcast::channel::<WsMessage>(256);
+    let executor = Executor::new(db.clone(), tx.clone())?;
     // Reset any jobs stuck in "running" state from previous run
     let reset = db.reset_stale_jobs().await?;
     if reset > 0 {
-        tracing::warn!("Reset {} stale running jobs to error status", reset);
+        tracing::warn!("Reset {} stale running jobs to stopped status", reset);
     }
     
-    let (tx, _) = broadcast::channel::<WsMessage>(256);
-    let state = Arc::new(AppState { db, tx });
+    let state = Arc::new(AppState { db, tx, executor });
 
     let app = routes::routes()
         .with_state(state)

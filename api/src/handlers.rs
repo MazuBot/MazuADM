@@ -3,7 +3,7 @@ use crate::AppState;
 use axum::{extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade}}, Json, response::Response};
 use futures_util::StreamExt;
 use mazuadm_core::*;
-use mazuadm_core::settings::{compute_timeout, load_job_settings};
+use mazuadm_core::settings::load_job_settings;
 use mazuadm_core::scheduler::Scheduler;
 use mazuadm_core::executor::Executor;
 use mazuadm_core::container_manager::ContainerManager;
@@ -31,57 +31,12 @@ fn spawn_round_runner(executor: Executor, round_id: i32) {
     });
 }
 
-fn spawn_job_runner(db: Database, tx: tokio::sync::broadcast::Sender<WsMessage>, job_id: i32, exploit_run_id: i32, team_id: i32) {
+fn spawn_job_runner(executor: Executor, job_id: i32) {
     tokio::spawn(async move {
-        macro_rules! fail {
-            ($msg:expr) => {{
-                let _ = db.finish_job(job_id, "error", None, Some($msg), 0).await;
-                broadcast_job_update(&db, &tx, job_id).await;
-                return;
-            }};
-        }
-        let executor = match Executor::new(db.clone(), tx.clone()) { Ok(e) => e, Err(e) => fail!(&e.to_string()) };
-        let run = match db.get_exploit_run(exploit_run_id).await { Ok(r) => r, Err(e) => fail!(&e.to_string()) };
-        let exploit = match db.get_exploit(run.exploit_id).await { Ok(e) => e, Err(e) => fail!(&e.to_string()) };
-        let challenge = match db.get_challenge(run.challenge_id).await { Ok(c) => c, Err(e) => fail!(&e.to_string()) };
-        let team = match db.get_team(team_id).await { Ok(t) => t, Err(e) => fail!(&e.to_string()) };
-        let rel = match db.get_relation(challenge.id, team.id).await { Ok(r) => r, Err(e) => fail!(&e.to_string()) };
-        let conn = match rel.and_then(|r| r.connection_info(&challenge, &team)) { Some(c) => c, None => fail!("No connection info") };
-        let job = match db.get_job(job_id).await { Ok(j) => j, Err(e) => fail!(&e.to_string()) };
-        let round_id = job.round_id;
-        let settings = load_job_settings(&db).await;
-        let timeout = compute_timeout(exploit.timeout_secs, settings.worker_timeout);
-        match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), timeout, settings.max_flags).await {
-            Ok(result) => {
-                for flag in result.flags {
-                    let f = if let Some(rid) = round_id {
-                        db.create_flag(job_id, rid, challenge.id, team.id, &flag).await
-                    } else {
-                        db.create_adhoc_flag(job_id, challenge.id, team.id, &flag).await
-                    };
-                    if let Ok(f) = f {
-                        let _ = tx.send(WsMessage::new("flag_created", &f));
-                    }
-                }
-            }
-            Err(e) => {
-                if let Ok(current) = db.get_job(job_id).await {
-                    if current.status == "stopped" {
-                        broadcast_job_update(&db, &tx, job_id).await;
-                        return;
-                    }
-                }
-                let _ = db.finish_job(job_id, "error", None, Some(&e.to_string()), 0).await;
-                broadcast_job_update(&db, &tx, job_id).await;
-            }
+        if let Err(e) = executor.run_job_immediately(job_id).await {
+            tracing::error!("Job {} failed: {}", job_id, e);
         }
     });
-}
-
-async fn broadcast_job_update(db: &Database, tx: &tokio::sync::broadcast::Sender<WsMessage>, job_id: i32) {
-    if let Ok(j) = db.get_job(job_id).await {
-        let _ = tx.send(WsMessage::new("job_updated", &j));
-    }
 }
 
 // WebSocket handler
@@ -372,23 +327,28 @@ pub async fn run_round(State(s): S, Path(id): Path<i32>) -> R<String> {
         }
     }
     
-    let tx = s.tx.clone();
-    let executor = Executor::new(s.db.clone(), tx).map_err(err)?;
+    let executor = s.executor.clone();
     spawn_round_runner(executor, id);
     Ok(Json("started".to_string()))
 }
 
 async fn stop_running_jobs_with_flag_check(s: &AppState) {
     let settings = load_job_settings(&s.db).await;
+    let executor = s.executor.clone();
     if let Ok(jobs) = s.db.kill_running_jobs().await {
         for job in jobs {
             let stdout = job.stdout.as_deref().unwrap_or("");
-            let flags = Executor::extract_flags(stdout, None, settings.max_flags);
+            let stderr = job.stderr.as_deref().unwrap_or("");
+            let combined = if stderr.is_empty() {
+                stdout.to_string()
+            } else if stdout.is_empty() {
+                stderr.to_string()
+            } else {
+                format!("{}\n{}", stdout, stderr)
+            };
+            let flags = Executor::extract_flags(&combined, None, settings.max_flags);
             let has_flag = !flags.is_empty();
-            let _ = s.db.mark_job_stopped_with_reason(job.id, has_flag, "stopped by new round").await;
-            if let Ok(j) = s.db.get_job(job.id).await {
-                broadcast(s, "job_updated", &j);
-            }
+            let _ = executor.stop_job_with_flags(job.id, has_flag, "stopped by new round").await;
         }
     }
 }
@@ -416,8 +376,7 @@ pub async fn rerun_round(State(s): S, Path(id): Path<i32>) -> R<String> {
     }
     
     // Run the round
-    let tx = s.tx.clone();
-    let executor = Executor::new(s.db.clone(), tx).map_err(err)?;
+    let executor = s.executor.clone();
     spawn_round_runner(executor, id);
     Ok(Json("restarted".to_string()))
 }
@@ -465,59 +424,27 @@ pub async fn run_single_job(State(s): S, Json(req): Json<RunSingleJobRequest>) -
     };
     broadcast(&s, "job_created", &job);
     
-    spawn_job_runner(s.db.clone(), s.tx.clone(), job.id, req.exploit_run_id, req.team_id);
+    spawn_job_runner(s.executor.clone(), job.id);
     
     Ok(Json(job))
 }
 
 pub async fn run_existing_job(State(s): S, Path(job_id): Path<i32>) -> R<ExploitJob> {
     let job = s.db.get_job(job_id).await.map_err(err)?;
-    let exploit_run_id = job.exploit_run_id.ok_or("Job has no exploit_run_id".to_string())?;
+    let _ = job.exploit_run_id.ok_or("Job has no exploit_run_id".to_string())?;
     
     // Reset job status to pending
     s.db.update_job_status(job_id, "pending", false).await.map_err(err)?;
     let job = s.db.get_job(job_id).await.map_err(err)?;
     broadcast(&s, "job_updated", &job);
     
-    spawn_job_runner(s.db.clone(), s.tx.clone(), job_id, exploit_run_id, job.team_id);
+    spawn_job_runner(s.executor.clone(), job_id);
     
     Ok(Json(job))
 }
 
 pub async fn stop_job(State(s): S, Path(job_id): Path<i32>) -> R<ExploitJob> {
-    let job = s.db.get_job(job_id).await.map_err(err)?;
-    if job.status != "running" {
-        return Ok(Json(job));
-    }
-
-    let mut updated_jobs = Vec::new();
-    if let Some(container_id) = job.container_id.clone() {
-        if let Ok(jobs) = s.db.get_running_jobs_by_container(&container_id).await {
-            for running in jobs {
-                let _ = s.db.mark_job_stopped_with_reason(running.id, false, "stopped by user").await;
-                if let Ok(j) = s.db.get_job(running.id).await {
-                    updated_jobs.push(j);
-                }
-            }
-        }
-
-        if let Ok(Some(container)) = s.db.get_container_by_container_id(&container_id).await {
-            if let Ok(cm) = ContainerManager::new(s.db.clone()) {
-                let _ = cm.destroy_container(container.id).await;
-            }
-        }
-    } else {
-        let _ = s.db.mark_job_stopped_with_reason(job_id, false, "stopped by user").await;
-        if let Ok(j) = s.db.get_job(job_id).await {
-            updated_jobs.push(j);
-        }
-    }
-
-    for j in &updated_jobs {
-        broadcast(&s, "job_updated", j);
-    }
-
-    let job = s.db.get_job(job_id).await.map_err(err)?;
+    let job = s.executor.stop_job(job_id, "stopped by user").await.map_err(err)?;
     Ok(Json(job))
 }
 
