@@ -191,12 +191,8 @@ impl Executor {
                     return;
                 }
 
-                if skip_on_flag {
-                    if let Ok(true) = db.has_flag_for(round_id, challenge.id, team.id).await {
-                        let _ = db.finish_job(job.id, "skipped", None, Some("Flag already found"), 0).await;
-                        if let Ok(j) = db.get_job(job.id).await { broadcast(&tx, "job_updated", &j); }
-                        return;
-                    }
+                if skip_on_flag && has_flag_and_skip(&db, &tx, round_id, job.id, challenge.id, team.id).await {
+                    return;
                 }
 
                 let rel = match db.get_relation(challenge.id, team.id).await {
@@ -228,12 +224,8 @@ impl Executor {
                 };
 
                 // Re-check skip_on_flag after acquiring lock
-                if skip_on_flag {
-                    if let Ok(true) = db.has_flag_for(round_id, challenge.id, team.id).await {
-                        let _ = db.finish_job(job.id, "skipped", None, Some("Flag already found"), 0).await;
-                        if let Ok(j) = db.get_job(job.id).await { broadcast(&tx, "job_updated", &j); }
-                        return;
-                    }
+                if skip_on_flag && has_flag_and_skip(&db, &tx, round_id, job.id, challenge.id, team.id).await {
+                    return;
                 }
 
                 // Random delay 0-500ms to spread container reuse
@@ -306,6 +298,24 @@ async fn load_executor_settings(db: &Database) -> ExecutorSettings {
     let skip_on_flag = parse_setting_bool(db.get_setting("skip_on_flag").await.ok(), false);
     let sequential_per_target = parse_setting_bool(db.get_setting("sequential_per_target").await.ok(), false);
     ExecutorSettings { concurrent_limit, worker_timeout, max_flags, skip_on_flag, sequential_per_target }
+}
+
+async fn has_flag_and_skip(
+    db: &Database,
+    tx: &broadcast::Sender<WsMessage>,
+    round_id: i32,
+    job_id: i32,
+    challenge_id: i32,
+    team_id: i32,
+) -> bool {
+    if let Ok(true) = db.has_flag_for(round_id, challenge_id, team_id).await {
+        let _ = db.finish_job(job_id, "skipped", None, Some("Flag already found"), 0).await;
+        if let Ok(j) = db.get_job(job_id).await {
+            broadcast(tx, "job_updated", &j);
+        }
+        return true;
+    }
+    false
 }
 
 fn derive_job_status(flags_found: bool, timed_out: bool, ole: bool, exit_code: i64) -> &'static str {
