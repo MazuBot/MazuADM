@@ -425,7 +425,7 @@ async fn main() -> Result<()> {
             TeamCmd::Add { id, name, ip, priority } => {
                 let t = db.create_team(CreateTeam { team_id: id, team_name: name, default_ip: ip, priority, enabled: Some(true) }).await?;
                 for c in db.list_challenges().await? { let _ = db.create_relation(c.id, t.id, None, None).await; }
-                println!("Created team {}", t.id);
+                println!("Created team {} ({})", t.team_id, t.team_name);
             }
             TeamCmd::List => {
                 let rows: Vec<_> = db.list_teams().await?.into_iter().map(|t| TeamRow { id: t.id, team_id: t.team_id, name: t.team_name, enabled: t.enabled, ip: t.default_ip.unwrap_or_default(), priority: t.priority }).collect();
@@ -433,23 +433,34 @@ async fn main() -> Result<()> {
             }
             TeamCmd::Update { team, team_id, name, ip, priority } => {
                 let t = resolve_team_ref(&db, &team).await?;
-                db.update_team(t.id, CreateTeam { team_id: team_id.unwrap_or(t.team_id), team_name: name.unwrap_or(t.team_name), default_ip: ip.or(t.default_ip), priority: priority.or(Some(t.priority)), enabled: Some(t.enabled) }).await?;
-                println!("Updated team {}", t.id);
+                let updated = db
+                    .update_team(
+                        t.id,
+                        CreateTeam {
+                            team_id: team_id.unwrap_or(t.team_id),
+                            team_name: name.unwrap_or(t.team_name),
+                            default_ip: ip.or(t.default_ip),
+                            priority: priority.or(Some(t.priority)),
+                            enabled: Some(t.enabled),
+                        },
+                    )
+                    .await?;
+                println!("Updated team {} ({})", updated.team_id, updated.team_name);
             }
             TeamCmd::Delete { team } => {
                 let t = resolve_team_ref(&db, &team).await?;
                 db.delete_team(t.id).await?;
-                println!("Deleted team {}", t.id);
+                println!("Deleted team {} ({})", t.team_id, t.team_name);
             }
             TeamCmd::Enable { team } => {
                 let t = resolve_team_ref(&db, &team).await?;
                 db.set_team_enabled(t.id, true).await?;
-                println!("Enabled");
+                println!("Enabled team {} ({})", t.team_id, t.team_name);
             }
             TeamCmd::Disable { team } => {
                 let t = resolve_team_ref(&db, &team).await?;
                 db.set_team_enabled(t.id, false).await?;
-                println!("Disabled");
+                println!("Disabled team {} ({})", t.team_id, t.team_name);
             }
         },
         Cmd::Exploit { cmd } => match cmd {
