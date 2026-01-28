@@ -2,6 +2,5 @@
 node_modules/
 
 # Generated
-dist/
 .svelte-kit/
-build/
+dist/

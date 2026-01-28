@@ -4,7 +4,11 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte'
 const config = {
   preprocess: vitePreprocess(),
   kit: {
-    adapter: adapter({ fallback: 'index.html' }),
+    adapter: adapter({
+      pages: 'dist',
+      assets: 'dist',
+      fallback: 'index.html'
+    }),
     router: {
       type: 'hash'
     }
