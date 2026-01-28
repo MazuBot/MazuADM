@@ -200,10 +200,10 @@ impl Database {
         ).fetch_all(&self.pool).await?)
     }
 
-    pub async fn update_exploit_run(&self, id: i32, priority_set: bool, priority: Option<i32>, sequence: Option<i32>, enabled: Option<bool>) -> Result<ExploitRun> {
+    pub async fn update_exploit_run(&self, id: i32, priority: Option<i32>, sequence: Option<i32>, enabled: Option<bool>) -> Result<ExploitRun> {
         Ok(sqlx::query_as!(ExploitRun,
-            "UPDATE exploit_runs SET priority = CASE WHEN $2 THEN $3 ELSE priority END, sequence = COALESCE($4, sequence), enabled = COALESCE($5, enabled) WHERE id = $1 RETURNING *",
-            id, priority_set, priority, sequence, enabled
+            "UPDATE exploit_runs SET priority = $2, sequence = COALESCE($3, sequence), enabled = COALESCE($4, enabled) WHERE id = $1 RETURNING *",
+            id, priority, sequence, enabled
         ).fetch_one(&self.pool).await?)
     }
 
