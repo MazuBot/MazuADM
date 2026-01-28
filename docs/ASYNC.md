@@ -25,6 +25,7 @@ Risks/notes:
 - Round execution is handled by a single SchedulerRunner background task.
 - Handlers enqueue scheduler commands and notify the runner.
 - Single job execution spawns a detached async task in run_job_internal.
+ - Scheduler.run_round stops all running jobs immediately before scheduling a new round.
 
 Risks/notes:
 - Detached tasks do not log errors on failure.

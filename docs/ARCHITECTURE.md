@@ -249,6 +249,7 @@ flag list [--round <ID>]
    
    round run <id>
      └─→ Scheduler.run_round()
+           ├─→ Stops all running jobs immediately (any round)
            └─→ For each pending job (by priority):
                  └─→ execute_job()
                        ├─→ Lease container (per-exploit pool)
