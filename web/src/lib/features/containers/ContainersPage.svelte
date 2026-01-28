@@ -1,8 +1,8 @@
 <script>
   import * as api from '$lib/data/api';
-  import { getChallengeName, getExploitName, getExploitRunName, getTeamDisplay } from '$lib/utils/lookup.js';
+  import { getChallengeName, getTeamDisplay } from '$lib/utils/lookup.js';
 
-  let { exploits, exploitRuns, challenges, teams, containers, containerRunners, onLoadContainers, onLoadRunners } = $props();
+  let { exploits, exploitRuns, challenges, teams, containers, onLoadContainers } = $props();
 
   let hasContainers = $derived((containers ?? []).length > 0);
 
@@ -16,9 +16,8 @@
     await onLoadContainers();
   }
 
-  async function loadAllRunners() {
-    if (!containers?.length) return;
-    await Promise.all(containers.map((c) => onLoadRunners(c.id)));
+  async function reloadContainers() {
+    await onLoadContainers();
   }
 
   async function restartAllContainers() {
@@ -40,7 +39,7 @@
   <div class="panel-header">
     <h2>Containers</h2>
     <div class="panel-actions">
-      <button class="small" onclick={loadAllRunners} disabled={!hasContainers}>Load All</button>
+      <button class="small" onclick={reloadContainers} disabled={!hasContainers}>Reload</button>
       <button class="small" onclick={restartAllContainers} disabled={!hasContainers}>Restart All</button>
       <button class="small danger" onclick={removeAllContainers} disabled={!hasContainers}>Remove All</button>
     </div>
@@ -55,9 +54,8 @@
           <col style="width: 10%" />
           <col style="width: 8%" />
           <col style="width: 10%" />
+          <col style="width: 40%" />
           <col style="width: 16%" />
-          <col style="width: 22%" />
-          <col style="width: 18%" />
         </colgroup>
         <thead>
           <tr>
@@ -66,7 +64,6 @@
             <th>Counter</th>
             <th>Execs</th>
             <th>Affinity</th>
-            <th>Jobs</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -91,22 +88,6 @@
                   {/each}
                 {:else}
                   <span class="muted">-</span>
-                {/if}
-              </td>
-              <td class="runners-cell">
-                {#if containerRunners[c.id]}
-                  {#each containerRunners[c.id] as r}
-                    <div>
-                      {#if r.exploit_run_id}
-                        {getExploitRunName(exploitRuns, exploits, r.exploit_run_id)}
-                      {:else}
-                        Ad-hoc
-                      {/if}
-                      → <span class="truncate">{getTeamDisplay(teams, r.team_id)}</span> ({r.status})
-                    </div>
-                  {/each}
-                {:else}
-                  <button onclick={() => onLoadRunners(c.id)}>Load</button>
                 {/if}
               </td>
               <td>
