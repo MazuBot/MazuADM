@@ -10,7 +10,7 @@ const config = {
       fallback: 'index.html'
     }),
     router: {
-      type: 'hash'
+      type: 'pathname'
     }
   }
 }
