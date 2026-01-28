@@ -391,10 +391,11 @@ pub async fn run_round(State(s): S, Path(id): Path<i32>) -> R<String> {
 }
 
 async fn stop_running_jobs_with_flag_check(s: &AppState) {
+    let settings = load_job_settings(&s.db).await;
     if let Ok(jobs) = s.db.kill_running_jobs().await {
         for job in jobs {
             let stdout = job.stdout.as_deref().unwrap_or("");
-            let flags = Executor::extract_flags(stdout, None, 50);
+            let flags = Executor::extract_flags(stdout, None, settings.max_flags);
             let has_flag = !flags.is_empty();
             let _ = s.db.mark_job_stopped(job.id, has_flag).await;
             if let Ok(j) = s.db.get_job(job.id).await {
