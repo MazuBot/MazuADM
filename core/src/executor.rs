@@ -180,14 +180,12 @@ impl Executor {
                 };
 
                 if !exploit.enabled {
-                    let _ = db.finish_job(job.id, "skipped", None, Some("Exploit disabled"), 0).await;
-                    if let Ok(j) = db.get_job(job.id).await { broadcast(&tx, "job_updated", &j); }
+                    finish_job_and_broadcast(&db, &tx, job.id, "skipped", None, Some("Exploit disabled"), 0).await;
                     return;
                 }
 
                 if !team.enabled {
-                    let _ = db.finish_job(job.id, "skipped", None, Some("Team disabled"), 0).await;
-                    if let Ok(j) = db.get_job(job.id).await { broadcast(&tx, "job_updated", &j); }
+                    finish_job_and_broadcast(&db, &tx, job.id, "skipped", None, Some("Team disabled"), 0).await;
                     return;
                 }
 
@@ -203,8 +201,7 @@ impl Executor {
                 let conn = match rel.and_then(|r| r.connection_info(&challenge, &team)) {
                     Some(c) => c,
                     None => {
-                        let _ = db.finish_job(job.id, "error", None, Some("No connection info (missing IP or port)"), 0).await;
-                        if let Ok(j) = db.get_job(job.id).await { broadcast(&tx, "job_updated", &j); }
+                        finish_job_and_broadcast(&db, &tx, job.id, "error", None, Some("No connection info (missing IP or port)"), 0).await;
                         return;
                     }
                 };
@@ -245,8 +242,7 @@ impl Executor {
                     }
                     Err(e) => {
                         tracing::error!("Job {} failed: {}", job.id, e);
-                        let _ = db.finish_job(job.id, "error", None, Some(&e.to_string()), 0).await;
-                        if let Ok(j) = db.get_job(job.id).await { broadcast(&tx, "job_updated", &j); }
+                        finish_job_and_broadcast(&db, &tx, job.id, "error", None, Some(&e.to_string()), 0).await;
                     }
                 }
             });
@@ -309,13 +305,25 @@ async fn has_flag_and_skip(
     team_id: i32,
 ) -> bool {
     if let Ok(true) = db.has_flag_for(round_id, challenge_id, team_id).await {
-        let _ = db.finish_job(job_id, "skipped", None, Some("Flag already found"), 0).await;
-        if let Ok(j) = db.get_job(job_id).await {
-            broadcast(tx, "job_updated", &j);
-        }
+        finish_job_and_broadcast(db, tx, job_id, "skipped", None, Some("Flag already found"), 0).await;
         return true;
     }
     false
+}
+
+async fn finish_job_and_broadcast(
+    db: &Database,
+    tx: &broadcast::Sender<WsMessage>,
+    job_id: i32,
+    status: &str,
+    stdout: Option<&str>,
+    stderr: Option<&str>,
+    duration_ms: i32,
+) {
+    let _ = db.finish_job(job_id, status, stdout, stderr, duration_ms).await;
+    if let Ok(j) = db.get_job(job_id).await {
+        broadcast(tx, "job_updated", &j);
+    }
 }
 
 fn derive_job_status(flags_found: bool, timed_out: bool, ole: bool, exit_code: i64) -> &'static str {
