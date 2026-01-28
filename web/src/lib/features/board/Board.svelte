@@ -1,7 +1,7 @@
 <script>
   import * as api from '$lib/data/api';
   import Modal from '$lib/ui/Modal.svelte';
-  import { getChallengeName, getExploitName, getTeamName } from '$lib/utils/lookup.js';
+  import { getChallengeName, getExploitName, getTeamDisplay } from '$lib/utils/lookup.js';
 
   let { challenges, teams, exploits, exploitRuns, challengeId, onRefresh } = $props();
 
@@ -235,7 +235,7 @@
         ondrop={(e) => onColumnDrop(e, team.id)}
       >
         <h3>
-          {team.team_name} {!team.enabled ? '(disabled)' : ''}
+          <span class="truncate">{getTeamDisplay(teams, team.id)}</span> {!team.enabled ? '(disabled)' : ''}
           <button
             type="button"
             class="gear"
@@ -338,7 +338,7 @@
       </h3>
       <div class="info">
         <p><strong>Exploit:</strong> {getExploitName(exploits, editingRun.exploit_id)}</p>
-        <p><strong>Team:</strong> {getTeamName(teams, editingRun.team_id)}</p>
+      <p><strong>Team:</strong> <span class="truncate">{getTeamDisplay(teams, editingRun.team_id)}</span></p>
         <p><strong>Image:</strong> <code>{getExploit(editingRun.exploit_id)?.docker_image}</code></p>
         <p><strong>Entrypoint:</strong> <code>{getExploit(editingRun.exploit_id)?.entrypoint || '(image CMD)'}</code></p>
       </div>
@@ -404,7 +404,7 @@
   <Modal onClose={() => editingRelation = null}>
     <form onsubmit={(e) => { e.preventDefault(); saveRelation(); }}>
       <h3 class="modal-title">
-        <span>Connection for {editingRelation.team_name}</span>
+        <span>Connection for <span class="truncate">{getTeamDisplay(teams, editingRelation.id)}</span></span>
         <code>{getChallengeName(challenges, challengeId)}</code>
       </h3>
       <p class="hint">Leave empty to use team default IP + challenge default port</p>

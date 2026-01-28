@@ -3,6 +3,16 @@ export function getTeamName(teams, teamId) {
   return t ? `${t.id} (${t.team_name})` : (teamId ?? '-')
 }
 
+export function getTeamId(teams, teamId) {
+  const t = teams?.find((team) => team.id === teamId)
+  return t ? t.team_id : (teamId ?? '-')
+}
+
+export function getTeamDisplay(teams, teamId) {
+  const t = teams?.find((team) => team.id === teamId)
+  return t ? `${t.team_id} (${t.team_name})` : (teamId ?? '-')
+}
+
 export function getChallengeName(challenges, challengeId) {
   const c = challenges?.find((challenge) => challenge.id === challengeId)
   return c ? c.name : (challengeId ?? '-')

@@ -4,7 +4,7 @@
   import Modal from '$lib/ui/Modal.svelte';
   import FilterBar from '$lib/ui/FilterBar.svelte';
   import { buildStatusOptions } from '$lib/utils/filters.js';
-  import { getChallengeName, getExploitName, getTeamName } from '$lib/utils/lookup.js';
+  import { getChallengeName, getExploitName, getTeamDisplay } from '$lib/utils/lookup.js';
 
   let { rounds, jobs, teams, challenges, exploits, exploitRuns, selectedRoundId, onSelectRound, onNewRound, onRunRound, onRefresh } = $props();
 
@@ -159,7 +159,7 @@
             <td>{j.id}</td>
             <td>{getChallengeName(challenges, getExploitRunInfo(j.exploit_run_id)?.challenge_id)}</td>
             <td>{getExploitName(exploits, getExploitRunInfo(j.exploit_run_id)?.exploit_id)}</td>
-            <td>{getTeamName(teams, j.team_id)}</td>
+            <td><span class="truncate">{getTeamDisplay(teams, j.team_id)}</span></td>
             <td>{j.container_id ? j.container_id.slice(0, 12) : '-'}</td>
             <td>{j.priority}</td>
             <td>{formatStatus(j.status)}</td>
@@ -181,7 +181,7 @@
     </h3>
     <div class="job-info">
       <p><strong>Exploit:</strong> {getExploitName(exploits, getExploitRunInfo(selectedJob.exploit_run_id)?.exploit_id)}</p>
-      <p><strong>Team:</strong> {getTeamName(teams, selectedJob.team_id)}</p>
+      <p><strong>Team:</strong> <span class="truncate">{getTeamDisplay(teams, selectedJob.team_id)}</span></p>
       <p><strong>Priority:</strong> {selectedJob.priority}</p>
       <p><strong>Duration:</strong> {selectedJob.duration_ms ? `${selectedJob.duration_ms}ms` : '-'}</p>
       {#if selectedJob.container_id}<p><strong>Container:</strong> <code>{selectedJob.container_id.slice(0, 12)}</code></p>{/if}

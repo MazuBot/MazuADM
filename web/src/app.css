@@ -104,6 +104,15 @@ table {
   border-collapse: collapse;
 }
 
+.truncate {
+  display: inline-block;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
 .containers-table {
   table-layout: fixed;
 }

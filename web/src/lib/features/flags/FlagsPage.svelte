@@ -1,7 +1,7 @@
 <script>
   import FilterBar from '$lib/ui/FilterBar.svelte';
   import { buildStatusOptions } from '$lib/utils/filters.js';
-  import { getChallengeName, getTeamName } from '$lib/utils/lookup.js';
+  import { getChallengeName, getTeamDisplay } from '$lib/utils/lookup.js';
 
   let { rounds, flags, teams, challenges, selectedFlagRoundId, onSelectFlagRound } = $props();
 
@@ -66,7 +66,7 @@
         <td>{f.id}</td>
         <td>{f.round_id}</td>
         <td>{getChallengeName(challenges, f.challenge_id)}</td>
-        <td>{getTeamName(teams, f.team_id)}</td>
+        <td><span class="truncate">{getTeamDisplay(teams, f.team_id)}</span></td>
         <td><code>{f.flag_value}</code></td>
         <td>{f.status}</td>
       </tr>

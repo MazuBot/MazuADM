@@ -1,6 +1,6 @@
 <script>
   import * as api from '$lib/data/api';
-  import { getChallengeName, getExploitName, getExploitRunName, getTeamName } from '$lib/utils/lookup.js';
+  import { getChallengeName, getExploitName, getExploitRunName, getTeamDisplay } from '$lib/utils/lookup.js';
 
   let { exploits, exploitRuns, challenges, teams, containers, containerRunners, onLoadContainers, onLoadRunners } = $props();
 
@@ -78,7 +78,7 @@
               <td class="runners-cell">
                 {#if containerRunners[c.id]}
                   {#each containerRunners[c.id] as r}
-                    <div>{getExploitRunName(exploitRuns, exploits, r.exploit_run_id)} → {getTeamName(teams, r.team_id)}</div>
+                    <div>{getExploitRunName(exploitRuns, exploits, r.exploit_run_id)} → <span class="truncate">{getTeamDisplay(teams, r.team_id)}</span></div>
                   {/each}
                 {:else}
                   <button onclick={() => onLoadRunners(c.id)}>Load</button>
