@@ -190,6 +190,14 @@
     }
   }
 
+  async function deleteRunFromCard(run, e) {
+    e.stopPropagation();
+    if (confirm('Delete this exploit run?')) {
+      await api.deleteExploitRun(run.id);
+      onRefresh();
+    }
+  }
+
   function onCardDragStart(e, run) {
     draggingCard = run;
     e.dataTransfer.effectAllowed = 'move';
@@ -287,6 +295,15 @@
               <span class="card-seq">{idx + 1}</span>
               <span class="card-name">{getExploitName(exploits, run.exploit_id)}</span>
               <span class="card-priority">{run.priority ?? 'auto'}</span>
+              <button
+                type="button"
+                class="card-delete"
+                title="Delete run"
+                aria-label="Delete run"
+                onclick={(e) => deleteRunFromCard(run, e)}
+              >
+                ✕
+              </button>
               <button
                 type="button"
                 class="card-play"
@@ -467,7 +484,7 @@
   .gear:hover { opacity: 1; }
   .hint { color: #666; font-size: 0.85rem; margin: 0.5rem 0; }
   .cards { display: flex; flex-direction: column; gap: 0.5rem; min-height: 50px; }
-  .card { background: #1a1a2e; padding: 0.75rem; border-radius: 4px; border-left: 3px solid #00d9ff; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+  .card { background: #1a1a2e; padding: 0.75rem 1.75rem 0.75rem 0.75rem; border-radius: 4px; border-left: 3px solid #00d9ff; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; position: relative; }
   .card:hover { background: #252550; }
   .card.disabled { background: #0d0d15; opacity: 0.6; border-left-color: #444; }
   .card.disabled .card-name { text-decoration: line-through; color: #666; }
@@ -475,6 +492,9 @@
   .card-seq { background: #333; color: #888; font-size: 0.75rem; padding: 0.1rem 0.4rem; border-radius: 3px; }
   .card-name { font-weight: 500; flex: 1; }
   .card-priority { color: #888; font-size: 0.8rem; }
+  .card-delete { position: absolute; top: 0; right: 0; background: #fff; border: none; color: #333; font-size: 0.7rem; line-height: 1; width: 1rem; height: 1rem; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; aspect-ratio: 1; box-sizing: border-box; appearance: none; cursor: pointer; opacity: 0; pointer-events: none; }
+  .card:hover .card-delete, .card:focus-within .card-delete { opacity: 0.9; pointer-events: auto; }
+  .card-delete:hover { color: #ff6b6b; opacity: 1; }
   .card-play { cursor: pointer; opacity: 0.5; font-size: 0.7rem; margin-left: auto; background: transparent; border: none; padding: 0; color: inherit; }
   .card-play:hover { opacity: 1; }
   .danger { background: #d9534f; }
