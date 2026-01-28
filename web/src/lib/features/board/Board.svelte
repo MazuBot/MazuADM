@@ -551,12 +551,12 @@
   .board { display: flex; gap: 1rem; height: calc(100vh - 150px); }
   .sidebar { width: 200px; background: #252540; padding: 1rem; border-radius: 8px; }
   .sidebar h3 { margin-top: 0; color: #00d9ff; }
-  .exploit-item { background: #1a1a2e; padding: 0.5rem 3.6rem 0.5rem 0.5rem; margin-bottom: 0.5rem; border-radius: 4px; cursor: grab; border: 1px solid #444; width: 100%; text-align: left; color: inherit; position: relative; overflow: hidden; box-sizing: border-box; }
+  .exploit-item { background: #1a1a2e; padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 4px; cursor: grab; border: 1px solid #444; width: 100%; text-align: left; color: inherit; position: relative; overflow: hidden; box-sizing: border-box; }
   .exploit-item { appearance: none; background-color: #1a1a2e; }
   .exploit-item:hover { border-color: #00d9ff; }
   .exploit-item.disabled { opacity: 0.5; text-decoration: line-through; }
   .exploit-item.selected { border-color: #00d9ff; box-shadow: 0 0 0 1px #00d9ff inset; }
-  .exploit-name { display: block; padding-right: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .exploit-name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .exploit-actions { position: absolute; top: 0; right: 0; display: flex; gap: 0.2rem; opacity: 0; pointer-events: none; z-index: 1; }
   .exploit-item:hover .exploit-actions, .exploit-item:focus-within .exploit-actions { opacity: 1; pointer-events: auto; }
   .exploit-action { background: #fff; border: none; color: #333; font-size: 0.7rem; line-height: 1; width: 1rem; height: 1rem; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; aspect-ratio: 1; box-sizing: border-box; appearance: none; cursor: pointer; }
