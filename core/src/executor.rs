@@ -38,10 +38,14 @@ impl Executor {
         let container = self.container_manager.get_or_assign_container(run).await?;
         self.db.set_job_container(job.id, &container.container_id).await?;
 
-        // Build command - use entrypoint or default script
+        // Build command - use entrypoint or docker image default cmd
+        let args = vec![conn.addr.clone(), conn.port.to_string(), team.team_id.clone()];
         let cmd = match &exploit.entrypoint {
-            Some(ep) => vec![ep.clone(), conn.addr.clone(), conn.port.to_string(), team.team_id.clone()],
-            None => vec!["/exploit".to_string(), conn.addr.clone(), conn.port.to_string(), team.team_id.clone()],
+            Some(ep) => [vec![ep.clone()], args].concat(),
+            None => {
+                let image_cmd = self.container_manager.get_image_cmd(&exploit.docker_image).await.unwrap_or_default();
+                [image_cmd, args].concat()
+            }
         };
 
         let env = vec![

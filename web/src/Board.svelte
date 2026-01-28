@@ -214,7 +214,7 @@
       <h3>Add Exploit</h3>
       <label>Name <input bind:value={newExploit.name} /></label>
       <label>Docker Image <input bind:value={newExploit.docker_image} /></label>
-      <label>Entrypoint <input bind:value={newExploit.entrypoint} placeholder="Optional" /></label>
+      <label>Entrypoint <input bind:value={newExploit.entrypoint} placeholder="Leave empty to use image CMD" /></label>
       <label>Priority <input bind:value={newExploit.priority} type="number" /></label>
       <label>Max per container <input bind:value={newExploit.max_per_container} type="number" placeholder="Default: 1" /></label>
       <label>Default counter <input bind:value={newExploit.default_counter} type="number" placeholder="Default: 999" /></label>
@@ -243,7 +243,7 @@
         <p><strong>Exploit:</strong> {getExploitName(editingRun.exploit_id)}</p>
         <p><strong>Team:</strong> {getTeamName(editingRun.team_id)}</p>
         <p><strong>Image:</strong> <code>{getExploit(editingRun.exploit_id)?.docker_image}</code></p>
-        <p><strong>Entrypoint:</strong> <code>{getExploit(editingRun.exploit_id)?.entrypoint || 'default'}</code></p>
+        <p><strong>Entrypoint:</strong> <code>{getExploit(editingRun.exploit_id)?.entrypoint || '(image CMD)'}</code></p>
       </div>
       <label>Priority <input bind:value={editForm.priority} type="number" placeholder="Auto" /></label>
       <label>Sequence <input bind:value={editForm.sequence} type="number" /></label>
@@ -263,7 +263,7 @@
       <h3>Edit Exploit</h3>
       <label>Name <input bind:value={exploitForm.name} /></label>
       <label>Docker Image <input bind:value={exploitForm.docker_image} /></label>
-      <label>Entrypoint <input bind:value={exploitForm.entrypoint} placeholder="Optional" /></label>
+      <label>Entrypoint <input bind:value={exploitForm.entrypoint} placeholder="Leave empty to use image CMD" /></label>
       <label>Priority <input bind:value={exploitForm.priority} type="number" /></label>
       <label>Max per container <input bind:value={exploitForm.max_per_container} type="number" /></label>
       <label>Default counter <input bind:value={exploitForm.default_counter} type="number" /></label>

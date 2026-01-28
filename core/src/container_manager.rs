@@ -19,6 +19,12 @@ impl ContainerManager {
         Ok(Self { db, docker })
     }
 
+    /// Get the default CMD from a Docker image
+    pub async fn get_image_cmd(&self, image: &str) -> Option<Vec<String>> {
+        let inspect = self.docker.inspect_image(image).await.ok()?;
+        inspect.config?.cmd
+    }
+
     /// Ensure at least one container exists for an exploit
     pub async fn ensure_containers(&self, exploit_id: i32) -> Result<()> {
         let exploit = self.db.get_exploit(exploit_id).await?;
