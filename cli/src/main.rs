@@ -401,24 +401,23 @@ async fn main() -> Result<()> {
                 println!("{}", Table::new(rows));
             }
             TeamCmd::Update { team, team_id, name, ip, priority } => {
-                let id = team.parse::<i32>()?;
-                let t = db.get_team(id).await?;
-                db.update_team(id, CreateTeam { team_id: team_id.unwrap_or(t.team_id), team_name: name.unwrap_or(t.team_name), default_ip: ip.or(t.default_ip), priority: priority.or(Some(t.priority)), enabled: Some(t.enabled) }).await?;
-                println!("Updated team {}", id);
+                let t = resolve_team_ref(&db, &team).await?;
+                db.update_team(t.id, CreateTeam { team_id: team_id.unwrap_or(t.team_id), team_name: name.unwrap_or(t.team_name), default_ip: ip.or(t.default_ip), priority: priority.or(Some(t.priority)), enabled: Some(t.enabled) }).await?;
+                println!("Updated team {}", t.id);
             }
             TeamCmd::Delete { team } => {
-                let id = team.parse::<i32>()?;
-                db.delete_team(id).await?;
-                println!("Deleted team {}", id);
+                let t = resolve_team_ref(&db, &team).await?;
+                db.delete_team(t.id).await?;
+                println!("Deleted team {}", t.id);
             }
             TeamCmd::Enable { team } => {
-                let id = team.parse::<i32>()?;
-                db.set_team_enabled(id, true).await?;
+                let t = resolve_team_ref(&db, &team).await?;
+                db.set_team_enabled(t.id, true).await?;
                 println!("Enabled");
             }
             TeamCmd::Disable { team } => {
-                let id = team.parse::<i32>()?;
-                db.set_team_enabled(id, false).await?;
+                let t = resolve_team_ref(&db, &team).await?;
+                db.set_team_enabled(t.id, false).await?;
                 println!("Disabled");
             }
         },
@@ -529,14 +528,13 @@ async fn main() -> Result<()> {
                 println!("Disabled");
             }
             ExploitCmd::Run { name, challenge, team } => {
-                let team_id = team.parse::<i32>()?;
                 let challenge = resolve_challenge(&db, challenge, None).await?;
                 let exploit = resolve_exploit(&db, challenge.id, &name).await?;
-                let team_obj = db.get_team(team_id).await?;
-                let run = db.create_exploit_run(CreateExploitRun { exploit_id: exploit.id, challenge_id: exploit.challenge_id, team_id: team_id, priority: None, sequence: None }).await?;
-                let job = db.create_adhoc_job(run.id, team_id).await?;
+                let team_obj = resolve_team_ref(&db, &team).await?;
+                let run = db.create_exploit_run(CreateExploitRun { exploit_id: exploit.id, challenge_id: exploit.challenge_id, team_id: team_obj.id, priority: None, sequence: None }).await?;
+                let job = db.create_adhoc_job(run.id, team_obj.id).await?;
                 let relations = db.list_relations(challenge.id).await?;
-                let rel = relations.iter().find(|r| r.team_id == team_id);
+                let rel = relations.iter().find(|r| r.team_id == team_obj.id);
                 let conn = rel.and_then(|r| r.connection_info(&challenge, &team_obj)).ok_or(anyhow::anyhow!("No connection info"))?;
                 let (tx, _) = tokio::sync::broadcast::channel(1);
                 let executor = mazuadm_core::executor::Executor::new(db.clone(), tx)?;
@@ -549,13 +547,13 @@ async fn main() -> Result<()> {
         },
         Cmd::Run { cmd } => match cmd {
             RunCmd::Add { exploit, challenge, team, priority, sequence } => {
-                let team_id = team.parse::<i32>()?;
-                let r = db.create_exploit_run(CreateExploitRun { exploit_id: exploit, challenge_id: challenge, team_id, priority, sequence }).await?;
+                let team = resolve_team_ref(&db, &team).await?;
+                let r = db.create_exploit_run(CreateExploitRun { exploit_id: exploit, challenge_id: challenge, team_id: team.id, priority, sequence }).await?;
                 println!("Created run {}", r.id);
             }
             RunCmd::List { challenge, team } => {
                 let team = match team {
-                    Some(team_ref) => Some(team_ref.parse::<i32>()?),
+                    Some(team_ref) => Some(resolve_team_ref(&db, &team_ref).await?.id),
                     None => None,
                 };
                 let rows: Vec<_> = db.list_exploit_runs(challenge, team).await?.into_iter().map(|r| RunRow { id: r.id, exploit: r.exploit_id, challenge: r.challenge_id, team: r.team_id, priority: r.priority.map(|p| p.to_string()).unwrap_or("-".into()), seq: r.sequence }).collect();
@@ -657,14 +655,14 @@ async fn main() -> Result<()> {
                 println!("{}", Table::new(rows));
             }
             RelationCmd::Get { challenge, team } => {
-                let team_id = team.parse::<i32>()?;
-                if let Some(r) = db.get_relation(challenge, team_id).await? {
+                let team = resolve_team_ref(&db, &team).await?;
+                if let Some(r) = db.get_relation(challenge, team.id).await? {
                     println!("Challenge: {}, Team: {}, Addr: {}, Port: {}", r.challenge_id, r.team_id, r.addr.unwrap_or_default(), r.port.map(|p| p.to_string()).unwrap_or_default());
                 } else { println!("Relation not found"); }
             }
             RelationCmd::Update { challenge, team, ip, port } => {
-                let team_id = team.parse::<i32>()?;
-                db.update_relation(challenge, team_id, ip, port).await?;
+                let team = resolve_team_ref(&db, &team).await?;
+                db.update_relation(challenge, team.id, ip, port).await?;
                 println!("Updated relation");
             }
         },
