@@ -8,6 +8,7 @@ use futures::{Stream, StreamExt};
 use std::time::Duration;
 use tracing::{info, warn, error};
 
+#[derive(Clone)]
 pub struct ContainerManager {
     pub db: Database,
     pub docker: Docker,

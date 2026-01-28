@@ -8,6 +8,7 @@ use tokio::sync::{broadcast, Semaphore, Mutex};
 use tokio::task::JoinSet;
 use regex::Regex;
 
+#[derive(Clone)]
 pub struct Executor {
     pub db: Database,
     pub container_manager: ContainerManager,
@@ -136,11 +137,13 @@ impl Executor {
         
         let mut join_set = JoinSet::new();
 
+        let base_executor = self.clone();
+
         for job in jobs {
             let permit = semaphore.clone().acquire_owned().await?;
             let db = self.db.clone();
             let tx = self.tx.clone();
-            let executor = Executor::new(db.clone(), tx.clone())?;
+            let executor = base_executor.clone();
             let target_locks = target_locks.clone();
 
             join_set.spawn(async move {
@@ -340,7 +343,9 @@ mod tests {
         parse_setting_u64,
         parse_setting_usize,
         stagger_delay_ms,
+        Executor,
     };
+    use crate::container_manager::ContainerManager;
 
     #[test]
     fn compute_timeout_prefers_exploit() {
@@ -401,5 +406,12 @@ mod tests {
         assert!(!parse_setting_bool(None, false));
         assert!(!parse_setting_bool(Some("bad".to_string()), false));
         assert!(parse_setting_bool(Some("true".to_string()), false));
+    }
+
+    #[test]
+    fn executor_and_container_manager_are_clone() {
+        fn assert_clone<T: Clone>() {}
+        assert_clone::<Executor>();
+        assert_clone::<ContainerManager>();
     }
 }
