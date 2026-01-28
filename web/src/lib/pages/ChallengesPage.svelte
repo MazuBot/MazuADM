@@ -1,5 +1,6 @@
 <script>
   import { api } from '$lib/api.js';
+  import Modal from '$lib/components/Modal.svelte';
 
   let { challenges, onRefresh } = $props();
 
@@ -59,13 +60,6 @@
     showChallengeModal = false;
   }
 
-  function onOverlayClick(e) {
-    if (e.target === e.currentTarget) closeModal();
-  }
-
-  function onOverlayKeydown(e) {
-    if (e.key === 'Escape') closeModal();
-  }
 </script>
 
 <div class="panel">
@@ -102,26 +96,17 @@
 </div>
 
 {#if showChallengeModal}
-  <div
-    class="modal-overlay"
-    role="button"
-    tabindex="0"
-    aria-label="Close modal"
-    onclick={onOverlayClick}
-    onkeydown={onOverlayKeydown}
-  >
-    <div class="modal" role="dialog" aria-modal="true">
-      <h3>{editingChallenge ? 'Edit' : 'Add'} Challenge</h3>
-      <label>Name <input bind:value={challengeForm.name} /></label>
-      <label>Default Port <input bind:value={challengeForm.default_port} type="number" placeholder="Optional" /></label>
-      <label>Priority <input bind:value={challengeForm.priority} type="number" /></label>
-      <label>Flag Regex <input bind:value={challengeForm.flag_regex} placeholder="e.g. [A-Za-z0-9]{31}=" /></label>
-      <label class="checkbox"><input type="checkbox" bind:checked={challengeForm.enabled} /> Enabled</label>
-      <div class="modal-actions">
-        {#if editingChallenge}<button class="danger" onclick={deleteChallenge}>Delete</button>{/if}
-        <button onclick={closeModal}>Cancel</button>
-        <button onclick={saveChallenge}>Save</button>
-      </div>
+  <Modal onClose={closeModal}>
+    <h3>{editingChallenge ? 'Edit' : 'Add'} Challenge</h3>
+    <label>Name <input bind:value={challengeForm.name} /></label>
+    <label>Default Port <input bind:value={challengeForm.default_port} type="number" placeholder="Optional" /></label>
+    <label>Priority <input bind:value={challengeForm.priority} type="number" /></label>
+    <label>Flag Regex <input bind:value={challengeForm.flag_regex} placeholder="e.g. [A-Za-z0-9]{31}=" /></label>
+    <label class="checkbox"><input type="checkbox" bind:checked={challengeForm.enabled} /> Enabled</label>
+    <div class="modal-actions">
+      {#if editingChallenge}<button class="danger" onclick={deleteChallenge}>Delete</button>{/if}
+      <button onclick={closeModal}>Cancel</button>
+      <button onclick={saveChallenge}>Save</button>
     </div>
-  </div>
+  </Modal>
 {/if}

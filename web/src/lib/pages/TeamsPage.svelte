@@ -1,5 +1,6 @@
 <script>
   import { api } from '$lib/api.js';
+  import Modal from '$lib/components/Modal.svelte';
 
   let { teams, onRefresh } = $props();
 
@@ -53,13 +54,6 @@
     showTeamModal = false;
   }
 
-  function onOverlayClick(e) {
-    if (e.target === e.currentTarget) closeModal();
-  }
-
-  function onOverlayKeydown(e) {
-    if (e.key === 'Escape') closeModal();
-  }
 </script>
 
 <div class="panel">
@@ -96,26 +90,17 @@
 </div>
 
 {#if showTeamModal}
-  <div
-    class="modal-overlay"
-    role="button"
-    tabindex="0"
-    aria-label="Close modal"
-    onclick={onOverlayClick}
-    onkeydown={onOverlayKeydown}
-  >
-    <div class="modal" role="dialog" aria-modal="true">
-      <h3>{editingTeam ? 'Edit' : 'Add'} Team</h3>
-      <label>Team ID <input bind:value={teamForm.team_id} disabled={!!editingTeam} /></label>
-      <label>Team Name <input bind:value={teamForm.team_name} /></label>
-      <label>Default IP <input bind:value={teamForm.default_ip} placeholder="Optional" /></label>
-      <label>Priority <input bind:value={teamForm.priority} type="number" /></label>
-      <label class="checkbox"><input type="checkbox" bind:checked={teamForm.enabled} /> Enabled</label>
-      <div class="modal-actions">
-        {#if editingTeam}<button class="danger" onclick={deleteTeam}>Delete</button>{/if}
-        <button onclick={closeModal}>Cancel</button>
-        <button onclick={saveTeam}>Save</button>
-      </div>
+  <Modal onClose={closeModal}>
+    <h3>{editingTeam ? 'Edit' : 'Add'} Team</h3>
+    <label>Team ID <input bind:value={teamForm.team_id} disabled={!!editingTeam} /></label>
+    <label>Team Name <input bind:value={teamForm.team_name} /></label>
+    <label>Default IP <input bind:value={teamForm.default_ip} placeholder="Optional" /></label>
+    <label>Priority <input bind:value={teamForm.priority} type="number" /></label>
+    <label class="checkbox"><input type="checkbox" bind:checked={teamForm.enabled} /> Enabled</label>
+    <div class="modal-actions">
+      {#if editingTeam}<button class="danger" onclick={deleteTeam}>Delete</button>{/if}
+      <button onclick={closeModal}>Cancel</button>
+      <button onclick={saveTeam}>Save</button>
     </div>
-  </div>
+  </Modal>
 {/if}

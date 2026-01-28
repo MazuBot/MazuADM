@@ -1,5 +1,6 @@
 <script>
   import { api } from '$lib/api.js';
+  import Modal from '$lib/components/Modal.svelte';
 
   let { teams, exploits, exploitRuns, challengeId, onRefresh } = $props();
 
@@ -18,17 +19,6 @@
   let draggingCard = $state(null);
 
   let filteredExploits = $derived(exploits.filter(e => e.challenge_id === challengeId));
-
-  function onOverlayClick(e, close) {
-    if (e.target === e.currentTarget) close();
-  }
-
-  function onOverlayKeydown(e, close) {
-    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      close();
-    }
-  }
 
   function onCardKeydown(e, run) {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -260,116 +250,80 @@
 </div>
 
 {#if showAddExploit}
-  <div
-    class="modal-overlay"
-    role="button"
-    tabindex="0"
-    aria-label="Close modal"
-    onclick={(e) => onOverlayClick(e, () => showAddExploit = false)}
-    onkeydown={(e) => onOverlayKeydown(e, () => showAddExploit = false)}
-  >
-    <div class="modal" role="dialog" aria-modal="true">
-      <h3>Add Exploit</h3>
-      <label>Name <input type="text" bind:value={newExploit.name} /></label>
-      <label>Docker Image <input type="text" bind:value={newExploit.docker_image} /></label>
-      <label>Entrypoint <input type="text" bind:value={newExploit.entrypoint} placeholder="Leave empty to use image CMD" /></label>
-      <label>Priority <input bind:value={newExploit.priority} type="number" /></label>
-      <label>Max per container <input bind:value={newExploit.max_per_container} type="number" placeholder="Default: 1" /></label>
-      <label>Default counter <input bind:value={newExploit.default_counter} type="number" placeholder="Default: 999" /></label>
-      <label>Timeout (secs) <input bind:value={newExploit.timeout_secs} type="number" placeholder="0 = use global" /></label>
-      <label>Auto-add to teams
-        <select bind:value={newExploit.auto_add}>
-          <option value="none">Don't add</option>
-          <option value="start">Add to start of each team</option>
-          <option value="end">Add to end of each team</option>
-        </select>
-      </label>
-      <label class="checkbox"><input type="checkbox" bind:checked={newExploit.insert_into_rounds} /> Insert jobs into active rounds</label>
-      <div class="modal-actions">
-        <button onclick={() => showAddExploit = false}>Cancel</button>
-        <button onclick={addExploit}>Add</button>
-      </div>
+  <Modal onClose={() => showAddExploit = false}>
+    <h3>Add Exploit</h3>
+    <label>Name <input type="text" bind:value={newExploit.name} /></label>
+    <label>Docker Image <input type="text" bind:value={newExploit.docker_image} /></label>
+    <label>Entrypoint <input type="text" bind:value={newExploit.entrypoint} placeholder="Leave empty to use image CMD" /></label>
+    <label>Priority <input bind:value={newExploit.priority} type="number" /></label>
+    <label>Max per container <input bind:value={newExploit.max_per_container} type="number" placeholder="Default: 1" /></label>
+    <label>Default counter <input bind:value={newExploit.default_counter} type="number" placeholder="Default: 999" /></label>
+    <label>Timeout (secs) <input bind:value={newExploit.timeout_secs} type="number" placeholder="0 = use global" /></label>
+    <label>Auto-add to teams
+      <select bind:value={newExploit.auto_add}>
+        <option value="none">Don't add</option>
+        <option value="start">Add to start of each team</option>
+        <option value="end">Add to end of each team</option>
+      </select>
+    </label>
+    <label class="checkbox"><input type="checkbox" bind:checked={newExploit.insert_into_rounds} /> Insert jobs into active rounds</label>
+    <div class="modal-actions">
+      <button onclick={() => showAddExploit = false}>Cancel</button>
+      <button onclick={addExploit}>Add</button>
     </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if editingRun}
-  <div
-    class="modal-overlay"
-    role="button"
-    tabindex="0"
-    aria-label="Close modal"
-    onclick={(e) => onOverlayClick(e, () => editingRun = null)}
-    onkeydown={(e) => onOverlayKeydown(e, () => editingRun = null)}
-  >
-    <div class="modal" role="dialog" aria-modal="true">
-      <h3>Edit Exploit Run</h3>
-      <div class="info">
-        <p><strong>Exploit:</strong> {getExploitName(editingRun.exploit_id)}</p>
-        <p><strong>Team:</strong> {getTeamName(editingRun.team_id)}</p>
-        <p><strong>Image:</strong> <code>{getExploit(editingRun.exploit_id)?.docker_image}</code></p>
-        <p><strong>Entrypoint:</strong> <code>{getExploit(editingRun.exploit_id)?.entrypoint || '(image CMD)'}</code></p>
-      </div>
-      <label>Priority <input bind:value={editForm.priority} type="number" placeholder="Auto" /></label>
-      <label>Sequence <input bind:value={editForm.sequence} type="number" /></label>
-      <label class="checkbox"><input type="checkbox" bind:checked={editForm.enabled} /> Enabled</label>
-      <div class="modal-actions">
-        <button class="danger" onclick={deleteRun}>Delete</button>
-        <button onclick={() => editingRun = null}>Cancel</button>
-        <button onclick={saveRun}>Save</button>
-      </div>
+  <Modal onClose={() => editingRun = null}>
+    <h3>Edit Exploit Run</h3>
+    <div class="info">
+      <p><strong>Exploit:</strong> {getExploitName(editingRun.exploit_id)}</p>
+      <p><strong>Team:</strong> {getTeamName(editingRun.team_id)}</p>
+      <p><strong>Image:</strong> <code>{getExploit(editingRun.exploit_id)?.docker_image}</code></p>
+      <p><strong>Entrypoint:</strong> <code>{getExploit(editingRun.exploit_id)?.entrypoint || '(image CMD)'}</code></p>
     </div>
-  </div>
+    <label>Priority <input bind:value={editForm.priority} type="number" placeholder="Auto" /></label>
+    <label>Sequence <input bind:value={editForm.sequence} type="number" /></label>
+    <label class="checkbox"><input type="checkbox" bind:checked={editForm.enabled} /> Enabled</label>
+    <div class="modal-actions">
+      <button class="danger" onclick={deleteRun}>Delete</button>
+      <button onclick={() => editingRun = null}>Cancel</button>
+      <button onclick={saveRun}>Save</button>
+    </div>
+  </Modal>
 {/if}
 
 {#if editingExploit}
-  <div
-    class="modal-overlay"
-    role="button"
-    tabindex="0"
-    aria-label="Close modal"
-    onclick={(e) => onOverlayClick(e, () => editingExploit = null)}
-    onkeydown={(e) => onOverlayKeydown(e, () => editingExploit = null)}
-  >
-    <div class="modal" role="dialog" aria-modal="true">
-      <h3>Edit Exploit</h3>
-      <label>Name <input type="text" bind:value={exploitForm.name} /></label>
-      <label>Docker Image <input type="text" bind:value={exploitForm.docker_image} /></label>
-      <label>Entrypoint <input type="text" bind:value={exploitForm.entrypoint} placeholder="Leave empty to use image CMD" /></label>
-      <label>Priority <input bind:value={exploitForm.priority} type="number" /></label>
-      <label>Max per container <input bind:value={exploitForm.max_per_container} type="number" /></label>
-      <label>Default counter <input bind:value={exploitForm.default_counter} type="number" /></label>
-      <label>Timeout (secs) <input bind:value={exploitForm.timeout_secs} type="number" placeholder="0 = use global" /></label>
-      <label class="checkbox"><input type="checkbox" bind:checked={exploitForm.enabled} /> Enabled</label>
-      <div class="modal-actions">
-        <button class="danger" onclick={deleteExploit}>Delete</button>
-        <button onclick={() => editingExploit = null}>Cancel</button>
-        <button onclick={saveExploit}>Save</button>
-      </div>
+  <Modal onClose={() => editingExploit = null}>
+    <h3>Edit Exploit</h3>
+    <label>Name <input type="text" bind:value={exploitForm.name} /></label>
+    <label>Docker Image <input type="text" bind:value={exploitForm.docker_image} /></label>
+    <label>Entrypoint <input type="text" bind:value={exploitForm.entrypoint} placeholder="Leave empty to use image CMD" /></label>
+    <label>Priority <input bind:value={exploitForm.priority} type="number" /></label>
+    <label>Max per container <input bind:value={exploitForm.max_per_container} type="number" /></label>
+    <label>Default counter <input bind:value={exploitForm.default_counter} type="number" /></label>
+    <label>Timeout (secs) <input bind:value={exploitForm.timeout_secs} type="number" placeholder="0 = use global" /></label>
+    <label class="checkbox"><input type="checkbox" bind:checked={exploitForm.enabled} /> Enabled</label>
+    <div class="modal-actions">
+      <button class="danger" onclick={deleteExploit}>Delete</button>
+      <button onclick={() => editingExploit = null}>Cancel</button>
+      <button onclick={saveExploit}>Save</button>
     </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if editingRelation}
-  <div
-    class="modal-overlay"
-    role="button"
-    tabindex="0"
-    aria-label="Close modal"
-    onclick={(e) => onOverlayClick(e, () => editingRelation = null)}
-    onkeydown={(e) => onOverlayKeydown(e, () => editingRelation = null)}
-  >
-    <div class="modal" role="dialog" aria-modal="true">
-      <h3>Connection for {editingRelation.team_name}</h3>
-      <p class="hint">Leave empty to use team default IP + challenge default port</p>
-      <label>IP/Host <input type="text" bind:value={relationForm.addr} placeholder="Team default" /></label>
-      <label>Port <input bind:value={relationForm.port} type="number" placeholder="Challenge default" /></label>
-      <div class="modal-actions">
-        <button onclick={() => editingRelation = null}>Cancel</button>
-        <button onclick={saveRelation}>Save</button>
-      </div>
+  <Modal onClose={() => editingRelation = null}>
+    <h3>Connection for {editingRelation.team_name}</h3>
+    <p class="hint">Leave empty to use team default IP + challenge default port</p>
+    <label>IP/Host <input type="text" bind:value={relationForm.addr} placeholder="Team default" /></label>
+    <label>Port <input bind:value={relationForm.port} type="number" placeholder="Challenge default" /></label>
+    <div class="modal-actions">
+      <button onclick={() => editingRelation = null}>Cancel</button>
+      <button onclick={saveRelation}>Save</button>
     </div>
-  </div>
+  </Modal>
 {/if}
 
 <style>
@@ -399,18 +353,5 @@
   .card-priority { color: #888; font-size: 0.8rem; }
   .card-play { cursor: pointer; opacity: 0.5; font-size: 0.7rem; margin-left: auto; background: transparent; border: none; padding: 0; color: inherit; }
   .card-play:hover { opacity: 1; }
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 100; }
-  .modal { background: #252540; padding: 1.5rem; border-radius: 8px; min-width: 320px; }
-  .modal h3 { margin-top: 0; }
-  .modal input[type="text"], .modal input[type="number"], .modal input:not([type]) { width: 100%; padding: 0.5rem; margin-bottom: 0.5rem; background: #1a1a2e; border: 1px solid #444; color: #eee; border-radius: 4px; box-sizing: border-box; }
-  .modal label { display: block; margin-bottom: 0.75rem; color: #aaa; font-size: 0.9rem; }
-  .modal label input { margin-top: 0.25rem; }
-  .modal label select { display: block; width: 100%; padding: 0.5rem; margin-top: 0.25rem; background: #1a1a2e; border: 1px solid #444; color: #eee; border-radius: 4px; }
-  .modal .checkbox { display: flex; align-items: center; gap: 0.5rem; }
-  .modal .checkbox input { width: auto; margin: 0; }
-  .modal .info { background: #1a1a2e; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem; }
-  .modal .info p { margin: 0.25rem 0; font-size: 0.9rem; }
-  .modal .info code { background: #333; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.85rem; }
-  .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
   .danger { background: #d9534f; }
 </style>

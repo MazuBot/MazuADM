@@ -1,6 +1,7 @@
 <script>
   import { AnsiUp } from 'ansi_up';
   import { api } from '$lib/api.js';
+  import Modal from '$lib/components/Modal.svelte';
 
   let { rounds, jobs, teams, challenges, exploits, exploitRuns, selectedRoundId, onSelectRound, onNewRound, onRunRound, onRefresh } = $props();
 
@@ -52,14 +53,6 @@
 
   function closeModal() {
     selectedJob = null;
-  }
-
-  function onOverlayClick(e) {
-    if (e.target === e.currentTarget) closeModal();
-  }
-
-  function onOverlayKeydown(e) {
-    if (e.key === 'Escape') closeModal();
   }
 
   function sortedJobs(list = jobs) {
@@ -209,36 +202,27 @@
 </div>
 
 {#if selectedJob}
-  <div
-    class="modal-overlay"
-    role="button"
-    tabindex="0"
-    aria-label="Close modal"
-    onclick={onOverlayClick}
-    onkeydown={onOverlayKeydown}
-  >
-    <div class="modal wide" role="dialog" aria-modal="true">
-      <h3>Job #{selectedJob.id} - {selectedJob.status}</h3>
-      <div class="job-info">
-        <p><strong>Exploit:</strong> {getExploitName(getExploitRunInfo(selectedJob.exploit_run_id)?.exploit_id)}</p>
-        <p><strong>Team:</strong> {getTeamName(selectedJob.team_id)}</p>
-        <p><strong>Priority:</strong> {selectedJob.priority}</p>
-        <p><strong>Duration:</strong> {selectedJob.duration_ms ? `${selectedJob.duration_ms}ms` : '-'}</p>
-        {#if selectedJob.container_id}<p><strong>Container:</strong> <code>{selectedJob.container_id.slice(0, 12)}</code></p>{/if}
-      </div>
-      {#if selectedJob.stdout}
-        <div class="modal-section-label">Stdout</div>
-        <pre class="log-output">{@html renderAnsi(selectedJob.stdout)}</pre>
-      {/if}
-      {#if selectedJob.stderr}
-        <div class="modal-section-label">Stderr</div>
-        <pre class="log-output stderr">{@html renderAnsi(selectedJob.stderr)}</pre>
-      {/if}
-      <div class="modal-actions">
-        <button onclick={closeModal}>Close</button>
-      </div>
+  <Modal wide onClose={closeModal}>
+    <h3>Job #{selectedJob.id} - {selectedJob.status}</h3>
+    <div class="job-info">
+      <p><strong>Exploit:</strong> {getExploitName(getExploitRunInfo(selectedJob.exploit_run_id)?.exploit_id)}</p>
+      <p><strong>Team:</strong> {getTeamName(selectedJob.team_id)}</p>
+      <p><strong>Priority:</strong> {selectedJob.priority}</p>
+      <p><strong>Duration:</strong> {selectedJob.duration_ms ? `${selectedJob.duration_ms}ms` : '-'}</p>
+      {#if selectedJob.container_id}<p><strong>Container:</strong> <code>{selectedJob.container_id.slice(0, 12)}</code></p>{/if}
     </div>
-  </div>
+    {#if selectedJob.stdout}
+      <div class="modal-section-label">Stdout</div>
+      <pre class="log-output">{@html renderAnsi(selectedJob.stdout)}</pre>
+    {/if}
+    {#if selectedJob.stderr}
+      <div class="modal-section-label">Stderr</div>
+      <pre class="log-output stderr">{@html renderAnsi(selectedJob.stderr)}</pre>
+    {/if}
+    <div class="modal-actions">
+      <button onclick={closeModal}>Close</button>
+    </div>
+  </Modal>
 {/if}
 
 <style>
