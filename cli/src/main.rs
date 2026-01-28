@@ -1,190 +1,102 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
-use mazuadm_core::*;
 use tabled::{Table, Tabled};
 
+mod api;
 mod exploit_config;
+mod models;
+
+use api::ApiClient;
+use models::*;
 
 #[derive(Parser)]
-#[command(name = "mazuadm", about = "MazuADM - CTF Attack/Defense Manager CLI")]
+#[command(name = "mazuadm", about = "MazuADM CLI")]
 struct Cli {
-    #[arg(long, global = true, value_name = "PATH", help = "Path to TOML config (overrides MAZUADM_CONFIG and default search)")]
-    config: Option<std::path::PathBuf>,
-    #[arg(long, env = "DATABASE_URL")]
-    db: Option<String>,
+    #[arg(long, env = "MAZUADM_API_URL", default_value = "http://localhost:3000")]
+    api: String,
     #[command(subcommand)]
     cmd: Cmd,
 }
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Manage challenges
     Challenge { #[command(subcommand)] cmd: ChallengeCmd },
-    /// Manage teams
     Team { #[command(subcommand)] cmd: TeamCmd },
-    /// Manage exploits
     Exploit { #[command(subcommand)] cmd: ExploitCmd },
-    /// Manage exploit runs
     Run { #[command(subcommand)] cmd: RunCmd },
-    /// Manage rounds
     Round { #[command(subcommand)] cmd: RoundCmd },
-    /// Manage jobs
     Job { #[command(subcommand)] cmd: JobCmd },
-    /// Manage flags
     Flag { #[command(subcommand)] cmd: FlagCmd },
-    /// Manage settings
     Setting { #[command(subcommand)] cmd: SettingCmd },
-    /// Manage containers
     Container { #[command(subcommand)] cmd: ContainerCmd },
-    /// Manage challenge-team relations
     Relation { #[command(subcommand)] cmd: RelationCmd },
 }
 
 #[derive(Subcommand)]
 enum ChallengeCmd {
-    /// Add a new challenge
     Add { #[arg(long)] name: String, #[arg(long)] port: Option<i32>, #[arg(long)] priority: Option<i32>, #[arg(long)] flag_regex: Option<String> },
-    /// List all challenges
     List,
-    /// Update a challenge
-    Update { #[arg(value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String, #[arg(long)] name: Option<String>, #[arg(long)] port: Option<i32>, #[arg(long)] priority: Option<i32>, #[arg(long)] flag_regex: Option<String> },
-    /// Delete a challenge
-    Delete { #[arg(value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String },
-    /// Enable a challenge
-    Enable { #[arg(value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String },
-    /// Disable a challenge
-    Disable { #[arg(value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String },
+    Update { challenge: String, #[arg(long)] name: Option<String>, #[arg(long)] port: Option<i32>, #[arg(long)] priority: Option<i32>, #[arg(long)] flag_regex: Option<String> },
+    Delete { challenge: String },
+    Enable { challenge: String },
+    Disable { challenge: String },
 }
 
 #[derive(Subcommand)]
 enum TeamCmd {
-    /// Add a new team
     Add { #[arg(long)] id: String, #[arg(long)] name: String, #[arg(long)] ip: Option<String>, #[arg(long)] priority: Option<i32> },
-    /// List all teams
     List,
-    /// Update a team
-    Update { #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String, #[arg(long)] team_id: Option<String>, #[arg(long)] name: Option<String>, #[arg(long)] ip: Option<String>, #[arg(long)] priority: Option<i32> },
-    /// Delete a team
-    Delete { #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String },
-    /// Enable a team
-    Enable { #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String },
-    /// Disable a team
-    Disable { #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String },
+    Update { team: String, #[arg(long)] team_id: Option<String>, #[arg(long)] name: Option<String>, #[arg(long)] ip: Option<String>, #[arg(long)] priority: Option<i32> },
+    Delete { team: String },
+    Enable { team: String },
+    Disable { team: String },
 }
 
 #[derive(Subcommand)]
 enum ExploitCmd {
-    /// Create a new exploit from template config
-    Create {
-        #[arg(value_name = "NAME", default_value = ".", num_args = 0..=1)]
-        name: String,
-        #[arg(long)] challenge: Option<String>,
-        #[arg(long, value_name = "PATH", num_args = 0..=1, default_missing_value = "config.toml")]
-        config: Option<std::path::PathBuf>,
-    },
-    /// List exploits
+    Create { #[arg(default_value = ".")] name: String, #[arg(long)] challenge: Option<String>, #[arg(long, default_missing_value = "config.toml")] config: Option<std::path::PathBuf> },
     List { #[arg(long)] challenge: Option<String> },
-    /// Update an exploit
-    Update {
-        name: String,
-        #[arg(long)] challenge: Option<String>,
-        #[arg(long, value_name = "PATH", num_args = 0..=1, default_missing_value = "config.toml")]
-        config: Option<std::path::PathBuf>,
-        #[arg(long)] image: Option<String>,
-        #[arg(long)] entrypoint: Option<String>,
-        #[arg(long)] priority: Option<i32>,
-        #[arg(long)] max_per_container: Option<i32>,
-        #[arg(long)] timeout: Option<i32>,
-        #[arg(long)] default_counter: Option<i32>,
-    },
-    /// Delete an exploit
+    Update { name: String, #[arg(long)] challenge: Option<String>, #[arg(long, default_missing_value = "config.toml")] config: Option<std::path::PathBuf>, #[arg(long)] image: Option<String>, #[arg(long)] entrypoint: Option<String>, #[arg(long)] priority: Option<i32>, #[arg(long)] max_per_container: Option<i32>, #[arg(long)] timeout: Option<i32>, #[arg(long)] default_counter: Option<i32> },
     Delete { name: String, #[arg(long)] challenge: Option<String> },
-    /// Enable an exploit
     Enable { name: String, #[arg(long)] challenge: Option<String> },
-    /// Disable an exploit
     Disable { name: String, #[arg(long)] challenge: Option<String> },
-    /// Run exploit immediately against a team
-    Run { name: String, #[arg(long)] challenge: Option<String>, #[arg(long, value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String },
+    Run { name: String, #[arg(long)] challenge: Option<String>, #[arg(long)] team: String },
 }
 
 #[derive(Subcommand)]
 enum RunCmd {
-    /// Add a new exploit run
-    Add { #[arg(long, value_name = "EXPLOIT", help = "Exploit name")] exploit: String, #[arg(long, value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String, #[arg(long, value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String, #[arg(long)] priority: Option<i32>, #[arg(long)] sequence: Option<i32> },
-    /// List exploit runs
-    List { #[arg(long, value_name = "CHALLENGE", help = "Challenge name or id")] challenge: Option<String>, #[arg(long, value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: Option<String> },
-    /// Update an exploit run
+    Add { #[arg(long)] exploit: String, #[arg(long)] challenge: String, #[arg(long)] team: String, #[arg(long)] priority: Option<i32>, #[arg(long)] sequence: Option<i32> },
+    List { #[arg(long)] challenge: Option<String>, #[arg(long)] team: Option<String> },
     Update { id: i32, #[arg(long)] priority: Option<i32>, #[arg(long)] sequence: Option<i32> },
-    /// Delete an exploit run
     Delete { id: i32 },
-    /// Append exploit run to all teams for an exploit/challenge pair
-    AppendAll { #[arg(long, value_name = "EXPLOIT", help = "Exploit name")] exploit: String, #[arg(long, value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String, #[arg(long)] priority: Option<i32> },
-    /// Prepend exploit run to all teams for an exploit/challenge pair
-    PrependAll { #[arg(long, value_name = "EXPLOIT", help = "Exploit name")] exploit: String, #[arg(long, value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String, #[arg(long)] priority: Option<i32> },
+    Enable { id: i32 },
+    Disable { id: i32 },
+    AppendAll { #[arg(long)] exploit: String, #[arg(long)] challenge: String, #[arg(long)] priority: Option<i32> },
+    PrependAll { #[arg(long)] exploit: String, #[arg(long)] challenge: String, #[arg(long)] priority: Option<i32> },
 }
 
 #[derive(Subcommand)]
-enum RoundCmd {
-    /// Create a new round
-    New,
-    /// List all rounds
-    List,
-    /// Run a round
-    Run { id: i32 },
-    /// Clean all round data
-    Clean,
-}
+enum RoundCmd { New, List, Run { id: i32 }, Rerun { id: i32 }, Clean { #[arg(long, env = "DATABASE_URL")] db: String } }
 
 #[derive(Subcommand)]
-enum JobCmd {
-    /// List jobs for a round
-    List { #[arg(long)] round: i32 },
-    /// Run a job immediately
-    Run { id: i32 },
-    /// Set job priority
-    SetPriority { id: i32, priority: i32 },
-}
+enum JobCmd { List { #[arg(long)] round: i32 }, Run { id: i32 }, Stop { id: i32 }, SetPriority { id: i32, priority: i32 } }
 
 #[derive(Subcommand)]
-enum FlagCmd {
-    /// List flags
-    List { #[arg(long)] round: Option<i32> },
-}
+enum FlagCmd { List { #[arg(long)] round: Option<i32> } }
 
 #[derive(Subcommand)]
-enum SettingCmd {
-    /// List all settings
-    List,
-    /// Set a setting value
-    Set { key: String, value: String },
-}
+enum SettingCmd { List, Set { key: String, value: String } }
 
 #[derive(Subcommand)]
-enum ContainerCmd {
-    /// List all containers
-    List,
-    /// Show runners for a container
-    Runners { id: i32 },
-    /// Delete a container
-    Delete { id: i32 },
-    /// Restart a container
-    Restart { id: i32 },
-}
+enum ContainerCmd { List, Runners { id: i32 }, Delete { id: i32 }, Restart { id: i32 } }
 
 #[derive(Subcommand)]
-enum RelationCmd {
-    /// List relations for a challenge
-    List { #[arg(value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String },
-    /// Get a specific relation
-    Get { #[arg(value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String, #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String },
-    /// Update a relation
-    Update { #[arg(value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String, #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String, #[arg(long)] ip: Option<String>, #[arg(long)] port: Option<i32> },
-}
+enum RelationCmd { List { challenge: String }, Get { challenge: String, team: String }, Update { challenge: String, team: String, #[arg(long)] ip: Option<String>, #[arg(long)] port: Option<i32> } }
 
 #[derive(Tabled)] struct ChallengeRow { id: i32, name: String, enabled: bool, port: String, priority: i32 }
 #[derive(Tabled)] struct TeamRow { id: i32, team_id: String, name: String, enabled: bool, ip: String, priority: i32 }
 #[derive(Tabled)] struct ExploitRow { id: i32, name: String, enabled: bool, challenge: i32, image: String, priority: i32 }
-#[derive(Tabled)] struct RunRow { id: i32, exploit: i32, challenge: i32, team_id: String, team_name: String, priority: String, seq: i32 }
+#[derive(Tabled)] struct RunRow { id: i32, exploit: i32, challenge: i32, team_id: String, team_name: String, priority: String, seq: i32, enabled: bool }
 #[derive(Tabled)] struct RoundRow { id: i32, status: String, started: String }
 #[derive(Tabled)] struct JobRow { id: i32, run: String, team_id: String, team_name: String, priority: i32, status: String }
 #[derive(Tabled)] struct FlagRow { id: i32, round: String, challenge: i32, team_id: String, team_name: String, flag: String, status: String }
@@ -193,852 +105,277 @@ enum RelationCmd {
 #[derive(Tabled)] struct RunnerRow { id: i32, container: i32, run: i32, team_id: String, team_name: String }
 #[derive(Tabled)] struct RelationRow { challenge: i32, team_id: String, team_name: String, addr: String, port: String }
 
-fn normalize_name(value: Option<String>) -> Option<String> {
-    value.and_then(|v| {
-        let trimmed = v.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
-    })
-}
+struct Ctx { api: ApiClient, challenges: Option<Vec<Challenge>>, teams: Option<Vec<Team>>, exploits: Option<Vec<Exploit>> }
 
-struct TeamRefParts {
-    team_id: String,
-    numeric_id: Option<i32>,
-}
-
-fn parse_team_ref(value: &str) -> TeamRefParts {
-    let trimmed = value.trim();
-    let numeric_id = trimmed.parse::<i32>().ok();
-    TeamRefParts {
-        team_id: trimmed.to_string(),
-        numeric_id,
+impl Ctx {
+    fn new(api: ApiClient) -> Self { Self { api, challenges: None, teams: None, exploits: None } }
+    async fn challenges(&mut self) -> Result<&Vec<Challenge>> {
+        if self.challenges.is_none() { self.challenges = Some(self.api.list_challenges().await?); }
+        Ok(self.challenges.as_ref().unwrap())
     }
-}
-
-#[cfg(test)]
-fn resolve_team_ref_sync<F, G>(team_ref: &str, mut by_team_id: F, mut by_id: G) -> Result<Team>
-where
-    F: FnMut(&str) -> Option<Team>,
-    G: FnMut(i32) -> Option<Team>,
-{
-    let parts = parse_team_ref(team_ref);
-    if let Some(team) = by_team_id(&parts.team_id) {
-        return Ok(team);
+    async fn teams(&mut self) -> Result<&Vec<Team>> {
+        if self.teams.is_none() { self.teams = Some(self.api.list_teams().await?); }
+        Ok(self.teams.as_ref().unwrap())
     }
-    if let Some(id) = parts.numeric_id {
-        if let Some(team) = by_id(id) {
-            return Ok(team);
-        }
+    async fn exploits(&mut self, challenge_id: Option<i32>) -> Result<&Vec<Exploit>> {
+        if self.exploits.is_none() { self.exploits = Some(self.api.list_exploits(challenge_id).await?); }
+        Ok(self.exploits.as_ref().unwrap())
     }
-    Err(anyhow::anyhow!("team not found: {}", team_ref))
-}
-
-#[cfg(test)]
-fn resolve_challenge_ref_sync<F, G>(challenge_ref: &str, mut by_name: F, mut by_id: G) -> Result<Challenge>
-where
-    F: FnMut(&str) -> Option<Challenge>,
-    G: FnMut(i32) -> Option<Challenge>,
-{
-    let trimmed = challenge_ref.trim();
-    if let Some(challenge) = by_name(trimmed) {
-        return Ok(challenge);
+    async fn find_challenge(&mut self, s: &str) -> Result<Challenge> {
+        let challenges = self.challenges().await?;
+        if let Some(c) = challenges.iter().find(|c| c.name == s) { return Ok(c.clone()); }
+        if let Ok(id) = s.parse::<i32>() { if let Some(c) = challenges.iter().find(|c| c.id == id) { return Ok(c.clone()); } }
+        Err(anyhow!("challenge not found: {}", s))
     }
-    if let Ok(id) = trimmed.parse::<i32>() {
-        if let Some(challenge) = by_id(id) {
-            return Ok(challenge);
-        }
+    async fn find_team(&mut self, s: &str) -> Result<Team> {
+        let teams = self.teams().await?;
+        if let Some(t) = teams.iter().find(|t| t.team_id == s) { return Ok(t.clone()); }
+        if let Ok(id) = s.parse::<i32>() { if let Some(t) = teams.iter().find(|t| t.id == id) { return Ok(t.clone()); } }
+        Err(anyhow!("team not found: {}", s))
     }
-    Err(anyhow::anyhow!("challenge not found: {}", challenge_ref))
-}
-
-async fn resolve_team_ref(db: &Database, team_ref: &str) -> Result<Team> {
-    let parts = parse_team_ref(team_ref);
-    if let Some(team) = db.get_team_by_team_id(&parts.team_id).await? {
-        return Ok(team);
+    async fn find_exploit(&mut self, challenge_id: i32, name: &str) -> Result<Exploit> {
+        let exploits = self.exploits(Some(challenge_id)).await?;
+        exploits.iter().find(|e| e.name == name && e.challenge_id == challenge_id).cloned().ok_or_else(|| anyhow!("exploit not found: {}", name))
     }
-    if let Some(id) = parts.numeric_id {
-        return db.get_team(id).await;
-    }
-    Err(anyhow::anyhow!("team not found: {}", team_ref))
-}
-
-async fn resolve_challenge_ref(db: &Database, challenge_ref: &str) -> Result<Challenge> {
-    let trimmed = challenge_ref.trim();
-    if let Some(challenge) = db.get_challenge_by_name_optional(trimmed).await? {
-        return Ok(challenge);
-    }
-    if let Ok(id) = trimmed.parse::<i32>() {
-        return db.get_challenge(id).await;
-    }
-    Err(anyhow::anyhow!("challenge not found: {}", challenge_ref))
-}
-
-#[derive(Clone)]
-struct TeamLabel {
-    team_id: String,
-    team_name: String,
-}
-
-#[derive(Clone, Copy)]
-enum RunInsertPosition {
-    Append,
-    Prepend,
-}
-
-async fn load_team_map(db: &Database) -> Result<std::collections::HashMap<i32, TeamLabel>> {
-    Ok(db
-        .list_teams()
-        .await?
-        .into_iter()
-        .map(|t| {
-            (
-                t.id,
-                TeamLabel {
-                    team_id: t.team_id,
-                    team_name: t.team_name,
-                },
-            )
-        })
-        .collect())
-}
-
-fn team_label(map: &std::collections::HashMap<i32, TeamLabel>, id: i32) -> TeamLabel {
-    map.get(&id).cloned().unwrap_or_else(|| TeamLabel {
-        team_id: id.to_string(),
-        team_name: "-".to_string(),
-    })
-}
-
-fn has_exploit_run(runs: &[ExploitRun], exploit_id: i32) -> bool {
-    runs.iter().any(|r| r.exploit_id == exploit_id)
-}
-
-fn next_sequence(position: RunInsertPosition, runs: &[ExploitRun]) -> Result<i32> {
-    if runs.is_empty() {
-        return Ok(0);
-    }
-    let mut min = i32::MAX;
-    let mut max = i32::MIN;
-    for run in runs {
-        min = min.min(run.sequence);
-        max = max.max(run.sequence);
-    }
-    match position {
-        RunInsertPosition::Append => max
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("sequence overflow while appending exploit run")),
-        RunInsertPosition::Prepend => min
-            .checked_sub(1)
-            .ok_or_else(|| anyhow::anyhow!("sequence overflow while prepending exploit run")),
+    fn team_label(&self, id: i32) -> (String, String) {
+        self.teams.as_ref().and_then(|ts| ts.iter().find(|t| t.id == id)).map(|t| (t.team_id.clone(), t.team_name.clone())).unwrap_or_else(|| (id.to_string(), "-".into()))
     }
 }
 
 fn cwd_basename() -> Result<String> {
-    let dir = std::env::current_dir()?;
-    let name = dir
-        .file_name()
-        .and_then(|v| v.to_str())
-        .ok_or_else(|| anyhow::anyhow!("failed to determine current directory name"))?;
-    Ok(name.to_string())
+    std::env::current_dir()?.file_name().and_then(|v| v.to_str()).map(|s| s.to_string()).ok_or_else(|| anyhow!("failed to get cwd name"))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::Utc;
-
-    fn make_team(id: i32, team_id: &str) -> Team {
-        Team {
-            id,
-            team_id: team_id.to_string(),
-            team_name: "Test".to_string(),
-            default_ip: None,
-            priority: 0,
-            created_at: Utc::now(),
-            enabled: true,
-        }
-    }
-
-    #[test]
-    fn test_parse_team_ref_numeric() {
-        let parsed = parse_team_ref("007");
-        assert_eq!(parsed.team_id, "007");
-        assert_eq!(parsed.numeric_id, Some(7));
-    }
-
-    #[test]
-    fn test_resolve_team_ref_prefers_team_id() {
-        let preferred = make_team(10, "1");
-        let fallback = make_team(1, "team1");
-        let found = resolve_team_ref_sync(
-            "1",
-            |value| if value == "1" { Some(preferred.clone()) } else { None },
-            |id| if id == 1 { Some(fallback.clone()) } else { None },
-        )
-        .unwrap();
-        assert_eq!(found.id, 10);
-        assert_eq!(found.team_id, "1");
-    }
-
-    #[test]
-    fn test_resolve_team_ref_fallback_numeric() {
-        let fallback = make_team(42, "team42");
-        let found = resolve_team_ref_sync(
-            "42",
-            |_| None,
-            |id| if id == 42 { Some(fallback.clone()) } else { None },
-        )
-        .unwrap();
-        assert_eq!(found.id, 42);
-    }
-
-    #[test]
-    fn test_resolve_team_ref_missing() {
-        let err = resolve_team_ref_sync("missing", |_| None, |_| None).unwrap_err();
-        assert!(err.to_string().contains("team not found"));
-    }
-
-    fn make_challenge(id: i32, name: &str) -> Challenge {
-        Challenge {
-            id,
-            name: name.to_string(),
-            enabled: true,
-            default_port: None,
-            priority: 0,
-            flag_regex: None,
-            created_at: Utc::now(),
-        }
-    }
-
-    #[test]
-    fn test_resolve_challenge_ref_prefers_name() {
-        let by_name = make_challenge(1, "1");
-        let by_id = make_challenge(99, "num");
-        let found = resolve_challenge_ref_sync(
-            "1",
-            |value| if value == "1" { Some(by_name.clone()) } else { None },
-            |id| if id == 1 { Some(by_id.clone()) } else { None },
-        )
-        .unwrap();
-        assert_eq!(found.id, 1);
-        assert_eq!(found.name, "1");
-    }
-
-    #[test]
-    fn test_resolve_challenge_ref_fallback_id() {
-        let by_id = make_challenge(42, "chal");
-        let found = resolve_challenge_ref_sync("42", |_| None, |id| if id == 42 { Some(by_id.clone()) } else { None }).unwrap();
-        assert_eq!(found.id, 42);
-    }
-
-    #[test]
-    fn test_resolve_challenge_ref_missing() {
-        let err = resolve_challenge_ref_sync("missing", |_| None, |_| None).unwrap_err();
-        assert!(err.to_string().contains("challenge not found"));
-    }
-
-    fn make_run(sequence: i32, exploit_id: i32) -> ExploitRun {
-        ExploitRun {
-            id: 1,
-            exploit_id,
-            challenge_id: 2,
-            team_id: 3,
-            priority: None,
-            sequence,
-            enabled: true,
-            created_at: Utc::now(),
-        }
-    }
-
-    #[test]
-    fn test_next_sequence_append_empty() {
-        let seq = next_sequence(RunInsertPosition::Append, &[]).unwrap();
-        assert_eq!(seq, 0);
-    }
-
-    #[test]
-    fn test_next_sequence_prepend_empty() {
-        let seq = next_sequence(RunInsertPosition::Prepend, &[]).unwrap();
-        assert_eq!(seq, 0);
-    }
-
-    #[test]
-    fn test_next_sequence_append_nonempty() {
-        let runs = vec![make_run(2, 1), make_run(5, 2), make_run(3, 3)];
-        let seq = next_sequence(RunInsertPosition::Append, &runs).unwrap();
-        assert_eq!(seq, 6);
-    }
-
-    #[test]
-    fn test_next_sequence_prepend_nonempty() {
-        let runs = vec![make_run(2, 1), make_run(5, 2), make_run(3, 3)];
-        let seq = next_sequence(RunInsertPosition::Prepend, &runs).unwrap();
-        assert_eq!(seq, 1);
-    }
-}
-
-async fn prompt_challenge(db: &Database) -> Result<Challenge> {
-    let challenges = db.list_challenges().await?;
-    if challenges.is_empty() {
-        return Err(anyhow::anyhow!("no challenges found"));
-    }
-
-    println!("Select a challenge:");
-    for (idx, challenge) in challenges.iter().enumerate() {
-        println!(
-            "  {}) {} (id: {}, enabled: {})",
-            idx + 1,
-            challenge.name,
-            challenge.id,
-            challenge.enabled
-        );
-    }
+async fn prompt_challenge(ctx: &mut Ctx) -> Result<Challenge> {
+    let challenges = ctx.challenges().await?;
+    if challenges.is_empty() { return Err(anyhow!("no challenges")); }
+    println!("Select challenge:");
+    for (i, c) in challenges.iter().enumerate() { println!("  {}) {} (id: {})", i + 1, c.name, c.id); }
     print!("Enter number: ");
-    use std::io::Write;
-    std::io::stdout().flush()?;
-
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input)?;
-    let choice: usize = input.trim().parse().map_err(|_| anyhow::anyhow!("invalid choice"))?;
-    if choice == 0 || choice > challenges.len() {
-        return Err(anyhow::anyhow!("choice out of range"));
-    }
-    Ok(challenges[choice - 1].clone())
+    use std::io::Write; std::io::stdout().flush()?;
+    let mut input = String::new(); std::io::stdin().read_line(&mut input)?;
+    let choice: usize = input.trim().parse()?;
+    challenges.get(choice - 1).cloned().ok_or_else(|| anyhow!("invalid choice"))
 }
 
-async fn resolve_challenge(db: &Database, name: Option<String>, cfg: Option<&exploit_config::ChallengeRef>) -> Result<Challenge> {
-    if let Some(name) = normalize_name(name) {
-        return resolve_challenge_ref(db, &name).await;
-    }
-    if let Some(cfg) = cfg {
-        if let Some(id) = cfg.as_id() {
-            return db.get_challenge(id).await;
-        }
-        if let Some(name) = cfg.as_name() {
-            return resolve_challenge_ref(db, name).await;
-        }
-    }
-    prompt_challenge(db).await
+async fn resolve_challenge(ctx: &mut Ctx, name: Option<String>, cfg: Option<&exploit_config::ChallengeRef>) -> Result<Challenge> {
+    if let Some(n) = name.filter(|s| !s.trim().is_empty()) { return ctx.find_challenge(&n).await; }
+    if let Some(c) = cfg { if let Some(n) = c.as_name() { return ctx.find_challenge(n).await; } }
+    prompt_challenge(ctx).await
 }
 
-async fn resolve_exploit(db: &Database, challenge_id: i32, name: &str) -> Result<Exploit> {
-    db.get_exploit_by_name(challenge_id, name).await
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let config_path = mazuadm_core::config::resolve_config_path(cli.config)?;
-    let config = match config_path {
-        Some(path) => mazuadm_core::config::load_toml_config(&path)?,
-        None => mazuadm_core::AppConfig::default(),
-    };
-    let db_url = cli
-        .db
-        .or_else(|| config.database_url)
-        .unwrap_or_else(|| "postgres://localhost/mazuadm".to_string());
-    let db = Database::connect(&db_url).await?;
+    let mut ctx = Ctx::new(ApiClient::new(&cli.api));
 
     match cli.cmd {
         Cmd::Challenge { cmd } => match cmd {
             ChallengeCmd::Add { name, port, priority, flag_regex } => {
-                let c = db.create_challenge(CreateChallenge { name, enabled: Some(true), default_port: port, priority, flag_regex }).await?;
-                db.ensure_relations(c.id).await?;
+                let c = ctx.api.create_challenge(CreateChallenge { name, enabled: Some(true), default_port: port, priority, flag_regex }).await?;
                 println!("Created challenge {}", c.id);
             }
             ChallengeCmd::List => {
-                let rows: Vec<_> = db.list_challenges().await?.into_iter().map(|c| ChallengeRow { id: c.id, name: c.name, enabled: c.enabled, port: c.default_port.map(|p| p.to_string()).unwrap_or_default(), priority: c.priority }).collect();
+                let rows: Vec<_> = ctx.api.list_challenges().await?.into_iter().map(|c| ChallengeRow { id: c.id, name: c.name, enabled: c.enabled, port: c.default_port.map(|p| p.to_string()).unwrap_or_default(), priority: c.priority }).collect();
                 println!("{}", Table::new(rows));
             }
             ChallengeCmd::Update { challenge, name, port, priority, flag_regex } => {
-                let c = resolve_challenge_ref(&db, &challenge).await?;
-                db.update_challenge(c.id, CreateChallenge { name: name.unwrap_or(c.name), enabled: Some(c.enabled), default_port: port.or(c.default_port), priority: priority.or(Some(c.priority)), flag_regex: flag_regex.or(c.flag_regex) }).await?;
-                println!("Updated challenge {}", c.id);
+                let c = ctx.find_challenge(&challenge).await?;
+                ctx.api.update_challenge(c.id, CreateChallenge { name: name.unwrap_or(c.name), enabled: Some(c.enabled), default_port: port.or(c.default_port), priority: priority.or(Some(c.priority)), flag_regex: flag_regex.or(c.flag_regex) }).await?;
+                println!("Updated");
             }
-            ChallengeCmd::Delete { challenge } => {
-                let c = resolve_challenge_ref(&db, &challenge).await?;
-                db.delete_challenge(c.id).await?;
-                println!("Deleted challenge {}", c.id);
-            }
-            ChallengeCmd::Enable { challenge } => {
-                let c = resolve_challenge_ref(&db, &challenge).await?;
-                db.set_challenge_enabled(c.id, true).await?;
-                println!("Enabled");
-            }
-            ChallengeCmd::Disable { challenge } => {
-                let c = resolve_challenge_ref(&db, &challenge).await?;
-                db.set_challenge_enabled(c.id, false).await?;
-                println!("Disabled");
-            }
+            ChallengeCmd::Delete { challenge } => { let c = ctx.find_challenge(&challenge).await?; ctx.api.delete_challenge(c.id).await?; println!("Deleted"); }
+            ChallengeCmd::Enable { challenge } => { let c = ctx.find_challenge(&challenge).await?; ctx.api.set_challenge_enabled(c.id, true).await?; println!("Enabled"); }
+            ChallengeCmd::Disable { challenge } => { let c = ctx.find_challenge(&challenge).await?; ctx.api.set_challenge_enabled(c.id, false).await?; println!("Disabled"); }
         },
         Cmd::Team { cmd } => match cmd {
             TeamCmd::Add { id, name, ip, priority } => {
-                let t = db.create_team(CreateTeam { team_id: id, team_name: name, default_ip: ip, priority, enabled: Some(true) }).await?;
-                for c in db.list_challenges().await? { let _ = db.create_relation(c.id, t.id, None, None).await; }
-                println!("Created team {} ({})", t.team_id, t.team_name);
+                let t = ctx.api.create_team(CreateTeam { team_id: id, team_name: name, default_ip: ip, priority, enabled: Some(true) }).await?;
+                println!("Created team {}", t.id);
             }
             TeamCmd::List => {
-                let rows: Vec<_> = db.list_teams().await?.into_iter().map(|t| TeamRow { id: t.id, team_id: t.team_id, name: t.team_name, enabled: t.enabled, ip: t.default_ip.unwrap_or_default(), priority: t.priority }).collect();
+                let rows: Vec<_> = ctx.api.list_teams().await?.into_iter().map(|t| TeamRow { id: t.id, team_id: t.team_id, name: t.team_name, enabled: t.enabled, ip: t.default_ip.unwrap_or_default(), priority: t.priority }).collect();
                 println!("{}", Table::new(rows));
             }
             TeamCmd::Update { team, team_id, name, ip, priority } => {
-                let t = resolve_team_ref(&db, &team).await?;
-                let updated = db
-                    .update_team(
-                        t.id,
-                        CreateTeam {
-                            team_id: team_id.unwrap_or(t.team_id),
-                            team_name: name.unwrap_or(t.team_name),
-                            default_ip: ip.or(t.default_ip),
-                            priority: priority.or(Some(t.priority)),
-                            enabled: Some(t.enabled),
-                        },
-                    )
-                    .await?;
-                println!("Updated team {} ({})", updated.team_id, updated.team_name);
+                let t = ctx.find_team(&team).await?;
+                ctx.api.update_team(t.id, CreateTeam { team_id: team_id.unwrap_or(t.team_id), team_name: name.unwrap_or(t.team_name), default_ip: ip.or(t.default_ip), priority: priority.or(Some(t.priority)), enabled: Some(t.enabled) }).await?;
+                println!("Updated");
             }
-            TeamCmd::Delete { team } => {
-                let t = resolve_team_ref(&db, &team).await?;
-                db.delete_team(t.id).await?;
-                println!("Deleted team {} ({})", t.team_id, t.team_name);
-            }
+            TeamCmd::Delete { team } => { let t = ctx.find_team(&team).await?; ctx.api.delete_team(t.id).await?; println!("Deleted"); }
             TeamCmd::Enable { team } => {
-                let t = resolve_team_ref(&db, &team).await?;
-                db.set_team_enabled(t.id, true).await?;
-                println!("Enabled team {} ({})", t.team_id, t.team_name);
+                let t = ctx.find_team(&team).await?;
+                ctx.api.update_team(t.id, CreateTeam { team_id: t.team_id, team_name: t.team_name, default_ip: t.default_ip, priority: Some(t.priority), enabled: Some(true) }).await?;
+                println!("Enabled");
             }
             TeamCmd::Disable { team } => {
-                let t = resolve_team_ref(&db, &team).await?;
-                db.set_team_enabled(t.id, false).await?;
-                println!("Disabled team {} ({})", t.team_id, t.team_name);
+                let t = ctx.find_team(&team).await?;
+                ctx.api.update_team(t.id, CreateTeam { team_id: t.team_id, team_name: t.team_name, default_ip: t.default_ip, priority: Some(t.priority), enabled: Some(false) }).await?;
+                println!("Disabled");
             }
         },
         Cmd::Exploit { cmd } => match cmd {
             ExploitCmd::Create { name, challenge, config } => {
-                let cfg = match config {
-                    Some(path) => exploit_config::load_exploit_config(&path)?,
-                    None => exploit_config::load_default_exploit_config()?,
-                };
+                let cfg = match config { Some(p) => exploit_config::load_exploit_config(&p)?, None => exploit_config::load_default_exploit_config()? };
                 let name = if name == "." { cwd_basename()? } else { name };
-                let name = normalize_name(Some(name)).ok_or_else(|| anyhow::anyhow!("missing exploit name"))?;
-                let challenge = resolve_challenge(&db, challenge, cfg.challenge.as_ref()).await?;
-
-                let docker_image = cfg.docker_image.ok_or_else(|| anyhow::anyhow!("missing image in config"))?;
-                let entrypoint = cfg.entrypoint;
-                let priority = cfg.priority;
-                let max_per_container = cfg.max_per_container;
-                let timeout_secs = cfg.timeout_secs;
-                let default_counter = cfg.default_counter;
-                let enabled = cfg.enabled.unwrap_or(true);
-
-                let e = db
-                    .create_exploit(CreateExploit {
-                        name,
-                        challenge_id: challenge.id,
-                        docker_image,
-                        entrypoint,
-                        enabled: Some(enabled),
-                        priority,
-                        max_per_container,
-                        max_containers: None,
-                        timeout_secs,
-                        default_counter,
-                        auto_add: None,
-                        insert_into_rounds: None,
-                    })
-                    .await?;
+                let challenge = resolve_challenge(&mut ctx, challenge, cfg.challenge.as_ref()).await?;
+                let image = cfg.docker_image.ok_or_else(|| anyhow!("missing image"))?;
+                let e = ctx.api.create_exploit(CreateExploit { name, challenge_id: challenge.id, docker_image: image, entrypoint: cfg.entrypoint, enabled: cfg.enabled, priority: cfg.priority, max_per_container: cfg.max_per_container, max_containers: None, timeout_secs: cfg.timeout_secs, default_counter: cfg.default_counter, auto_add: None, insert_into_rounds: None }).await?;
                 println!("Created exploit {}", e.id);
             }
             ExploitCmd::List { challenge } => {
-                let challenge_id = match normalize_name(challenge) {
-                    Some(name) => Some(db.get_challenge_by_name(&name).await?.id),
-                    None => None,
-                };
-                let rows: Vec<_> = db
-                    .list_exploits(challenge_id)
-                    .await?
-                    .into_iter()
-                    .map(|e| ExploitRow {
-                        id: e.id,
-                        name: e.name,
-                        enabled: e.enabled,
-                        challenge: e.challenge_id,
-                        image: e.docker_image,
-                        priority: e.priority,
-                    })
-                    .collect();
+                let cid = match challenge { Some(c) => Some(ctx.find_challenge(&c).await?.id), None => None };
+                let rows: Vec<_> = ctx.api.list_exploits(cid).await?.into_iter().map(|e| ExploitRow { id: e.id, name: e.name, enabled: e.enabled, challenge: e.challenge_id, image: e.docker_image, priority: e.priority }).collect();
                 println!("{}", Table::new(rows));
             }
             ExploitCmd::Update { name, challenge, config, image, entrypoint, priority, max_per_container, timeout, default_counter } => {
-                let cfg = match config {
-                    Some(path) => exploit_config::load_exploit_config(&path)?,
-                    None => exploit_config::load_default_exploit_config()?,
-                };
-                let challenge = resolve_challenge(&db, challenge, cfg.challenge.as_ref()).await?;
-                let exploit = resolve_exploit(&db, challenge.id, &name).await?;
-
-                let name = normalize_name(Some(name)).unwrap_or(exploit.name);
-                let docker_image = image.or(cfg.docker_image).unwrap_or(exploit.docker_image);
-                let entrypoint = entrypoint.or(cfg.entrypoint).or(exploit.entrypoint);
-                let enabled = cfg.enabled.unwrap_or(exploit.enabled);
-                let priority = priority.or(cfg.priority).or(Some(exploit.priority));
-                let max_per_container = max_per_container.or(cfg.max_per_container).or(Some(exploit.max_per_container));
-                let timeout_secs = timeout.or(cfg.timeout_secs).or(Some(exploit.timeout_secs));
-                let default_counter = default_counter.or(cfg.default_counter).or(Some(exploit.default_counter));
-
-                db.update_exploit(
-                    exploit.id,
-                    UpdateExploit {
-                        name,
-                        docker_image,
-                        entrypoint,
-                        enabled: Some(enabled),
-                        priority,
-                        max_per_container,
-                        max_containers: None,
-                        timeout_secs,
-                        default_counter,
-                    },
-                )
-                .await?;
-                println!("Updated exploit {}", exploit.id);
+                let cfg = match config { Some(p) => exploit_config::load_exploit_config(&p)?, None => exploit_config::load_default_exploit_config()? };
+                let challenge = resolve_challenge(&mut ctx, challenge, cfg.challenge.as_ref()).await?;
+                let e = ctx.find_exploit(challenge.id, &name).await?;
+                ctx.api.update_exploit(e.id, UpdateExploit { name: e.name, docker_image: image.or(cfg.docker_image).unwrap_or(e.docker_image), entrypoint: entrypoint.or(cfg.entrypoint).or(e.entrypoint), enabled: cfg.enabled.or(Some(e.enabled)), priority: priority.or(cfg.priority).or(Some(e.priority)), max_per_container: max_per_container.or(cfg.max_per_container).or(Some(e.max_per_container)), max_containers: None, timeout_secs: timeout.or(cfg.timeout_secs).or(Some(e.timeout_secs)), default_counter: default_counter.or(cfg.default_counter).or(Some(e.default_counter)) }).await?;
+                println!("Updated");
             }
             ExploitCmd::Delete { name, challenge } => {
-                let challenge = resolve_challenge(&db, challenge, None).await?;
-                let exploit = resolve_exploit(&db, challenge.id, &name).await?;
-                db.delete_exploit(exploit.id).await?;
-                println!("Deleted exploit {}", exploit.id);
+                let challenge = resolve_challenge(&mut ctx, challenge, None).await?;
+                let e = ctx.find_exploit(challenge.id, &name).await?;
+                ctx.api.delete_exploit(e.id).await?;
+                println!("Deleted");
             }
             ExploitCmd::Enable { name, challenge } => {
-                let challenge = resolve_challenge(&db, challenge, None).await?;
-                let exploit = resolve_exploit(&db, challenge.id, &name).await?;
-                db.set_exploit_enabled(exploit.id, true).await?;
+                let challenge = resolve_challenge(&mut ctx, challenge, None).await?;
+                let e = ctx.find_exploit(challenge.id, &name).await?;
+                ctx.api.update_exploit(e.id, UpdateExploit { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint, enabled: Some(true), priority: Some(e.priority), max_per_container: Some(e.max_per_container), max_containers: None, timeout_secs: Some(e.timeout_secs), default_counter: Some(e.default_counter) }).await?;
                 println!("Enabled");
             }
             ExploitCmd::Disable { name, challenge } => {
-                let challenge = resolve_challenge(&db, challenge, None).await?;
-                let exploit = resolve_exploit(&db, challenge.id, &name).await?;
-                db.set_exploit_enabled(exploit.id, false).await?;
+                let challenge = resolve_challenge(&mut ctx, challenge, None).await?;
+                let e = ctx.find_exploit(challenge.id, &name).await?;
+                ctx.api.update_exploit(e.id, UpdateExploit { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint, enabled: Some(false), priority: Some(e.priority), max_per_container: Some(e.max_per_container), max_containers: None, timeout_secs: Some(e.timeout_secs), default_counter: Some(e.default_counter) }).await?;
                 println!("Disabled");
             }
             ExploitCmd::Run { name, challenge, team } => {
-                let challenge = resolve_challenge(&db, challenge, None).await?;
-                let exploit = resolve_exploit(&db, challenge.id, &name).await?;
-                let team_obj = resolve_team_ref(&db, &team).await?;
-                let run = db.create_exploit_run(CreateExploitRun { exploit_id: exploit.id, challenge_id: exploit.challenge_id, team_id: team_obj.id, priority: None, sequence: None }).await?;
-                let job = db.create_adhoc_job(run.id, team_obj.id).await?;
-                let relations = db.list_relations(challenge.id).await?;
-                let rel = relations.iter().find(|r| r.team_id == team_obj.id);
-                let conn = rel.and_then(|r| r.connection_info(&challenge, &team_obj)).ok_or(anyhow::anyhow!("No connection info"))?;
-                let (tx, _) = tokio::sync::broadcast::channel(1);
-                let executor = mazuadm_core::executor::Executor::new(db.clone(), tx)?;
-                let timeout = if exploit.timeout_secs > 0 { exploit.timeout_secs as u64 } else { 60 };
-                println!("Running exploit {} against team {}...", exploit.name, team_obj.team_name);
-                let result = executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), timeout, 50).await?;
-                println!("Completed with {} flags", result.flags.len());
-                for flag in result.flags { println!("  {}", flag); }
+                let challenge = resolve_challenge(&mut ctx, challenge, None).await?;
+                let e = ctx.find_exploit(challenge.id, &name).await?;
+                let t = ctx.find_team(&team).await?;
+                let runs = ctx.api.list_exploit_runs(Some(challenge.id), Some(t.id)).await?;
+                let run = runs.iter().find(|r| r.exploit_id == e.id).ok_or_else(|| anyhow!("no exploit run found"))?;
+                let job = ctx.api.run_single_job(RunSingleJobRequest { exploit_run_id: run.id, team_id: t.id }).await?;
+                println!("Started job {}", job.id);
             }
         },
         Cmd::Run { cmd } => match cmd {
             RunCmd::Add { exploit, challenge, team, priority, sequence } => {
-                let challenge = resolve_challenge_ref(&db, &challenge).await?;
-                let exploit = resolve_exploit(&db, challenge.id, &exploit).await?;
-                let team = resolve_team_ref(&db, &team).await?;
-                let r = db
-                    .create_exploit_run(CreateExploitRun {
-                        exploit_id: exploit.id,
-                        challenge_id: challenge.id,
-                        team_id: team.id,
-                        priority,
-                        sequence,
-                    })
-                    .await?;
+                let c = ctx.find_challenge(&challenge).await?;
+                let e = ctx.find_exploit(c.id, &exploit).await?;
+                let t = ctx.find_team(&team).await?;
+                let r = ctx.api.create_exploit_run(CreateExploitRun { exploit_id: e.id, challenge_id: c.id, team_id: t.id, priority, sequence }).await?;
                 println!("Created run {}", r.id);
             }
             RunCmd::List { challenge, team } => {
-                let challenge = match challenge {
-                    Some(challenge_ref) => Some(resolve_challenge_ref(&db, &challenge_ref).await?.id),
-                    None => None,
-                };
-                let team = match team {
-                    Some(team_ref) => Some(resolve_team_ref(&db, &team_ref).await?.id),
-                    None => None,
-                };
-                let team_map = load_team_map(&db).await?;
-                let rows: Vec<_> = db
-                    .list_exploit_runs(challenge, team)
-                    .await?
-                    .into_iter()
-                    .map(|r| {
-                        let label = team_label(&team_map, r.team_id);
-                        RunRow {
-                            id: r.id,
-                            exploit: r.exploit_id,
-                            challenge: r.challenge_id,
-                            team_id: label.team_id,
-                            team_name: label.team_name,
-                            priority: r.priority.map(|p| p.to_string()).unwrap_or("-".into()),
-                            seq: r.sequence,
-                        }
-                    })
-                    .collect();
+                let cid = match challenge { Some(c) => Some(ctx.find_challenge(&c).await?.id), None => None };
+                let tid = match team { Some(t) => Some(ctx.find_team(&t).await?.id), None => None };
+                ctx.teams().await?;
+                let rows: Vec<_> = ctx.api.list_exploit_runs(cid, tid).await?.into_iter().map(|r| { let (tid, tn) = ctx.team_label(r.team_id); RunRow { id: r.id, exploit: r.exploit_id, challenge: r.challenge_id, team_id: tid, team_name: tn, priority: r.priority.map(|p| p.to_string()).unwrap_or("-".into()), seq: r.sequence, enabled: r.enabled } }).collect();
                 println!("{}", Table::new(rows));
             }
-            RunCmd::Update { id, priority, sequence } => {
-                db.update_exploit_run(id, priority, sequence, None).await?;
-                println!("Updated run {}", id);
-            }
-            RunCmd::Delete { id } => { db.delete_exploit_run(id).await?; println!("Deleted run {}", id); }
+            RunCmd::Update { id, priority, sequence } => { ctx.api.update_exploit_run(id, UpdateExploitRun { priority, sequence, enabled: None }).await?; println!("Updated"); }
+            RunCmd::Delete { id } => { ctx.api.delete_exploit_run(id).await?; println!("Deleted"); }
+            RunCmd::Enable { id } => { ctx.api.update_exploit_run(id, UpdateExploitRun { priority: None, sequence: None, enabled: Some(true) }).await?; println!("Enabled"); }
+            RunCmd::Disable { id } => { ctx.api.update_exploit_run(id, UpdateExploitRun { priority: None, sequence: None, enabled: Some(false) }).await?; println!("Disabled"); }
             RunCmd::AppendAll { exploit, challenge, priority } => {
-                let challenge = resolve_challenge_ref(&db, &challenge).await?;
-                let exploit = resolve_exploit(&db, challenge.id, &exploit).await?;
-                let teams = db.list_teams().await?;
-                let mut created = 0usize;
-                let mut updated = 0usize;
-                for team in teams.iter() {
-                    let runs = db.list_exploit_runs(Some(challenge.id), Some(team.id)).await?;
-                    let sequence = next_sequence(RunInsertPosition::Append, &runs)?;
-                    let existed = has_exploit_run(&runs, exploit.id);
-                    let run = db
-                        .create_exploit_run(CreateExploitRun {
-                            exploit_id: exploit.id,
-                            challenge_id: challenge.id,
-                            team_id: team.id,
-                            priority,
-                            sequence: Some(sequence),
-                        })
-                        .await?;
-                    if existed {
-                        updated += 1;
-                    } else {
-                        created += 1;
-                    }
-                    println!(
-                        "Team {} ({}): set run {} sequence {}",
-                        team.team_id, team.team_name, run.id, run.sequence
-                    );
+                let c = ctx.find_challenge(&challenge).await?;
+                let e = ctx.find_exploit(c.id, &exploit).await?;
+                let teams = ctx.api.list_teams().await?;
+                for t in &teams {
+                    let runs = ctx.api.list_exploit_runs(Some(c.id), Some(t.id)).await?;
+                    let seq = runs.iter().map(|r| r.sequence).max().unwrap_or(-1) + 1;
+                    let r = ctx.api.create_exploit_run(CreateExploitRun { exploit_id: e.id, challenge_id: c.id, team_id: t.id, priority, sequence: Some(seq) }).await?;
+                    println!("Team {}: run {} seq {}", t.team_id, r.id, r.sequence);
                 }
-                println!(
-                    "Appended run {} to {} teams (created {}, updated {})",
-                    exploit.name,
-                    teams.len(),
-                    created,
-                    updated
-                );
             }
             RunCmd::PrependAll { exploit, challenge, priority } => {
-                let challenge = resolve_challenge_ref(&db, &challenge).await?;
-                let exploit = resolve_exploit(&db, challenge.id, &exploit).await?;
-                let teams = db.list_teams().await?;
-                let mut created = 0usize;
-                let mut updated = 0usize;
-                for team in teams.iter() {
-                    let runs = db.list_exploit_runs(Some(challenge.id), Some(team.id)).await?;
-                    let sequence = next_sequence(RunInsertPosition::Prepend, &runs)?;
-                    let existed = has_exploit_run(&runs, exploit.id);
-                    let run = db
-                        .create_exploit_run(CreateExploitRun {
-                            exploit_id: exploit.id,
-                            challenge_id: challenge.id,
-                            team_id: team.id,
-                            priority,
-                            sequence: Some(sequence),
-                        })
-                        .await?;
-                    if existed {
-                        updated += 1;
-                    } else {
-                        created += 1;
-                    }
-                    println!(
-                        "Team {} ({}): set run {} sequence {}",
-                        team.team_id, team.team_name, run.id, run.sequence
-                    );
+                let c = ctx.find_challenge(&challenge).await?;
+                let e = ctx.find_exploit(c.id, &exploit).await?;
+                let teams = ctx.api.list_teams().await?;
+                for t in &teams {
+                    let runs = ctx.api.list_exploit_runs(Some(c.id), Some(t.id)).await?;
+                    let seq = runs.iter().map(|r| r.sequence).min().unwrap_or(0) - 1;
+                    let r = ctx.api.create_exploit_run(CreateExploitRun { exploit_id: e.id, challenge_id: c.id, team_id: t.id, priority, sequence: Some(seq) }).await?;
+                    println!("Team {}: run {} seq {}", t.team_id, r.id, r.sequence);
                 }
-                println!(
-                    "Prepended run {} to {} teams (created {}, updated {})",
-                    exploit.name,
-                    teams.len(),
-                    created,
-                    updated
-                );
             }
         },
         Cmd::Round { cmd } => match cmd {
-            RoundCmd::New => {
-                let scheduler = mazuadm_core::scheduler::Scheduler::new(db);
-                let id = scheduler.generate_round().await?;
-                println!("Created round {}", id);
-            }
+            RoundCmd::New => { let id = ctx.api.create_round().await?; println!("Created round {}", id); }
             RoundCmd::List => {
-                let rows: Vec<_> = db.list_rounds().await?.into_iter().map(|r| RoundRow { id: r.id, status: r.status, started: r.started_at.format("%H:%M:%S").to_string() }).collect();
+                let rows: Vec<_> = ctx.api.list_rounds().await?.into_iter().map(|r| RoundRow { id: r.id, status: r.status, started: r.started_at.format("%H:%M:%S").to_string() }).collect();
                 println!("{}", Table::new(rows));
             }
-            RoundCmd::Run { id } => {
-                let (tx, _) = tokio::sync::broadcast::channel(1);
-                let executor = mazuadm_core::executor::Executor::new(db, tx)?;
-                executor.run_round(id).await?;
-                println!("Round {} completed", id);
-            }
-            RoundCmd::Clean => {
-                db.clean_rounds().await?;
+            RoundCmd::Run { id } => { ctx.api.run_round(id).await?; println!("Started round {}", id); }
+            RoundCmd::Rerun { id } => { ctx.api.rerun_round(id).await?; println!("Rerunning round {}", id); }
+            RoundCmd::Clean { db } => {
+                let pool = sqlx::PgPool::connect(&db).await?;
+                sqlx::query("TRUNCATE flags, exploit_jobs, rounds RESTART IDENTITY CASCADE").execute(&pool).await?;
                 println!("Cleaned all round data");
             }
         },
         Cmd::Job { cmd } => match cmd {
             JobCmd::List { round } => {
-                let team_map = load_team_map(&db).await?;
-                let rows: Vec<_> = db
-                    .list_jobs(round)
-                    .await?
-                    .into_iter()
-                    .map(|j| {
-                        let label = team_label(&team_map, j.team_id);
-                        JobRow {
-                            id: j.id,
-                            run: j.exploit_run_id.map(|r| r.to_string()).unwrap_or("-".into()),
-                            team_id: label.team_id,
-                            team_name: label.team_name,
-                            priority: j.priority,
-                            status: j.status,
-                        }
-                    })
-                    .collect();
+                ctx.teams().await?;
+                let rows: Vec<_> = ctx.api.list_jobs(round).await?.into_iter().map(|j| { let (tid, tn) = ctx.team_label(j.team_id); JobRow { id: j.id, run: j.exploit_run_id.map(|r| r.to_string()).unwrap_or("-".into()), team_id: tid, team_name: tn, priority: j.priority, status: j.status } }).collect();
                 println!("{}", Table::new(rows));
             }
-            JobCmd::Run { id } => {
-                let job = db.get_job(id).await?;
-                db.update_job_status(id, "pending", false).await?;
-                let run_id = job.exploit_run_id.ok_or(anyhow::anyhow!("Job has no exploit_run_id"))?;
-                let run = db.get_exploit_run(run_id).await?;
-                let exploit = db.get_exploit(run.exploit_id).await?;
-                let challenge = db.get_challenge(run.challenge_id).await?;
-                let team = db.get_team(job.team_id).await?;
-                let relations = db.list_relations(challenge.id).await?;
-                let rel = relations.iter().find(|r| r.team_id == team.id);
-                let conn = rel.and_then(|r| r.connection_info(&challenge, &team)).ok_or(anyhow::anyhow!("No connection info"))?;
-                let (tx, _) = tokio::sync::broadcast::channel(1);
-                let executor = mazuadm_core::executor::Executor::new(db.clone(), tx)?;
-                let timeout = if exploit.timeout_secs > 0 { exploit.timeout_secs as u64 } else { 60 };
-                println!("Running job {}...", id);
-                let result = executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), timeout, 50).await?;
-                println!("Completed with {} flags", result.flags.len());
-                for flag in result.flags { println!("  {}", flag); }
-            }
-            JobCmd::SetPriority { id, priority } => {
-                db.update_job_priority(id, priority).await?;
-                println!("Set job {} priority to {}", id, priority);
-            }
+            JobCmd::Run { id } => { let j = ctx.api.run_existing_job(id).await?; println!("Started job {}", j.id); }
+            JobCmd::Stop { id } => { ctx.api.stop_job(id).await?; println!("Stopped job {}", id); }
+            JobCmd::SetPriority { id, priority } => { ctx.api.reorder_jobs(vec![ReorderJobItem { id, priority }]).await?; println!("Set priority"); }
         },
         Cmd::Flag { cmd } => match cmd {
             FlagCmd::List { round } => {
-                let team_map = load_team_map(&db).await?;
-                let rows: Vec<_> = db
-                    .list_flags(round)
-                    .await?
-                    .into_iter()
-                    .map(|f| {
-                        let label = team_label(&team_map, f.team_id);
-                        FlagRow {
-                            id: f.id,
-                            round: f.round_id.map(|r| r.to_string()).unwrap_or("-".into()),
-                            challenge: f.challenge_id,
-                            team_id: label.team_id,
-                            team_name: label.team_name,
-                            flag: f.flag_value,
-                            status: f.status,
-                        }
-                    })
-                    .collect();
+                ctx.teams().await?;
+                let rows: Vec<_> = ctx.api.list_flags(round).await?.into_iter().map(|f| { let (tid, tn) = ctx.team_label(f.team_id); FlagRow { id: f.id, round: f.round_id.map(|r| r.to_string()).unwrap_or("-".into()), challenge: f.challenge_id, team_id: tid, team_name: tn, flag: f.flag_value, status: f.status } }).collect();
                 println!("{}", Table::new(rows));
             }
         },
         Cmd::Setting { cmd } => match cmd {
             SettingCmd::List => {
-                let rows: Vec<_> = db.list_settings().await?.into_iter().map(|s| SettingRow { key: s.key, value: s.value }).collect();
+                let rows: Vec<_> = ctx.api.list_settings().await?.into_iter().map(|s| SettingRow { key: s.key, value: s.value }).collect();
                 println!("{}", Table::new(rows));
             }
-            SettingCmd::Set { key, value } => {
-                db.set_setting(&key, &value).await?;
-                println!("Set {} = {}", key, value);
-            }
+            SettingCmd::Set { key, value } => { ctx.api.update_setting(UpdateSetting { key: key.clone(), value: value.clone() }).await?; println!("Set {} = {}", key, value); }
         },
         Cmd::Container { cmd } => match cmd {
             ContainerCmd::List => {
-                let rows: Vec<_> = db.list_all_containers().await?.into_iter().map(|c| ContainerRow { id: c.id, container_id: c.container_id[..12.min(c.container_id.len())].to_string(), exploit: c.exploit_id, status: c.status, counter: c.counter }).collect();
+                let rows: Vec<_> = ctx.api.list_containers().await?.into_iter().map(|c| ContainerRow { id: c.id, container_id: c.container_id[..12.min(c.container_id.len())].to_string(), exploit: c.exploit_id, status: c.status, counter: c.counter }).collect();
                 println!("{}", Table::new(rows));
             }
             ContainerCmd::Runners { id } => {
-                let team_map = load_team_map(&db).await?;
-                let rows: Vec<_> = db
-                    .get_runners_for_container(id)
-                    .await?
-                    .into_iter()
-                    .map(|r| {
-                        let label = team_label(&team_map, r.team_id);
-                        RunnerRow {
-                            id: r.id,
-                            container: r.exploit_container_id,
-                            run: r.exploit_run_id,
-                            team_id: label.team_id,
-                            team_name: label.team_name,
-                        }
-                    })
-                    .collect();
+                ctx.teams().await?;
+                let rows: Vec<_> = ctx.api.get_container_runners(id).await?.into_iter().map(|r| { let (tid, tn) = ctx.team_label(r.team_id); RunnerRow { id: r.id, container: r.exploit_container_id, run: r.exploit_run_id, team_id: tid, team_name: tn } }).collect();
                 println!("{}", Table::new(rows));
             }
-            ContainerCmd::Delete { id } => {
-                let cm: mazuadm_core::ContainerManager = mazuadm_core::ContainerManager::new(db.clone())?;
-                cm.destroy_container(id).await?;
-                println!("Deleted container {}", id);
-            }
-            ContainerCmd::Restart { id: _ } => {
-                println!("Restart not implemented - delete and let it recreate");
-            }
+            ContainerCmd::Delete { id } => { ctx.api.delete_container(id).await?; println!("Deleted"); }
+            ContainerCmd::Restart { id } => { ctx.api.restart_container(id).await?; println!("Restarted"); }
         },
         Cmd::Relation { cmd } => match cmd {
             RelationCmd::List { challenge } => {
-                let challenge = resolve_challenge_ref(&db, &challenge).await?;
-                let team_map = load_team_map(&db).await?;
-                let rows: Vec<_> = db
-                    .list_relations(challenge.id)
-                    .await?
-                    .into_iter()
-                    .map(|r| {
-                        let label = team_label(&team_map, r.team_id);
-                        RelationRow {
-                            challenge: r.challenge_id,
-                            team_id: label.team_id,
-                            team_name: label.team_name,
-                            addr: r.addr.unwrap_or_default(),
-                            port: r.port.map(|p| p.to_string()).unwrap_or_default(),
-                        }
-                    })
-                    .collect();
+                let c = ctx.find_challenge(&challenge).await?;
+                ctx.teams().await?;
+                let rows: Vec<_> = ctx.api.list_relations(c.id).await?.into_iter().map(|r| { let (tid, tn) = ctx.team_label(r.team_id); RelationRow { challenge: r.challenge_id, team_id: tid, team_name: tn, addr: r.addr.unwrap_or_default(), port: r.port.map(|p| p.to_string()).unwrap_or_default() } }).collect();
                 println!("{}", Table::new(rows));
             }
             RelationCmd::Get { challenge, team } => {
-                let team = resolve_team_ref(&db, &team).await?;
-                let challenge = resolve_challenge_ref(&db, &challenge).await?;
-                if let Some(r) = db.get_relation(challenge.id, team.id).await? {
-                    println!(
-                        "Challenge: {}, Team: {} ({}), Addr: {}, Port: {}",
-                        r.challenge_id,
-                        team.team_id,
-                        team.team_name,
-                        r.addr.unwrap_or_default(),
-                        r.port.map(|p| p.to_string()).unwrap_or_default()
-                    );
-                } else { println!("Relation not found"); }
+                let c = ctx.find_challenge(&challenge).await?;
+                let t = ctx.find_team(&team).await?;
+                if let Some(r) = ctx.api.get_relation(c.id, t.id).await? {
+                    println!("Challenge: {}, Team: {} ({}), Addr: {}, Port: {}", r.challenge_id, t.team_id, t.team_name, r.addr.unwrap_or_default(), r.port.map(|p| p.to_string()).unwrap_or_default());
+                } else { println!("Not found"); }
             }
             RelationCmd::Update { challenge, team, ip, port } => {
-                let team = resolve_team_ref(&db, &team).await?;
-                let challenge = resolve_challenge_ref(&db, &challenge).await?;
-                db.update_relation(challenge.id, team.id, ip, port).await?;
-                println!("Updated relation");
+                let c = ctx.find_challenge(&challenge).await?;
+                let t = ctx.find_team(&team).await?;
+                ctx.api.update_relation(c.id, t.id, UpdateRelation { addr: ip, port }).await?;
+                println!("Updated");
             }
         },
     }

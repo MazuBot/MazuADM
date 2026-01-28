@@ -1267,17 +1267,13 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
- "mazuadm-core",
  "reqwest",
  "serde",
  "serde_json",
  "sqlx",
  "tabled",
- "tempfile",
  "tokio",
  "toml",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
