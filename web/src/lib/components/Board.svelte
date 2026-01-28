@@ -1,6 +1,7 @@
 <script>
   import { api } from '$lib/api.js';
   import Modal from '$lib/components/Modal.svelte';
+  import { getExploitName, getTeamName } from '$lib/utils/lookup.js';
 
   let { teams, exploits, exploitRuns, challengeId, onRefresh } = $props();
 
@@ -38,16 +39,8 @@
       .sort((a, b) => a.sequence - b.sequence);
   }
 
-  function getExploitName(exploitId) {
-    return exploits.find(e => e.id === exploitId)?.name || `Exploit ${exploitId}`;
-  }
-
   function getExploit(exploitId) {
     return exploits.find(e => e.id === exploitId);
-  }
-
-  function getTeamName(teamId) {
-    return teams.find(t => t.id === teamId)?.team_name || `Team ${teamId}`;
   }
 
   async function addExploit() {
@@ -230,7 +223,7 @@
               onkeydown={(e) => onCardKeydown(e, run)}
             >
               <span class="card-seq">{idx + 1}</span>
-              <span class="card-name">{getExploitName(run.exploit_id)}</span>
+              <span class="card-name">{getExploitName(exploits, run.exploit_id)}</span>
               <span class="card-priority">{run.priority ?? 'auto'}</span>
               <button
                 type="button"
@@ -278,8 +271,8 @@
   <Modal onClose={() => editingRun = null}>
     <h3>Edit Exploit Run</h3>
     <div class="info">
-      <p><strong>Exploit:</strong> {getExploitName(editingRun.exploit_id)}</p>
-      <p><strong>Team:</strong> {getTeamName(editingRun.team_id)}</p>
+      <p><strong>Exploit:</strong> {getExploitName(exploits, editingRun.exploit_id)}</p>
+      <p><strong>Team:</strong> {getTeamName(teams, editingRun.team_id)}</p>
       <p><strong>Image:</strong> <code>{getExploit(editingRun.exploit_id)?.docker_image}</code></p>
       <p><strong>Entrypoint:</strong> <code>{getExploit(editingRun.exploit_id)?.entrypoint || '(image CMD)'}</code></p>
     </div>

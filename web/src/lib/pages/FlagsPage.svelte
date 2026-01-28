@@ -1,19 +1,11 @@
 <script>
+  import { getChallengeName, getTeamName } from '$lib/utils/lookup.js';
+
   let { rounds, flags, teams, challenges, selectedFlagRoundId, onSelectFlagRound } = $props();
 
   let challengeFilterId = $state('');
   let teamFilterId = $state('');
   let statusFilter = $state('');
-
-  function getTeamName(teamId) {
-    const t = teams.find((t) => t.id === teamId);
-    return t ? `${t.id} (${t.team_name})` : teamId;
-  }
-
-  function getChallengeName(challengeId) {
-    const c = challenges.find((c) => c.id === challengeId);
-    return c ? c.name : challengeId;
-  }
 
   function filterFlags() {
     const teamId = teamFilterId ? Number(teamFilterId) : null;
@@ -88,8 +80,8 @@
       <tr>
         <td>{f.id}</td>
         <td>{f.round_id}</td>
-        <td>{getChallengeName(f.challenge_id)}</td>
-        <td>{getTeamName(f.team_id)}</td>
+        <td>{getChallengeName(challenges, f.challenge_id)}</td>
+        <td>{getTeamName(teams, f.team_id)}</td>
         <td><code>{f.flag_value}</code></td>
         <td>{f.status}</td>
       </tr>

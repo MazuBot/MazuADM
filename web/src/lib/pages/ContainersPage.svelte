@@ -1,29 +1,10 @@
 <script>
   import { api } from '$lib/api.js';
+  import { getChallengeName, getExploitName, getExploitRunName, getTeamName } from '$lib/utils/lookup.js';
 
   let { exploits, exploitRuns, challenges, teams, containers, containerRunners, onLoadContainers, onLoadRunners } = $props();
 
   let hasContainers = $derived((containers ?? []).length > 0);
-
-  function getTeamName(teamId) {
-    const t = teams.find((t) => t.id === teamId);
-    return t ? `${t.id} (${t.team_name})` : teamId;
-  }
-
-  function getExploitName(exploitId) {
-    const e = exploits.find((e) => e.id === exploitId);
-    return e ? e.name : exploitId;
-  }
-
-  function getChallengeName(challengeId) {
-    const c = challenges.find((c) => c.id === challengeId);
-    return c ? c.name : (challengeId ?? '-');
-  }
-
-  function getExploitRunName(runId) {
-    const run = exploitRuns.find((r) => r.id === runId);
-    return run ? getExploitName(run.exploit_id) : runId;
-  }
 
   async function restartContainer(id) {
     await api.restartContainer(id);
@@ -67,7 +48,7 @@
   {#each exploits as exploit}
     {@const expContainers = containers.filter((c) => c.exploit_id === exploit.id)}
     {#if expContainers.length}
-      <h3>{getChallengeName(exploit.challenge_id)} / {exploit.name}</h3>
+      <h3>{getChallengeName(challenges, exploit.challenge_id)} / {exploit.name}</h3>
       <table class="containers-table">
         <colgroup>
           <col style="width: 8%" />
@@ -97,7 +78,7 @@
               <td class="runners-cell">
                 {#if containerRunners[c.id]}
                   {#each containerRunners[c.id] as r}
-                    <div>{getExploitRunName(r.exploit_run_id)} → {getTeamName(r.team_id)}</div>
+                    <div>{getExploitRunName(exploitRuns, exploits, r.exploit_run_id)} → {getTeamName(teams, r.team_id)}</div>
                   {/each}
                 {:else}
                   <button onclick={() => onLoadRunners(c.id)}>Load</button>

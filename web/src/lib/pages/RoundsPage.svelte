@@ -2,6 +2,7 @@
   import { AnsiUp } from 'ansi_up';
   import { api } from '$lib/api.js';
   import Modal from '$lib/components/Modal.svelte';
+  import { getChallengeName, getExploitName, getTeamName } from '$lib/utils/lookup.js';
 
   let { rounds, jobs, teams, challenges, exploits, exploitRuns, selectedRoundId, onSelectRound, onNewRound, onRunRound, onRefresh } = $props();
 
@@ -30,21 +31,6 @@
     } else {
       onRunRound(selectedRoundId);
     }
-  }
-
-  function getTeamName(teamId) {
-    const t = teams.find((t) => t.id === teamId);
-    return t ? `${t.id} (${t.team_name})` : teamId;
-  }
-
-  function getChallengeName(challengeId) {
-    const c = challenges.find((c) => c.id === challengeId);
-    return c ? c.name : challengeId;
-  }
-
-  function getExploitName(exploitId) {
-    const e = exploits.find((e) => e.id === exploitId);
-    return e ? e.name : exploitId;
   }
 
   function getExploitRunInfo(runId) {
@@ -186,9 +172,9 @@
             style="cursor:pointer"
           >
             <td>{j.id}</td>
-            <td>{getChallengeName(getExploitRunInfo(j.exploit_run_id)?.challenge_id)}</td>
-            <td>{getExploitName(getExploitRunInfo(j.exploit_run_id)?.exploit_id)}</td>
-            <td>{getTeamName(j.team_id)}</td>
+            <td>{getChallengeName(challenges, getExploitRunInfo(j.exploit_run_id)?.challenge_id)}</td>
+            <td>{getExploitName(exploits, getExploitRunInfo(j.exploit_run_id)?.exploit_id)}</td>
+            <td>{getTeamName(teams, j.team_id)}</td>
             <td>{j.container_id ? j.container_id.slice(0, 12) : '-'}</td>
             <td>{j.priority}</td>
             <td>{j.status === 'flag' ? '🚩 FLAG' : j.status}</td>
@@ -205,8 +191,8 @@
   <Modal wide onClose={closeModal}>
     <h3>Job #{selectedJob.id} - {selectedJob.status}</h3>
     <div class="job-info">
-      <p><strong>Exploit:</strong> {getExploitName(getExploitRunInfo(selectedJob.exploit_run_id)?.exploit_id)}</p>
-      <p><strong>Team:</strong> {getTeamName(selectedJob.team_id)}</p>
+      <p><strong>Exploit:</strong> {getExploitName(exploits, getExploitRunInfo(selectedJob.exploit_run_id)?.exploit_id)}</p>
+      <p><strong>Team:</strong> {getTeamName(teams, selectedJob.team_id)}</p>
       <p><strong>Priority:</strong> {selectedJob.priority}</p>
       <p><strong>Duration:</strong> {selectedJob.duration_ms ? `${selectedJob.duration_ms}ms` : '-'}</p>
       {#if selectedJob.container_id}<p><strong>Container:</strong> <code>{selectedJob.container_id.slice(0, 12)}</code></p>{/if}
