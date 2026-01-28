@@ -250,6 +250,9 @@ pub async fn create_round(State(s): S) -> R<i32> {
 }
 
 pub async fn run_round(State(s): S, Path(id): Path<i32>) -> R<String> {
+    // Stop running jobs from older rounds and check for flags
+    stop_running_jobs_with_flag_check(&s).await;
+    
     // Skip older pending rounds and finish older running rounds
     if let Ok(rounds) = s.db.get_active_rounds().await {
         for round in rounds {
@@ -273,9 +276,23 @@ pub async fn run_round(State(s): S, Path(id): Path<i32>) -> R<String> {
     Ok(Json("started".to_string()))
 }
 
+async fn stop_running_jobs_with_flag_check(s: &AppState) {
+    if let Ok(jobs) = s.db.kill_running_jobs().await {
+        for job in jobs {
+            let stdout = job.stdout.as_deref().unwrap_or("");
+            let flags = Executor::extract_flags(stdout, None, 50);
+            let has_flag = !flags.is_empty();
+            let _ = s.db.mark_job_stopped(job.id, has_flag).await;
+            if let Ok(j) = s.db.get_job(job.id).await {
+                broadcast(s, "job_updated", &j);
+            }
+        }
+    }
+}
+
 pub async fn rerun_round(State(s): S, Path(id): Path<i32>) -> R<String> {
-    // Kill all running jobs
-    let _ = s.db.kill_running_jobs().await;
+    // Stop running jobs and check for flags
+    stop_running_jobs_with_flag_check(&s).await;
     
     // Reset all rounds after this one to pending
     if let Ok(rounds) = s.db.list_rounds().await {

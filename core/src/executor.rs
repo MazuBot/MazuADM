@@ -159,6 +159,15 @@ impl Executor {
             let handle = tokio::spawn(async move {
                 let _permit = permit;
                 
+                // Re-check job status before running (may have been skipped/stopped)
+                let current_job = match db.get_job(job.id).await {
+                    Ok(j) => j,
+                    Err(_) => return,
+                };
+                if current_job.status != "pending" {
+                    return;
+                }
+                
                 let run: ExploitRun = match sqlx::query_as("SELECT * FROM exploit_runs WHERE id = $1")
                     .bind(job.exploit_run_id).fetch_one(&db.pool).await {
                     Ok(r) => r,

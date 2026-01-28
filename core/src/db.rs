@@ -229,10 +229,17 @@ impl Database {
         Ok(result.rows_affected())
     }
 
-    pub async fn kill_running_jobs(&self) -> Result<u64> {
-        let result = sqlx::query!("UPDATE exploit_jobs SET status = 'error', stderr = 'Killed by re-run' WHERE status = 'running'")
+    pub async fn kill_running_jobs(&self) -> Result<Vec<ExploitJob>> {
+        let jobs = sqlx::query_as!(ExploitJob, "SELECT * FROM exploit_jobs WHERE status = 'running'")
+            .fetch_all(&self.pool).await?;
+        Ok(jobs)
+    }
+
+    pub async fn mark_job_stopped(&self, id: i32, has_flag: bool) -> Result<()> {
+        let status = if has_flag { "flag" } else { "stopped" };
+        sqlx::query!("UPDATE exploit_jobs SET status = $2, stderr = COALESCE(stderr, '') || E'\\n[stopped by new round]' WHERE id = $1", id, status)
             .execute(&self.pool).await?;
-        Ok(result.rows_affected())
+        Ok(())
     }
 
     pub async fn start_round(&self, id: i32) -> Result<()> {
