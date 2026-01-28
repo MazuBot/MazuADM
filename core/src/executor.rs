@@ -4,16 +4,17 @@ use anyhow::Result;
 use std::time::{Instant, Duration};
 use std::sync::Arc;
 use std::collections::HashMap;
-use tokio::sync::{broadcast, Semaphore, Mutex};
+use tokio::sync::{broadcast, oneshot, Semaphore, Mutex};
 use tokio::task::JoinSet;
 use regex::Regex;
-use crate::settings::{compute_timeout, load_executor_settings};
+use crate::settings::{compute_timeout, load_executor_settings, load_job_settings};
 
 #[derive(Clone)]
 pub struct Executor {
     pub db: Database,
     pub container_manager: ContainerManager,
     pub tx: broadcast::Sender<WsMessage>,
+    pid_map: Arc<Mutex<HashMap<i32, JobPidState>>>,
 }
 
 struct JobContext {
@@ -23,6 +24,13 @@ struct JobContext {
     challenge: Challenge,
     team: Team,
     conn: ConnectionInfo,
+}
+
+#[derive(Debug, Clone)]
+struct JobPidState {
+    container_id: String,
+    pid: Option<i64>,
+    stop_requested: bool,
 }
 
 enum JobContextError {
@@ -39,7 +47,52 @@ fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &
 impl Executor {
     pub fn new(db: Database, tx: broadcast::Sender<WsMessage>) -> Result<Self> {
         let container_manager = ContainerManager::new(db.clone())?;
-        Ok(Self { db, container_manager, tx })
+        Ok(Self {
+            db,
+            container_manager,
+            tx,
+            pid_map: Arc::new(Mutex::new(HashMap::new())),
+        })
+    }
+
+    async fn register_container(&self, job_id: i32, container_id: String) {
+        let mut map = self.pid_map.lock().await;
+        if let Some(entry) = map.get_mut(&job_id) {
+            if entry.container_id.is_empty() {
+                entry.container_id = container_id;
+            }
+            return;
+        }
+        map.insert(job_id, JobPidState {
+            container_id,
+            pid: None,
+            stop_requested: false,
+        });
+    }
+
+    async fn request_stop(&self, job_id: i32, container_id: Option<String>) -> Option<(String, i64)> {
+        let mut map = self.pid_map.lock().await;
+        if let Some(entry) = map.get_mut(&job_id) {
+            if let Some(pid) = entry.pid {
+                let cid = entry.container_id.clone();
+                map.remove(&job_id);
+                return Some((cid, pid));
+            }
+            entry.stop_requested = true;
+            return None;
+        }
+        let container_id = container_id.unwrap_or_default();
+        map.insert(job_id, JobPidState {
+            container_id,
+            pid: None,
+            stop_requested: true,
+        });
+        None
+    }
+
+    async fn clear_pid(&self, job_id: i32) {
+        let mut map = self.pid_map.lock().await;
+        map.remove(&job_id);
     }
 
     pub async fn execute_job(&self, job: &ExploitJob, run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64, max_flags: usize) -> Result<JobResult> {
@@ -56,6 +109,7 @@ impl Executor {
         // Get or assign persistent container
         let container = self.container_manager.get_or_assign_container(run).await?;
         self.db.set_job_container(job.id, &container.container_id).await?;
+        self.register_container(job.id, container.container_id.clone()).await;
 
         // Build command - use entrypoint or docker image default cmd
         let args = vec![conn.addr.clone(), conn.port.to_string(), team.team_id.clone()];
@@ -73,10 +127,55 @@ impl Executor {
             format!("TARGET_TEAM_ID={}", team.team_id),
         ];
 
+        let (pid_tx, pid_rx) = oneshot::channel::<i64>();
+        let pid_map = self.pid_map.clone();
+        let db = self.db.clone();
+        let container_id = container.container_id.clone();
+        let cm = self.container_manager.clone();
+        let job_id = job.id;
+
+        tokio::spawn(async move {
+            let Ok(pid) = pid_rx.await else { return; };
+            if let Ok(current) = db.get_job(job_id).await {
+                if current.status != "running" {
+                    return;
+                }
+            }
+
+            let mut kill_target: Option<(String, i64)> = None;
+            {
+                let mut map = pid_map.lock().await;
+                let entry = map.entry(job_id).or_insert(JobPidState {
+                    container_id: container_id.clone(),
+                    pid: None,
+                    stop_requested: false,
+                });
+                if entry.container_id.is_empty() {
+                    entry.container_id = container_id.clone();
+                }
+                entry.pid = Some(pid);
+                if entry.stop_requested {
+                    kill_target = Some((entry.container_id.clone(), pid));
+                    map.remove(&job_id);
+                }
+            }
+
+            if let Some((cid, target_pid)) = kill_target {
+                let _ = cm.kill_process_in_container(&cid, target_pid).await;
+            }
+        });
+
         // Execute with timeout and PID tracking
-        let result = self.container_manager.execute_in_container_with_timeout(
-            &container, cmd, env, Duration::from_secs(timeout_secs)
-        ).await?;
+        let exec_result = self.container_manager.execute_in_container_with_timeout(
+            &container, cmd, env, Duration::from_secs(timeout_secs), Some(pid_tx)
+        ).await;
+        let result = match exec_result {
+            Ok(result) => result,
+            Err(e) => {
+                self.clear_pid(job.id).await;
+                return Err(e);
+            }
+        };
 
         // Kill process on timeout or OLE
         if result.timed_out || result.ole {
@@ -99,23 +198,116 @@ impl Executor {
         }
 
         let duration_ms = start.elapsed().as_millis() as i32;
-        let flags = Self::extract_flags(&stdout, flag_regex, max_flags);
+        let combined_output = if stderr.is_empty() {
+            stdout.clone()
+        } else if stdout.is_empty() {
+            stderr.clone()
+        } else {
+            format!("{}\n{}", stdout, stderr)
+        };
+        let flags = Self::extract_flags(&combined_output, flag_regex, max_flags);
         
         let status = derive_job_status(!flags.is_empty(), timed_out, ole, exit_code);
-        let final_status = if let Ok(current) = self.db.get_job(job.id).await {
-            if current.status == "stopped" && status != "flag" { "stopped" } else { status }
-        } else {
-            status
-        };
+        let mut final_status = status;
+        let mut final_stderr = stderr.clone();
+        if let Ok(current) = self.db.get_job(job.id).await {
+            if current.status == "stopped" && status != "flag" {
+                final_status = "stopped";
+                if let Some(existing) = current.stderr {
+                    if !existing.is_empty() {
+                        final_stderr = if final_stderr.is_empty() {
+                            existing
+                        } else {
+                            format!("{}\n{}", existing, final_stderr)
+                        };
+                    }
+                }
+            }
+        }
         
-        self.db.finish_job(job.id, final_status, Some(&stdout), Some(&stderr), duration_ms).await?;
+        self.db.finish_job(job.id, final_status, Some(&stdout), Some(&final_stderr), duration_ms).await?;
         
         // Broadcast job finished
         if let Ok(updated_job) = self.db.get_job(job.id).await {
             broadcast(&self.tx, "job_updated", &updated_job);
         }
+        self.clear_pid(job.id).await;
 
         Ok(JobResult { stdout, stderr, duration_ms, exit_code, flags })
+    }
+
+    pub async fn run_job_immediately(&self, job_id: i32) -> Result<JobResult> {
+        let ctx = match build_job_context(&self.db, job_id).await {
+            Ok(ctx) => ctx,
+            Err(JobContextError::NotPending) => {
+                return Err(anyhow::anyhow!("Job {} is not pending", job_id));
+            }
+            Err(JobContextError::MissingExploitRunId) => {
+                finish_job_and_broadcast(&self.db, &self.tx, job_id, "error", None, Some("Job missing exploit_run_id"), 0).await;
+                return Err(anyhow::anyhow!("Job {} missing exploit_run_id", job_id));
+            }
+            Err(JobContextError::MissingConnectionInfo) => {
+                finish_job_and_broadcast(&self.db, &self.tx, job_id, "error", None, Some("No connection info (missing IP or port)"), 0).await;
+                return Err(anyhow::anyhow!("Job {} missing connection info", job_id));
+            }
+            Err(JobContextError::Db(e)) => {
+                return Err(e);
+            }
+        };
+
+        let settings = load_job_settings(&self.db).await;
+        let timeout = compute_timeout(ctx.exploit.timeout_secs, settings.worker_timeout);
+
+        let result = self.execute_job(&ctx.job, &ctx.run, &ctx.exploit, &ctx.conn, ctx.challenge.flag_regex.as_deref(), timeout, settings.max_flags).await;
+
+        match result {
+            Ok(result) => {
+                for flag in &result.flags {
+                    let f = if let Some(rid) = ctx.job.round_id {
+                        self.db.create_flag(ctx.job.id, rid, ctx.challenge.id, ctx.team.id, flag).await
+                    } else {
+                        self.db.create_adhoc_flag(ctx.job.id, ctx.challenge.id, ctx.team.id, flag).await
+                    };
+                    if let Ok(f) = f {
+                        broadcast(&self.tx, "flag_created", &f);
+                    }
+                }
+                Ok(result)
+            }
+            Err(e) => {
+                if let Ok(current) = self.db.get_job(ctx.job.id).await {
+                    if current.status == "stopped" {
+                        broadcast(&self.tx, "job_updated", &current);
+                        return Err(e);
+                    }
+                }
+                let _ = self.db.finish_job(ctx.job.id, "error", None, Some(&e.to_string()), 0).await;
+                if let Ok(updated) = self.db.get_job(ctx.job.id).await {
+                    broadcast(&self.tx, "job_updated", &updated);
+                }
+                Err(e)
+            }
+        }
+    }
+
+    pub async fn stop_job(&self, job_id: i32, reason: &str) -> Result<ExploitJob> {
+        self.stop_job_with_flags(job_id, false, reason).await
+    }
+
+    pub async fn stop_job_with_flags(&self, job_id: i32, has_flag: bool, reason: &str) -> Result<ExploitJob> {
+        let job = self.db.get_job(job_id).await?;
+        if job.status != "running" {
+            return Ok(job);
+        }
+
+        if let Some((cid, pid)) = self.request_stop(job_id, job.container_id.clone()).await {
+            let _ = self.container_manager.kill_process_in_container(&cid, pid).await;
+        }
+
+        self.db.mark_job_stopped_with_reason(job_id, has_flag, reason).await?;
+        let job = self.db.get_job(job_id).await?;
+        broadcast(&self.tx, "job_updated", &job);
+        Ok(job)
     }
 
     pub fn extract_flags(output: &str, pattern: Option<&str>, max_flags: usize) -> Vec<String> {

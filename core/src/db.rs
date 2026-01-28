@@ -503,7 +503,7 @@ impl Database {
 
     // Reset stale running jobs on startup
     pub async fn reset_stale_jobs(&self) -> Result<u64> {
-        let result = sqlx::query!(r#"UPDATE exploit_jobs SET status = 'error', stdout = COALESCE(stdout, '') || E'\n[interrupted by server restart]' WHERE status = 'running'"#)
+        let result = sqlx::query!(r#"UPDATE exploit_jobs SET status = 'stopped', stderr = COALESCE(stderr, '') || E'\n[stopped by server restart]' WHERE status = 'running'"#)
             .execute(&self.pool).await?;
         Ok(result.rows_affected())
     }

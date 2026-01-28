@@ -6,6 +6,7 @@ use bollard::exec::{CreateExecOptions, StartExecOptions};
 use bollard::secret::{ContainerCreateBody, HostConfig};
 use futures::{Stream, StreamExt};
 use std::time::Duration;
+use tokio::sync::oneshot;
 use tracing::{info, warn, error};
 
 #[derive(Clone)]
@@ -167,7 +168,7 @@ impl ContainerManager {
     }
 
     /// Execute command in a persistent container with timeout support
-    pub async fn execute_in_container_with_timeout(&self, container: &ExploitContainer, cmd: Vec<String>, env: Vec<String>, timeout: Duration) -> Result<ExecResult> {
+    pub async fn execute_in_container_with_timeout(&self, container: &ExploitContainer, cmd: Vec<String>, env: Vec<String>, timeout: Duration, pid_notify: Option<oneshot::Sender<i64>>) -> Result<ExecResult> {
         let exec = self.docker.create_exec(&container.container_id, CreateExecOptions {
             cmd: Some(cmd),
             env: Some(env.into_iter().chain(std::iter::once("TERM=xterm".to_string())).collect()),
@@ -183,13 +184,19 @@ impl ContainerManager {
         let pid_future = {
             let docker = self.docker.clone();
             let eid = exec_id.clone();
+            let pid_notify = pid_notify;
             async move {
                 // Poll until we get a PID
                 for _ in 0..100 {
                     tokio::time::sleep(Duration::from_millis(50)).await;
                     if let Ok(inspect) = docker.inspect_exec(&eid).await {
                         if inspect.pid.is_some() {
-                            return inspect.pid;
+                            if let Some(pid) = inspect.pid {
+                                if let Some(tx) = pid_notify {
+                                    let _ = tx.send(pid);
+                                }
+                                return Some(pid);
+                            }
                         }
                     }
                 }
