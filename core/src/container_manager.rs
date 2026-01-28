@@ -220,6 +220,8 @@ impl ContainerManager {
         // Get PID if we need to kill
         if timed_out || ole {
             pid = pid_handle.await.ok().flatten();
+        } else {
+            pid_handle.abort();
         }
         
         let inspect = self.docker.inspect_exec(&exec_id).await.ok();
