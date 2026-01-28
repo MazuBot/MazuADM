@@ -200,6 +200,48 @@ fn normalize_name(value: Option<String>) -> Option<String> {
     })
 }
 
+struct TeamRefParts {
+    team_id: String,
+    numeric_id: Option<i32>,
+}
+
+fn parse_team_ref(value: &str) -> TeamRefParts {
+    let trimmed = value.trim();
+    let numeric_id = trimmed.parse::<i32>().ok();
+    TeamRefParts {
+        team_id: trimmed.to_string(),
+        numeric_id,
+    }
+}
+
+fn resolve_team_ref_sync<F, G>(team_ref: &str, mut by_team_id: F, mut by_id: G) -> Result<Team>
+where
+    F: FnMut(&str) -> Option<Team>,
+    G: FnMut(i32) -> Option<Team>,
+{
+    let parts = parse_team_ref(team_ref);
+    if let Some(team) = by_team_id(&parts.team_id) {
+        return Ok(team);
+    }
+    if let Some(id) = parts.numeric_id {
+        if let Some(team) = by_id(id) {
+            return Ok(team);
+        }
+    }
+    Err(anyhow::anyhow!("team not found: {}", team_ref))
+}
+
+async fn resolve_team_ref(db: &Database, team_ref: &str) -> Result<Team> {
+    let parts = parse_team_ref(team_ref);
+    if let Some(team) = db.get_team_by_team_id(&parts.team_id).await? {
+        return Ok(team);
+    }
+    if let Some(id) = parts.numeric_id {
+        return db.get_team(id).await;
+    }
+    Err(anyhow::anyhow!("team not found: {}", team_ref))
+}
+
 fn cwd_basename() -> Result<String> {
     let dir = std::env::current_dir()?;
     let name = dir
@@ -207,6 +249,63 @@ fn cwd_basename() -> Result<String> {
         .and_then(|v| v.to_str())
         .ok_or_else(|| anyhow::anyhow!("failed to determine current directory name"))?;
     Ok(name.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    fn make_team(id: i32, team_id: &str) -> Team {
+        Team {
+            id,
+            team_id: team_id.to_string(),
+            team_name: "Test".to_string(),
+            default_ip: None,
+            priority: 0,
+            created_at: Utc::now(),
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn test_parse_team_ref_numeric() {
+        let parsed = parse_team_ref("007");
+        assert_eq!(parsed.team_id, "007");
+        assert_eq!(parsed.numeric_id, Some(7));
+    }
+
+    #[test]
+    fn test_resolve_team_ref_prefers_team_id() {
+        let preferred = make_team(10, "1");
+        let fallback = make_team(1, "team1");
+        let found = resolve_team_ref_sync(
+            "1",
+            |value| if value == "1" { Some(preferred.clone()) } else { None },
+            |id| if id == 1 { Some(fallback.clone()) } else { None },
+        )
+        .unwrap();
+        assert_eq!(found.id, 10);
+        assert_eq!(found.team_id, "1");
+    }
+
+    #[test]
+    fn test_resolve_team_ref_fallback_numeric() {
+        let fallback = make_team(42, "team42");
+        let found = resolve_team_ref_sync(
+            "42",
+            |_| None,
+            |id| if id == 42 { Some(fallback.clone()) } else { None },
+        )
+        .unwrap();
+        assert_eq!(found.id, 42);
+    }
+
+    #[test]
+    fn test_resolve_team_ref_missing() {
+        let err = resolve_team_ref_sync("missing", |_| None, |_| None).unwrap_err();
+        assert!(err.to_string().contains("team not found"));
+    }
 }
 
 async fn prompt_challenge(db: &Database) -> Result<Challenge> {

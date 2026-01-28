@@ -18,4 +18,5 @@ tabled = "0.20"
 toml = { workspace = true }
 
 [dev-dependencies]
+chrono = { workspace = true }
 tempfile = "3"
