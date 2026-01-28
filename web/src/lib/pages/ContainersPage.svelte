@@ -68,7 +68,15 @@
     {@const expContainers = containers.filter((c) => c.exploit_id === exploit.id)}
     {#if expContainers.length}
       <h3>{getChallengeName(exploit.challenge_id)} / {exploit.name}</h3>
-      <table>
+      <table class="containers-table">
+        <colgroup>
+          <col style="width: 8%" />
+          <col style="width: 18%" />
+          <col style="width: 12%" />
+          <col style="width: 10%" />
+          <col style="width: 32%" />
+          <col style="width: 20%" />
+        </colgroup>
         <thead>
           <tr>
             <th>ID</th>
@@ -86,7 +94,7 @@
               <td><code>{c.container_id.slice(0, 12)}</code></td>
               <td>{c.status}</td>
               <td>{c.counter}</td>
-              <td>
+              <td class="runners-cell">
                 {#if containerRunners[c.id]}
                   {#each containerRunners[c.id] as r}
                     <div>{getExploitRunName(r.exploit_run_id)} → {getTeamName(r.team_id)}</div>

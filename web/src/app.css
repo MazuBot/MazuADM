@@ -104,6 +104,15 @@ table {
   border-collapse: collapse;
 }
 
+.containers-table {
+  table-layout: fixed;
+}
+
+.containers-table .runners-cell {
+  white-space: normal;
+  word-break: break-word;
+}
+
 th,
 td {
   padding: 0.5rem;
