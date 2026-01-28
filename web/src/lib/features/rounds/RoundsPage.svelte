@@ -95,7 +95,11 @@
 
   async function runJob(job, e) {
     e.stopPropagation();
-    await api.runExistingJob(job.id);
+    if (job.status === 'running') {
+      await api.stopJob(job.id);
+    } else {
+      await api.runExistingJob(job.id);
+    }
   }
 </script>
 
@@ -164,7 +168,15 @@
             <td>{j.priority}</td>
             <td>{formatStatus(j.status)}</td>
             <td>{j.duration_ms ? `${j.duration_ms}ms` : '-'}</td>
-            <td><button class="play-btn" onclick={(e) => runJob(j, e)} title="Run now">▶</button></td>
+            <td>
+              <button
+                class={`play-btn ${j.status === 'running' ? 'stop' : ''}`}
+                onclick={(e) => runJob(j, e)}
+                title={j.status === 'running' ? 'Stop now' : 'Run now'}
+              >
+                {j.status === 'running' ? '⏹' : '▶'}
+              </button>
+            </td>
           </tr>
         {/each}
       </tbody>
@@ -205,5 +217,6 @@
   .dragging { opacity: 0.4; background: #333; }
   .play-btn { background: transparent; border: none; cursor: pointer; font-size: 0.9rem; padding: 0.2rem 0.4rem; opacity: 0.6; color: white; }
   .play-btn:hover { opacity: 1; }
+  .play-btn.stop { color: #ff6b6b; }
   .job-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 </style>
