@@ -332,25 +332,23 @@ pub async fn run_existing_job(State(s): S, Path(job_id): Path<i32>) -> R<Exploit
 
 async fn run_job_internal(db: Database, tx: tokio::sync::broadcast::Sender<WsMessage>, job_id: i32, exploit_run_id: i32, team_id: i32) {
     tokio::spawn(async move {
-        let executor = match Executor::new(db.clone(), tx.clone()) {
-            Ok(e) => e,
-            Err(_) => return,
-        };
+        macro_rules! fail {
+            ($msg:expr) => {{
+                let _ = db.finish_job(job_id, "error", None, Some($msg), 0).await;
+                if let Ok(j) = db.get_job(job_id).await { let _ = tx.send(WsMessage::new("job_updated", &j)); }
+                return;
+            }};
+        }
+        let executor = match Executor::new(db.clone(), tx.clone()) { Ok(e) => e, Err(e) => fail!(&e.to_string()) };
         let run: ExploitRun = match sqlx::query_as("SELECT * FROM exploit_runs WHERE id = $1")
-            .bind(exploit_run_id).fetch_one(&db.pool).await {
-            Ok(r) => r,
-            Err(_) => return,
-        };
-        let exploit = match db.get_exploit(run.exploit_id).await { Ok(e) => e, Err(_) => return };
-        let challenge = match db.get_challenge(run.challenge_id).await { Ok(c) => c, Err(_) => return };
-        let team = match db.get_team(team_id).await { Ok(t) => t, Err(_) => return };
-        let relations = match db.list_relations(challenge.id).await { Ok(r) => r, Err(_) => return };
+            .bind(exploit_run_id).fetch_one(&db.pool).await { Ok(r) => r, Err(e) => fail!(&e.to_string()) };
+        let exploit = match db.get_exploit(run.exploit_id).await { Ok(e) => e, Err(e) => fail!(&e.to_string()) };
+        let challenge = match db.get_challenge(run.challenge_id).await { Ok(c) => c, Err(e) => fail!(&e.to_string()) };
+        let team = match db.get_team(team_id).await { Ok(t) => t, Err(e) => fail!(&e.to_string()) };
+        let relations = match db.list_relations(challenge.id).await { Ok(r) => r, Err(e) => fail!(&e.to_string()) };
         let rel = relations.iter().find(|r| r.team_id == team.id);
-        let conn = match rel.and_then(|r| r.connection_info(&challenge, &team)) {
-            Some(c) => c,
-            None => return,
-        };
-        let job = match db.get_job(job_id).await { Ok(j) => j, Err(_) => return };
+        let conn = match rel.and_then(|r| r.connection_info(&challenge, &team)) { Some(c) => c, None => fail!("No connection info") };
+        let job = match db.get_job(job_id).await { Ok(j) => j, Err(e) => fail!(&e.to_string()) };
         let round_id = job.round_id;
         let timeout = if exploit.timeout_secs > 0 { exploit.timeout_secs as u64 } else { 60 };
         match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), timeout, 50).await {
