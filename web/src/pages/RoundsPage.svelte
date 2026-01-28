@@ -190,6 +190,6 @@
 <style>
   .draggable { cursor: grab; }
   .dragging { opacity: 0.4; background: #333; }
-  .play-btn { background: transparent; border: none; cursor: pointer; font-size: 0.9rem; padding: 0.2rem 0.4rem; opacity: 0.6; }
+  .play-btn { background: transparent; border: none; cursor: pointer; font-size: 0.9rem; padding: 0.2rem 0.4rem; opacity: 0.6; color: white; }
   .play-btn:hover { opacity: 1; }
 </style>
