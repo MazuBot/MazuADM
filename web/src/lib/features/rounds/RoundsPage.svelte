@@ -177,7 +177,7 @@
     <h3 class="job-modal-header">
       <span>Job #{selectedJob.id}</span>
       <span><code>{getChallengeName(challenges, getExploitRunInfo(selectedJob.exploit_run_id)?.challenge_id)}</code></span>
-      <span>{formatStatus(selectedJob.status)}</span>
+      <span class={`job-status status-${selectedJob.status || 'unknown'}`}>{formatStatus(selectedJob.status)}</span>
     </h3>
     <div class="job-info">
       <p><strong>Exploit:</strong> {getExploitName(exploits, getExploitRunInfo(selectedJob.exploit_run_id)?.exploit_id)}</p>

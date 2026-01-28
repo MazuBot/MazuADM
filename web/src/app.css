@@ -187,6 +187,22 @@ code {
   min-width: 320px;
 }
 
+.job-status {
+  --status-rgb: 200, 200, 200;
+  color: rgb(var(--status-rgb));
+  text-shadow: 0 0 6px rgba(var(--status-rgb), 0.45);
+}
+
+.status-running { --status-rgb: 0, 217, 255; }
+.status-pending { --status-rgb: 247, 209, 84; }
+.status-success { --status-rgb: 46, 204, 113; }
+.status-done { --status-rgb: 46, 204, 113; }
+.status-error { --status-rgb: 231, 76, 60; }
+.status-failed { --status-rgb: 231, 76, 60; }
+.status-flag { --status-rgb: 46, 204, 113; }
+.status-killed { --status-rgb: 149, 165, 166; }
+.status-unknown { --status-rgb: 200, 200, 200; }
+
 .modal.wide {
   min-width: 500px;
   max-width: 700px;
