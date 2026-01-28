@@ -109,7 +109,7 @@ async fn main() -> Result<()> {
         },
         Cmd::Exploit { cmd } => match cmd {
             ExploitCmd::Add { name, challenge, image, priority, max_per_container, timeout, entrypoint } => {
-                let e = db.create_exploit(CreateExploit { name, challenge_id: challenge, docker_image: image, entrypoint, enabled: Some(true), priority, max_per_container, timeout_secs: timeout, default_counter: None, auto_add: None }).await?;
+                let e = db.create_exploit(CreateExploit { name, challenge_id: challenge, docker_image: image, entrypoint, enabled: Some(true), priority, max_per_container, timeout_secs: timeout, default_counter: None, auto_add: None, insert_into_rounds: None }).await?;
                 println!("Created exploit {}", e.id);
             }
             ExploitCmd::List { challenge } => {
@@ -154,7 +154,7 @@ async fn main() -> Result<()> {
         },
         Cmd::Flag { cmd } => match cmd {
             FlagCmd::List { round } => {
-                let rows: Vec<_> = db.list_flags(round).await?.into_iter().map(|f| FlagRow { id: f.id, round: f.round_id, challenge: f.challenge_id, team: f.team_id, flag: f.flag_value, status: f.status }).collect();
+                let rows: Vec<_> = db.list_flags(round).await?.into_iter().map(|f| FlagRow { id: f.id, round: f.round_id.unwrap_or(0), challenge: f.challenge_id, team: f.team_id, flag: f.flag_value, status: f.status }).collect();
                 println!("{}", Table::new(rows));
             }
         },

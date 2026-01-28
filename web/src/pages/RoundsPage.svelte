@@ -1,7 +1,8 @@
 <script>
   import { AnsiUp } from 'ansi_up';
+  import { api } from '../api.js';
 
-  let { rounds, jobs, teams, challenges, exploits, exploitRuns, selectedRoundId, onSelectRound, onNewRound, onRunRound } = $props();
+  let { rounds, jobs, teams, challenges, exploits, exploitRuns, selectedRoundId, onSelectRound, onNewRound, onRunRound, onRefresh } = $props();
 
   const ansi_up = new AnsiUp();
   function renderAnsi(text) {
@@ -9,6 +10,7 @@
   }
 
   let selectedJob = $state(null);
+  let draggingJob = $state(null);
 
   function getTeamName(teamId) {
     const t = teams.find((t) => t.id === teamId);
@@ -40,6 +42,40 @@
   function onOverlayKeydown(e) {
     if (e.key === 'Escape') closeModal();
   }
+
+  function sortedJobs() {
+    return [...jobs].sort((a, b) => b.priority - a.priority || a.id - b.id);
+  }
+
+  function onDragStart(e, job) {
+    if (job.status !== 'pending') { e.preventDefault(); return; }
+    draggingJob = job;
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  async function onDrop(e, targetJob) {
+    e.preventDefault();
+    if (!draggingJob || draggingJob.id === targetJob.id) return;
+    if (draggingJob.status !== 'pending' || targetJob.status !== 'pending') return;
+
+    const sorted = sortedJobs().filter(j => j.status === 'pending');
+    const fromIdx = sorted.findIndex(j => j.id === draggingJob.id);
+    const toIdx = sorted.findIndex(j => j.id === targetJob.id);
+    const reordered = [...sorted];
+    reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, draggingJob);
+
+    const maxPrio = Math.max(...reordered.map(j => j.priority), 0);
+    const updates = reordered.map((j, i) => ({ id: j.id, priority: maxPrio - i }));
+    await api.reorderJobs(updates);
+    draggingJob = null;
+    onRefresh?.();
+  }
+
+  async function runJob(job, e) {
+    e.stopPropagation();
+    await api.runExistingJob(job.id);
+  }
 </script>
 
 <div class="rounds-panel">
@@ -69,11 +105,23 @@
           <th>Priority</th>
           <th>Status</th>
           <th>Duration</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
-        {#each [...jobs].sort((a, b) => b.priority - a.priority || a.id - b.id) as j}
-          <tr class={j.status} onclick={() => (selectedJob = j)} style="cursor:pointer">
+        {#each sortedJobs() as j}
+          <tr 
+            class={j.status} 
+            class:draggable={j.status === 'pending'}
+            class:dragging={draggingJob?.id === j.id}
+            draggable={j.status === 'pending'}
+            ondragstart={(e) => onDragStart(e, j)}
+            ondragover={(e) => e.preventDefault()}
+            ondrop={(e) => onDrop(e, j)}
+            ondragend={() => draggingJob = null}
+            onclick={() => (selectedJob = j)} 
+            style="cursor:pointer"
+          >
             <td>{j.id}</td>
             <td>{getChallengeName(getExploitRunInfo(j.exploit_run_id)?.challenge_id)}</td>
             <td>{getExploitName(getExploitRunInfo(j.exploit_run_id)?.exploit_id)}</td>
@@ -82,6 +130,7 @@
             <td>{j.priority}</td>
             <td>{j.status === 'flag' ? '🚩 FLAG' : j.status}</td>
             <td>{j.duration_ms ? `${j.duration_ms}ms` : '-'}</td>
+            <td><button class="play-btn" onclick={(e) => runJob(j, e)} title="Run now">▶</button></td>
           </tr>
         {/each}
       </tbody>
@@ -121,3 +170,10 @@
     </div>
   </div>
 {/if}
+
+<style>
+  .draggable { cursor: grab; }
+  .dragging { opacity: 0.4; background: #333; }
+  .play-btn { background: transparent; border: none; cursor: pointer; font-size: 0.9rem; padding: 0.2rem 0.4rem; opacity: 0.6; }
+  .play-btn:hover { opacity: 1; }
+</style>

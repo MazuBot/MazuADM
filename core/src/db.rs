@@ -212,6 +212,10 @@ impl Database {
         Ok(sqlx::query_as!(Round, "SELECT * FROM rounds ORDER BY id DESC").fetch_all(&self.pool).await?)
     }
 
+    pub async fn get_active_rounds(&self) -> Result<Vec<Round>> {
+        Ok(sqlx::query_as!(Round, "SELECT * FROM rounds WHERE status IN ('pending', 'running') ORDER BY id").fetch_all(&self.pool).await?)
+    }
+
     pub async fn clean_rounds(&self) -> Result<()> {
         sqlx::query!("TRUNCATE flags, exploit_jobs, rounds RESTART IDENTITY CASCADE").execute(&self.pool).await?;
         Ok(())
@@ -222,6 +226,13 @@ impl Database {
         Ok(sqlx::query_as!(ExploitJob,
             "INSERT INTO exploit_jobs (round_id, exploit_run_id, team_id, priority) VALUES ($1, $2, $3, $4) RETURNING *",
             round_id, exploit_run_id, team_id, priority
+        ).fetch_one(&self.pool).await?)
+    }
+
+    pub async fn create_adhoc_job(&self, exploit_run_id: i32, team_id: i32) -> Result<ExploitJob> {
+        Ok(sqlx::query_as!(ExploitJob,
+            "INSERT INTO exploit_jobs (round_id, exploit_run_id, team_id, priority) VALUES (NULL, $1, $2, 0) RETURNING *",
+            exploit_run_id, team_id
         ).fetch_one(&self.pool).await?)
     }
 
@@ -267,11 +278,25 @@ impl Database {
         Ok(())
     }
 
+    pub async fn reorder_jobs(&self, items: &[(i32, i32)]) -> Result<()> {
+        for (id, priority) in items {
+            sqlx::query!("UPDATE exploit_jobs SET priority = $2 WHERE id = $1 AND status = 'pending'", id, priority).execute(&self.pool).await?;
+        }
+        Ok(())
+    }
+
     // Flags
     pub async fn create_flag(&self, job_id: i32, round_id: i32, challenge_id: i32, team_id: i32, flag_value: &str) -> Result<Flag> {
         Ok(sqlx::query_as!(Flag,
             "INSERT INTO flags (job_id, round_id, challenge_id, team_id, flag_value) VALUES ($1, $2, $3, $4, $5) RETURNING *",
             job_id, round_id, challenge_id, team_id, flag_value
+        ).fetch_one(&self.pool).await?)
+    }
+
+    pub async fn create_adhoc_flag(&self, job_id: i32, challenge_id: i32, team_id: i32, flag_value: &str) -> Result<Flag> {
+        Ok(sqlx::query_as!(Flag,
+            "INSERT INTO flags (job_id, round_id, challenge_id, team_id, flag_value) VALUES ($1, NULL, $2, $3, $4) RETURNING *",
+            job_id, challenge_id, team_id, flag_value
         ).fetch_one(&self.pool).await?)
     }
 

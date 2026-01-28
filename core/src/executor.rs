@@ -265,10 +265,7 @@ impl Executor {
             let _ = handle.await;
         }
         
-        self.db.finish_round(round_id).await?;
-        if let Ok(round) = self.db.get_round(round_id).await {
-            broadcast(&self.tx, "round_updated", &round);
-        }
+        // Don't finish round here - keep it running until next round starts
         Ok(())
     }
 }

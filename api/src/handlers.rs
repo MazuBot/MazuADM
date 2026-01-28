@@ -119,6 +119,7 @@ pub async fn list_exploits(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<Exp
 
 pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Exploit> {
     let auto_add = e.auto_add.clone();
+    let insert_into_rounds = e.insert_into_rounds;
     let exploit = s.db.create_exploit(e).await.map_err(err)?;
     
     if let Some(mode) = auto_add {
@@ -139,6 +140,21 @@ pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Expl
                     sequence: Some(seq),
                 }).await {
                     broadcast(&s, "exploit_run_created", &run);
+                }
+            }
+        }
+    }
+
+    // Insert jobs into active rounds if requested
+    if insert_into_rounds.unwrap_or(false) {
+        if let Ok(rounds) = s.db.get_active_rounds().await {
+            let runs = s.db.list_exploit_runs(Some(exploit.challenge_id), None).await.unwrap_or_default();
+            let exploit_runs: Vec<_> = runs.iter().filter(|r| r.exploit_id == exploit.id).collect();
+            for round in rounds {
+                for run in &exploit_runs {
+                    if let Ok(job) = s.db.create_job(round.id, run.id, run.team_id, 0).await {
+                        broadcast(&s, "job_created", &job);
+                    }
                 }
             }
         }
@@ -234,6 +250,18 @@ pub async fn create_round(State(s): S) -> R<i32> {
 }
 
 pub async fn run_round(State(s): S, Path(id): Path<i32>) -> R<String> {
+    // Finish any currently running rounds before starting new one
+    if let Ok(rounds) = s.db.get_active_rounds().await {
+        for round in rounds {
+            if round.status == "running" && round.id != id {
+                let _ = s.db.finish_round(round.id).await;
+                if let Ok(r) = s.db.get_round(round.id).await {
+                    broadcast(&s, "round_updated", &r);
+                }
+            }
+        }
+    }
+    
     let tx = s.tx.clone();
     let executor = Executor::new(s.db.clone(), tx).map_err(err)?;
     tokio::spawn(async move { executor.run_round(id).await });
@@ -244,6 +272,105 @@ pub async fn run_round(State(s): S, Path(id): Path<i32>) -> R<String> {
 pub async fn list_jobs(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<ExploitJob>> {
     let round_id = q.round_id.unwrap_or(0);
     s.db.list_jobs(round_id).await.map(Json).map_err(err)
+}
+
+#[derive(Deserialize, serde::Serialize)]
+pub struct ReorderJobItem {
+    pub id: i32,
+    pub priority: i32,
+}
+
+pub async fn reorder_jobs(State(s): S, Json(items): Json<Vec<ReorderJobItem>>) -> R<String> {
+    s.db.reorder_jobs(&items.iter().map(|i| (i.id, i.priority)).collect::<Vec<_>>()).await.map_err(err)?;
+    for item in &items {
+        if let Ok(job) = s.db.get_job(item.id).await {
+            broadcast(&s, "job_updated", &job);
+        }
+    }
+    Ok(Json("ok".to_string()))
+}
+
+#[derive(Deserialize)]
+pub struct RunSingleJobRequest {
+    pub exploit_run_id: i32,
+    pub team_id: i32,
+}
+
+pub async fn run_single_job(State(s): S, Json(req): Json<RunSingleJobRequest>) -> R<ExploitJob> {
+    let run = s.db.get_exploit_run(req.exploit_run_id).await.map_err(err)?;
+    
+    // Find current running round, or create ad-hoc job if none
+    let job = if let Ok(rounds) = s.db.get_active_rounds().await {
+        if let Some(round) = rounds.iter().find(|r| r.status == "running") {
+            s.db.create_job(round.id, run.id, req.team_id, 0).await.map_err(err)?
+        } else {
+            s.db.create_adhoc_job(run.id, req.team_id).await.map_err(err)?
+        }
+    } else {
+        s.db.create_adhoc_job(run.id, req.team_id).await.map_err(err)?
+    };
+    broadcast(&s, "job_created", &job);
+    
+    run_job_internal(s.db.clone(), s.tx.clone(), job.id, req.exploit_run_id, req.team_id).await;
+    
+    Ok(Json(job))
+}
+
+pub async fn run_existing_job(State(s): S, Path(job_id): Path<i32>) -> R<ExploitJob> {
+    let job = s.db.get_job(job_id).await.map_err(err)?;
+    let exploit_run_id = job.exploit_run_id.ok_or("Job has no exploit_run_id".to_string())?;
+    
+    // Reset job status to pending
+    s.db.update_job_status(job_id, "pending", false).await.map_err(err)?;
+    let job = s.db.get_job(job_id).await.map_err(err)?;
+    broadcast(&s, "job_updated", &job);
+    
+    run_job_internal(s.db.clone(), s.tx.clone(), job_id, exploit_run_id, job.team_id).await;
+    
+    Ok(Json(job))
+}
+
+async fn run_job_internal(db: Database, tx: tokio::sync::broadcast::Sender<WsMessage>, job_id: i32, exploit_run_id: i32, team_id: i32) {
+    tokio::spawn(async move {
+        let executor = match Executor::new(db.clone(), tx.clone()) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        let run: ExploitRun = match sqlx::query_as("SELECT * FROM exploit_runs WHERE id = $1")
+            .bind(exploit_run_id).fetch_one(&db.pool).await {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        let exploit = match db.get_exploit(run.exploit_id).await { Ok(e) => e, Err(_) => return };
+        let challenge = match db.get_challenge(run.challenge_id).await { Ok(c) => c, Err(_) => return };
+        let team = match db.get_team(team_id).await { Ok(t) => t, Err(_) => return };
+        let relations = match db.list_relations(challenge.id).await { Ok(r) => r, Err(_) => return };
+        let rel = relations.iter().find(|r| r.team_id == team.id);
+        let conn = match rel.and_then(|r| r.connection_info(&challenge, &team)) {
+            Some(c) => c,
+            None => return,
+        };
+        let job = match db.get_job(job_id).await { Ok(j) => j, Err(_) => return };
+        let round_id = job.round_id;
+        let timeout = if exploit.timeout_secs > 0 { exploit.timeout_secs as u64 } else { 60 };
+        match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), timeout, 50).await {
+            Ok(result) => {
+                for flag in result.flags {
+                    let f = if let Some(rid) = round_id {
+                        db.create_flag(job_id, rid, challenge.id, team.id, &flag).await
+                    } else {
+                        db.create_adhoc_flag(job_id, challenge.id, team.id, &flag).await
+                    };
+                    if let Ok(f) = f {
+                        let _ = tx.send(WsMessage::new("flag_created", &f));
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = db.finish_job(job_id, "error", None, Some(&e.to_string()), 0).await;
+            }
+        }
+    });
 }
 
 // Flags

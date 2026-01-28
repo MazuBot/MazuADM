@@ -4,7 +4,7 @@
   let { teams, exploits, exploitRuns, challengeId, onRefresh } = $props();
 
   let showAddExploit = $state(false);
-  let newExploit = $state({ name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, timeout_secs: 0, auto_add: 'none' });
+  let newExploit = $state({ name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, timeout_secs: 0, auto_add: 'none', insert_into_rounds: false });
 
   let editingRun = $state(null);
   let editForm = $state({ priority: '', sequence: 0, enabled: true });
@@ -18,6 +18,11 @@
   let draggingCard = $state(null);
 
   let filteredExploits = $derived(exploits.filter(e => e.challenge_id === challengeId));
+
+  async function runNow(run, e) {
+    e.stopPropagation();
+    await api.runSingleJob(run.id, run.team_id);
+  }
 
   function getRunsForTeam(teamId) {
     return exploitRuns
@@ -47,10 +52,11 @@
       max_per_container: newExploit.max_per_container,
       default_counter: newExploit.default_counter,
       timeout_secs: newExploit.timeout_secs || 0,
-      auto_add: newExploit.auto_add
+      auto_add: newExploit.auto_add,
+      insert_into_rounds: newExploit.insert_into_rounds
     });
     showAddExploit = false;
-    newExploit = { name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, timeout_secs: 0, auto_add: 'none' };
+    newExploit = { name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, timeout_secs: 0, auto_add: 'none', insert_into_rounds: false };
     onRefresh();
   }
 
@@ -193,6 +199,7 @@
               <span class="card-seq">{idx + 1}</span>
               <span class="card-name">{getExploitName(run.exploit_id)}</span>
               <span class="card-priority">{run.priority ?? 'auto'}</span>
+              <span class="card-play" onclick={(e) => runNow(run, e)} title="Run now">▶</span>
             </div>
           {/each}
         </div>
@@ -219,6 +226,7 @@
           <option value="end">Add to end of each team</option>
         </select>
       </label>
+      <label class="checkbox"><input type="checkbox" bind:checked={newExploit.insert_into_rounds} /> Insert jobs into active rounds</label>
       <div class="modal-actions">
         <button onclick={() => showAddExploit = false}>Cancel</button>
         <button onclick={addExploit}>Add</button>
@@ -309,6 +317,8 @@
   .card-seq { background: #333; color: #888; font-size: 0.75rem; padding: 0.1rem 0.4rem; border-radius: 3px; }
   .card-name { font-weight: 500; flex: 1; }
   .card-priority { color: #888; font-size: 0.8rem; }
+  .card-play { cursor: pointer; opacity: 0.5; font-size: 0.7rem; margin-left: auto; }
+  .card-play:hover { opacity: 1; }
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 100; }
   .modal { background: #252540; padding: 1.5rem; border-radius: 8px; min-width: 320px; }
   .modal h3 { margin-top: 0; }
