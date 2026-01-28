@@ -20,6 +20,14 @@
       />
     </div>
     <div class="setting-row">
+      <label for="setting_concurrent_create_limit">concurrent_create_limit</label>
+      <input
+        id="setting_concurrent_create_limit"
+        value={getSetting('concurrent_create_limit', '1')}
+        onchange={(e) => api.updateSetting('concurrent_create_limit', e.target.value).then(onRefresh)}
+      />
+    </div>
+    <div class="setting-row">
       <label for="setting_worker_timeout">worker_timeout</label>
       <input
         id="setting_worker_timeout"

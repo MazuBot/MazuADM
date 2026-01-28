@@ -51,34 +51,41 @@
       <h3>{getChallengeName(challenges, exploit.challenge_id)} / {exploit.name}</h3>
       <table class="containers-table">
         <colgroup>
-          <col style="width: 8%" />
           <col style="width: 18%" />
           <col style="width: 12%" />
           <col style="width: 10%" />
-          <col style="width: 32%" />
+          <col style="width: 10%" />
+          <col style="width: 30%" />
           <col style="width: 20%" />
         </colgroup>
         <thead>
           <tr>
-            <th>ID</th>
             <th>Container</th>
             <th>Status</th>
             <th>Counter</th>
-            <th>Runners</th>
+            <th>Execs</th>
+            <th>Jobs</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {#each expContainers as c}
             <tr class={c.status === 'running' ? '' : 'error'}>
-              <td>{c.id}</td>
-              <td><code>{c.container_id.slice(0, 12)}</code></td>
+              <td><code>{c.id.slice(0, 12)}</code></td>
               <td>{c.status}</td>
               <td>{c.counter}</td>
+              <td>{c.running_execs}/{c.max_execs}</td>
               <td class="runners-cell">
                 {#if containerRunners[c.id]}
                   {#each containerRunners[c.id] as r}
-                    <div>{getExploitRunName(exploitRuns, exploits, r.exploit_run_id)} → <span class="truncate">{getTeamDisplay(teams, r.team_id)}</span></div>
+                    <div>
+                      {#if r.exploit_run_id}
+                        {getExploitRunName(exploitRuns, exploits, r.exploit_run_id)}
+                      {:else}
+                        Ad-hoc
+                      {/if}
+                      → <span class="truncate">{getTeamDisplay(teams, r.team_id)}</span> ({r.status})
+                    </div>
                   {/each}
                 {:else}
                   <button onclick={() => onLoadRunners(c.id)}>Load</button>
