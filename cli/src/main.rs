@@ -180,14 +180,14 @@ enum RelationCmd {
 #[derive(Tabled)] struct ChallengeRow { id: i32, name: String, enabled: bool, port: String, priority: i32 }
 #[derive(Tabled)] struct TeamRow { id: i32, team_id: String, name: String, enabled: bool, ip: String, priority: i32 }
 #[derive(Tabled)] struct ExploitRow { id: i32, name: String, enabled: bool, challenge: i32, image: String, priority: i32 }
-#[derive(Tabled)] struct RunRow { id: i32, exploit: i32, challenge: i32, team: i32, priority: String, seq: i32 }
+#[derive(Tabled)] struct RunRow { id: i32, exploit: i32, challenge: i32, team: String, priority: String, seq: i32 }
 #[derive(Tabled)] struct RoundRow { id: i32, status: String, started: String }
-#[derive(Tabled)] struct JobRow { id: i32, run: String, team: i32, priority: i32, status: String }
-#[derive(Tabled)] struct FlagRow { id: i32, round: String, challenge: i32, team: i32, flag: String, status: String }
+#[derive(Tabled)] struct JobRow { id: i32, run: String, team: String, priority: i32, status: String }
+#[derive(Tabled)] struct FlagRow { id: i32, round: String, challenge: i32, team: String, flag: String, status: String }
 #[derive(Tabled)] struct SettingRow { key: String, value: String }
 #[derive(Tabled)] struct ContainerRow { id: i32, container_id: String, exploit: i32, status: String, counter: i32 }
-#[derive(Tabled)] struct RunnerRow { id: i32, container: i32, run: i32, team: i32 }
-#[derive(Tabled)] struct RelationRow { challenge: i32, team: i32, addr: String, port: String }
+#[derive(Tabled)] struct RunnerRow { id: i32, container: i32, run: i32, team: String }
+#[derive(Tabled)] struct RelationRow { challenge: i32, team: String, addr: String, port: String }
 
 fn normalize_name(value: Option<String>) -> Option<String> {
     value.and_then(|v| {
@@ -240,6 +240,19 @@ async fn resolve_team_ref(db: &Database, team_ref: &str) -> Result<Team> {
         return db.get_team(id).await;
     }
     Err(anyhow::anyhow!("team not found: {}", team_ref))
+}
+
+async fn load_team_map(db: &Database) -> Result<std::collections::HashMap<i32, String>> {
+    Ok(db
+        .list_teams()
+        .await?
+        .into_iter()
+        .map(|t| (t.id, t.team_id))
+        .collect())
+}
+
+fn team_label(map: &std::collections::HashMap<i32, String>, id: i32) -> String {
+    map.get(&id).cloned().unwrap_or_else(|| id.to_string())
 }
 
 fn cwd_basename() -> Result<String> {
@@ -556,7 +569,8 @@ async fn main() -> Result<()> {
                     Some(team_ref) => Some(resolve_team_ref(&db, &team_ref).await?.id),
                     None => None,
                 };
-                let rows: Vec<_> = db.list_exploit_runs(challenge, team).await?.into_iter().map(|r| RunRow { id: r.id, exploit: r.exploit_id, challenge: r.challenge_id, team: r.team_id, priority: r.priority.map(|p| p.to_string()).unwrap_or("-".into()), seq: r.sequence }).collect();
+                let team_map = load_team_map(&db).await?;
+                let rows: Vec<_> = db.list_exploit_runs(challenge, team).await?.into_iter().map(|r| RunRow { id: r.id, exploit: r.exploit_id, challenge: r.challenge_id, team: team_label(&team_map, r.team_id), priority: r.priority.map(|p| p.to_string()).unwrap_or("-".into()), seq: r.sequence }).collect();
                 println!("{}", Table::new(rows));
             }
             RunCmd::Update { id, priority, sequence } => {
@@ -588,7 +602,8 @@ async fn main() -> Result<()> {
         },
         Cmd::Job { cmd } => match cmd {
             JobCmd::List { round } => {
-                let rows: Vec<_> = db.list_jobs(round).await?.into_iter().map(|j| JobRow { id: j.id, run: j.exploit_run_id.map(|r| r.to_string()).unwrap_or("-".into()), team: j.team_id, priority: j.priority, status: j.status }).collect();
+                let team_map = load_team_map(&db).await?;
+                let rows: Vec<_> = db.list_jobs(round).await?.into_iter().map(|j| JobRow { id: j.id, run: j.exploit_run_id.map(|r| r.to_string()).unwrap_or("-".into()), team: team_label(&team_map, j.team_id), priority: j.priority, status: j.status }).collect();
                 println!("{}", Table::new(rows));
             }
             JobCmd::Run { id } => {
@@ -617,7 +632,8 @@ async fn main() -> Result<()> {
         },
         Cmd::Flag { cmd } => match cmd {
             FlagCmd::List { round } => {
-                let rows: Vec<_> = db.list_flags(round).await?.into_iter().map(|f| FlagRow { id: f.id, round: f.round_id.map(|r| r.to_string()).unwrap_or("-".into()), challenge: f.challenge_id, team: f.team_id, flag: f.flag_value, status: f.status }).collect();
+                let team_map = load_team_map(&db).await?;
+                let rows: Vec<_> = db.list_flags(round).await?.into_iter().map(|f| FlagRow { id: f.id, round: f.round_id.map(|r| r.to_string()).unwrap_or("-".into()), challenge: f.challenge_id, team: team_label(&team_map, f.team_id), flag: f.flag_value, status: f.status }).collect();
                 println!("{}", Table::new(rows));
             }
         },
@@ -637,7 +653,8 @@ async fn main() -> Result<()> {
                 println!("{}", Table::new(rows));
             }
             ContainerCmd::Runners { id } => {
-                let rows: Vec<_> = db.get_runners_for_container(id).await?.into_iter().map(|r| RunnerRow { id: r.id, container: r.exploit_container_id, run: r.exploit_run_id, team: r.team_id }).collect();
+                let team_map = load_team_map(&db).await?;
+                let rows: Vec<_> = db.get_runners_for_container(id).await?.into_iter().map(|r| RunnerRow { id: r.id, container: r.exploit_container_id, run: r.exploit_run_id, team: team_label(&team_map, r.team_id) }).collect();
                 println!("{}", Table::new(rows));
             }
             ContainerCmd::Delete { id } => {
@@ -651,13 +668,14 @@ async fn main() -> Result<()> {
         },
         Cmd::Relation { cmd } => match cmd {
             RelationCmd::List { challenge } => {
-                let rows: Vec<_> = db.list_relations(challenge).await?.into_iter().map(|r| RelationRow { challenge: r.challenge_id, team: r.team_id, addr: r.addr.unwrap_or_default(), port: r.port.map(|p| p.to_string()).unwrap_or_default() }).collect();
+                let team_map = load_team_map(&db).await?;
+                let rows: Vec<_> = db.list_relations(challenge).await?.into_iter().map(|r| RelationRow { challenge: r.challenge_id, team: team_label(&team_map, r.team_id), addr: r.addr.unwrap_or_default(), port: r.port.map(|p| p.to_string()).unwrap_or_default() }).collect();
                 println!("{}", Table::new(rows));
             }
             RelationCmd::Get { challenge, team } => {
                 let team = resolve_team_ref(&db, &team).await?;
                 if let Some(r) = db.get_relation(challenge, team.id).await? {
-                    println!("Challenge: {}, Team: {}, Addr: {}, Port: {}", r.challenge_id, r.team_id, r.addr.unwrap_or_default(), r.port.map(|p| p.to_string()).unwrap_or_default());
+                    println!("Challenge: {}, Team: {}, Addr: {}, Port: {}", r.challenge_id, team.team_id, r.addr.unwrap_or_default(), r.port.map(|p| p.to_string()).unwrap_or_default());
                 } else { println!("Relation not found"); }
             }
             RelationCmd::Update { challenge, team, ip, port } => {
