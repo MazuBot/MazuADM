@@ -3,6 +3,7 @@
 
   let challengeFilterId = $state('');
   let teamFilterId = $state('');
+  let statusFilter = $state('');
 
   function getTeamName(teamId) {
     const t = teams.find((t) => t.id === teamId);
@@ -18,6 +19,7 @@
     const teamId = teamFilterId ? Number(teamFilterId) : null;
     const challengeId = challengeFilterId ? Number(challengeFilterId) : null;
     return flags.filter((flag) => {
+      if (statusFilter && flag.status !== statusFilter) return false;
       if (teamId && Number(flag.team_id) !== teamId) return false;
       if (challengeId && Number(flag.challenge_id) !== challengeId) return false;
       return true;
@@ -25,6 +27,7 @@
   }
 
   let filteredFlags = $derived(filterFlags());
+  let availableStatuses = $derived([...new Set((flags ?? []).map((flag) => flag.status).filter(Boolean))].sort());
 </script>
 
 <div class="controls">
@@ -49,14 +52,21 @@
       <option value={t.id}>{t.team_name}</option>
     {/each}
   </select>
+  <select bind:value={statusFilter}>
+    <option value="">All statuses</option>
+    {#each availableStatuses as status}
+      <option value={status}>{status}</option>
+    {/each}
+  </select>
   <button
     class="small"
     type="button"
     onclick={() => {
       challengeFilterId = '';
       teamFilterId = '';
+      statusFilter = '';
     }}
-    disabled={!challengeFilterId && !teamFilterId}
+    disabled={!challengeFilterId && !teamFilterId && !statusFilter}
   >
     Reset Filters
   </button>

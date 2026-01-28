@@ -13,6 +13,7 @@
   let draggingJob = $state(null);
   let challengeFilterId = $state('');
   let teamFilterId = $state('');
+  let statusFilter = $state('');
 
   function getSelectedRound() {
     return rounds.find(r => r.id === selectedRoundId);
@@ -69,6 +70,7 @@
     const teamId = teamFilterId ? Number(teamFilterId) : null;
     const challengeId = challengeFilterId ? Number(challengeFilterId) : null;
     return jobs.filter((job) => {
+      if (statusFilter && job.status !== statusFilter) return false;
       if (teamId && Number(job.team_id) !== teamId) return false;
       if (challengeId) {
         const run = getExploitRunInfo(job.exploit_run_id);
@@ -78,7 +80,12 @@
     });
   }
 
+  function statusOptions() {
+    return [...new Set((jobs ?? []).map((job) => job.status).filter(Boolean))].sort();
+  }
+
   let filteredJobs = $derived(filterJobs());
+  let availableStatuses = $derived(statusOptions());
 
   function onDragStart(e, job) {
     if (job.status !== 'pending') { e.preventDefault(); return; }
@@ -136,14 +143,21 @@
         <option value={t.id}>{t.team_name}</option>
       {/each}
     </select>
+    <select bind:value={statusFilter}>
+      <option value="">All statuses</option>
+      {#each availableStatuses as status}
+        <option value={status}>{status}</option>
+      {/each}
+    </select>
     <button
       class="small"
       type="button"
       onclick={() => {
         challengeFilterId = '';
         teamFilterId = '';
+        statusFilter = '';
       }}
-      disabled={!challengeFilterId && !teamFilterId}
+      disabled={!challengeFilterId && !teamFilterId && !statusFilter}
     >
       Reset Filters
     </button>
