@@ -152,11 +152,11 @@ impl Database {
 
     pub async fn list_exploits(&self, challenge_id: Option<i32>) -> Result<Vec<Exploit>> {
         match challenge_id {
-            Some(cid) => Ok(sqlx::query_as::<_, Exploit>("SELECT * FROM exploits WHERE challenge_id = $1 ORDER BY priority DESC")
+            Some(cid) => Ok(sqlx::query_as::<_, Exploit>("SELECT * FROM exploits WHERE challenge_id = $1 ORDER BY priority DESC, id DESC")
                 .bind(cid)
                 .fetch_all(&self.pool)
                 .await?),
-            None => Ok(sqlx::query_as::<_, Exploit>("SELECT * FROM exploits ORDER BY priority DESC")
+            None => Ok(sqlx::query_as::<_, Exploit>("SELECT * FROM exploits ORDER BY priority DESC, id DESC")
                 .fetch_all(&self.pool)
                 .await?),
         }
@@ -178,7 +178,7 @@ impl Database {
     }
 
     pub async fn list_enabled_exploits(&self) -> Result<Vec<Exploit>> {
-        Ok(sqlx::query_as::<_, Exploit>("SELECT * FROM exploits WHERE enabled = true ORDER BY priority DESC")
+        Ok(sqlx::query_as::<_, Exploit>("SELECT * FROM exploits WHERE enabled = true ORDER BY priority DESC, id DESC")
             .fetch_all(&self.pool)
             .await?)
     }
