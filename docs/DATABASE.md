@@ -56,8 +56,8 @@ Docker-based exploit definitions.
 | entrypoint | VARCHAR(512) | YES | Custom entrypoint |
 | timeout_secs | INTEGER | NO | Container timeout (default: 30) |
 | max_per_container | INTEGER | NO | Max runners per container (default: 1) |
+| max_containers | INTEGER | NO | Max active containers for exploit (default: 0 = unlimited) |
 | default_counter | INTEGER | NO | Container lifetime (default: 999) |
-| auto_add | BOOLEAN | NO | Auto-add runs for all teams (default: false) |
 | created_at | TIMESTAMPTZ | NO | Creation timestamp |
 
 ### exploit_runs
@@ -119,7 +119,7 @@ Individual exploit executions within a round.
 | exploit_run_id | INTEGER | YES | FK → exploit_runs (SET NULL) |
 | team_id | INTEGER | NO | FK → teams (CASCADE) |
 | priority | INTEGER | NO | Computed priority |
-| status | VARCHAR(50) | NO | pending/running/success/failed/timeout/ole/error/skipped/flag |
+| status | VARCHAR(50) | NO | pending/running/success/failed/timeout/ole/error/skipped/flag/stopped |
 | container_id | VARCHAR(100) | YES | Docker container ID used |
 | stdout | TEXT | YES | Container stdout |
 | stderr | TEXT | YES | Container stderr |
@@ -154,7 +154,7 @@ Runtime configuration key-value store.
 Known settings:
 - `concurrent_limit` - Max parallel container executions (default: 10)
 - `worker_timeout` - Container timeout override in seconds (default: 60)
-- `max_flags` - Max flags to extract per job (default: 50)
+- `max_flags_per_job` - Max flags to extract per job (default: 50)
 - `sequential_per_target` - Run one job per target at a time (default: false)
 - `skip_on_flag` - Skip remaining jobs for target after flag (default: false)
 
@@ -204,12 +204,13 @@ challenges ─┬─< challenge_team_relations >─┬─ teams
 
 ## Container Lifecycle
 
-1. When an exploit is created/enabled, containers are pre-warmed
-2. Each container has a `counter` (default 999) that decrements on each use
+1. Containers are pre-warmed when a round is created
+2. Each container has a `counter` (default 999) that decrements on assignment
 3. Runners (exploit_run + team) are pinned to containers
-4. When counter reaches 0, container is destroyed and runners reassigned
+4. When counter reaches 0 and no running jobs remain, the container is destroyed
 5. Dead containers are auto-detected and recreated with runners reassigned
-6. Containers stay running between rounds
+6. `max_containers` caps active containers per exploit (0 = unlimited)
+7. Containers stay running between rounds
 
 ## Ad-hoc Jobs
 

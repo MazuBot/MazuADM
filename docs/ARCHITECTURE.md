@@ -89,7 +89,8 @@ priority = challenge_priority + team_priority * 100 - sequence * 10000
 ```rust
 pub struct Executor {
     db: Database,
-    docker: Docker,  // bollard client
+    container_manager: ContainerManager,
+    tx: broadcast::Sender<WsMessage>,
 }
 
 pub struct JobResult {
@@ -106,10 +107,13 @@ pub struct JobResult {
 | `execute_job(job, exploit, conn)` | Run single container, capture output |
 | `extract_flags(output, pattern)` | Extract flags using regex |
 | `run_round(round_id)` | Execute all pending jobs in priority order |
+| `run_job_immediately(job_id)` | Execute an ad-hoc job immediately |
+| `stop_job(job_id, reason)` | Stop a running job (kills exec PID only) |
 
 Container environment:
 - `TARGET_HOST` - Target IP
 - `TARGET_PORT` - Target port
+- `TARGET_TEAM_ID` - Target team ID
 
 ---
 
@@ -120,6 +124,8 @@ Container environment:
 ```rust
 pub struct AppState {
     pub db: Database,
+    pub tx: broadcast::Sender<WsMessage>,
+    pub executor: Executor,
 }
 ```
 
@@ -134,15 +140,43 @@ pub struct AppState {
 | `/api/teams` | POST | `create_team` |
 | `/api/exploits` | GET | `list_exploits` |
 | `/api/exploits` | POST | `create_exploit` |
+| `/api/exploits/{id}` | PUT | `update_exploit` |
+| `/api/exploits/{id}` | DELETE | `delete_exploit` |
 | `/api/exploit-runs` | GET | `list_exploit_runs` |
 | `/api/exploit-runs` | POST | `create_exploit_run` |
+| `/api/exploit-runs/reorder` | POST | `reorder_exploit_runs` |
+| `/api/exploit-runs/{id}` | PUT | `update_exploit_run` |
+| `/api/exploit-runs/{id}` | DELETE | `delete_exploit_run` |
 | `/api/rounds` | GET | `list_rounds` |
 | `/api/rounds` | POST | `create_round` |
 | `/api/rounds/{id}/run` | POST | `run_round` |
+| `/api/rounds/{id}/rerun` | POST | `rerun_round` |
 | `/api/jobs` | GET | `list_jobs` |
+| `/api/jobs/reorder` | POST | `reorder_jobs` |
+| `/api/jobs/run` | POST | `run_single_job` |
+| `/api/jobs/{id}/run` | POST | `run_existing_job` |
+| `/api/jobs/{id}/stop` | POST | `stop_job` |
 | `/api/flags` | GET | `list_flags` |
+| `/api/settings` | GET | `list_settings` |
+| `/api/settings` | POST | `update_setting` |
+| `/api/containers` | GET | `list_containers` |
+| `/api/containers/{id}` | DELETE | `delete_container` |
+| `/api/containers/{id}/runners` | GET | `get_container_runners` |
+| `/api/containers/{id}/restart` | POST | `restart_container` |
+| `/api/relations/{challenge_id}` | GET | `list_relations` |
+| `/api/relations/{challenge_id}/{team_id}` | GET/PUT | `get_relation` / `update_relation` |
 
 Query parameters: `challenge_id`, `team_id`, `round_id`
+
+---
+
+## Container Lifecycle (Current)
+
+1. Containers are pre-warmed when a round is created.
+2. Each container has a `counter` that decrements on assignment.
+3. Runners (exploit_run + team) are pinned to containers.
+4. When `counter` reaches 0 and no jobs are running, the container is destroyed.
+5. `max_containers` caps active containers per exploit (0 = unlimited).
 
 ---
 

@@ -106,6 +106,7 @@ Create an exploit.
   "enabled": "boolean?",
   "priority": "int?",
   "max_per_container": "int?",
+  "max_containers": "int? (0 = unlimited)",
   "timeout_secs": "int?",
   "default_counter": "int?",
   "auto_add": "string? (start|end)",
@@ -127,6 +128,7 @@ Update an exploit.
   "enabled": "boolean?",
   "priority": "int?",
   "max_per_container": "int?",
+  "max_containers": "int? (0 = unlimited)",
   "timeout_secs": "int?",
   "default_counter": "int?"
 }
@@ -251,6 +253,8 @@ Stop a running job.
 
 **Response:** `ExploitJob`
 
+Stops the current exec process for that job (containers are not destroyed).
+
 ---
 
 ## Flags
@@ -370,6 +374,7 @@ Update a relation.
   "enabled": "boolean",
   "priority": "int",
   "max_per_container": "int",
+  "max_containers": "int",
   "docker_image": "string",
   "entrypoint": "string?",
   "timeout_secs": "int",
@@ -410,7 +415,7 @@ Update a relation.
   "exploit_run_id": "int?",
   "team_id": "int",
   "priority": "int",
-  "status": "string (pending|running|success|error|skipped)",
+  "status": "string (pending|running|success|failed|timeout|ole|error|skipped|flag|stopped)",
   "container_id": "string?",
   "stdout": "string?",
   "stderr": "string?",
