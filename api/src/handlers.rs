@@ -3,7 +3,7 @@ use crate::AppState;
 use axum::{extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade}}, Json, response::Response};
 use futures_util::StreamExt;
 use mazuadm_core::*;
-use mazuadm_core::settings::load_job_settings;
+use mazuadm_core::settings::{load_executor_settings, load_job_settings};
 use mazuadm_core::scheduler::Scheduler;
 use mazuadm_core::executor::Executor;
 use mazuadm_core::container_manager::ContainerManager;
@@ -301,6 +301,13 @@ pub async fn create_round(State(s): S) -> R<i32> {
     let round_id = scheduler.generate_round().await.map_err(err)?;
     let round = s.db.get_round(round_id).await.map_err(err)?;
     broadcast(&s, "round_created", &round);
+    let settings = load_executor_settings(&s.db).await;
+    let cm = s.executor.container_manager.clone();
+    tokio::spawn(async move {
+        if let Err(e) = cm.prewarm_for_round(settings.concurrent_limit).await {
+            tracing::error!("Prewarm failed: {}", e);
+        }
+    });
     Ok(Json(round_id))
 }
 

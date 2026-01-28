@@ -18,6 +18,27 @@ pub struct AppState {
     pub executor: Executor,
 }
 
+fn should_resume_running_round(pending_count: usize) -> bool {
+    pending_count > 0
+}
+
+async fn resume_running_round_if_needed(state: &AppState) -> Result<()> {
+    let rounds = state.db.get_active_rounds().await?;
+    let running_round_id = rounds.iter().find(|r| r.status == "running").map(|r| r.id);
+    if let Some(round_id) = running_round_id {
+        let pending = state.db.get_pending_jobs(round_id).await?;
+        if should_resume_running_round(pending.len()) {
+            let executor = state.executor.clone();
+            tokio::spawn(async move {
+                if let Err(e) = executor.run_round(round_id).await {
+                    tracing::error!("Round {} resume failed: {}", round_id, e);
+                }
+            });
+        }
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -44,6 +65,7 @@ async fn main() -> Result<()> {
     }
     
     let state = Arc::new(AppState { db, tx, executor });
+    resume_running_round_if_needed(state.as_ref()).await?;
 
     let app = routes::routes()
         .with_state(state)
@@ -58,4 +80,19 @@ async fn main() -> Result<()> {
     tracing::info!("Listening on {}", addr);
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_resume_running_round;
+
+    #[test]
+    fn should_resume_when_pending_jobs_exist() {
+        assert!(should_resume_running_round(1));
+    }
+
+    #[test]
+    fn should_not_resume_when_no_pending_jobs() {
+        assert!(!should_resume_running_round(0));
+    }
 }
