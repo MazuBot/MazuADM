@@ -63,13 +63,13 @@ enum TeamCmd {
     /// List all teams
     List,
     /// Update a team
-    Update { id: i32, #[arg(long)] team_id: Option<String>, #[arg(long)] name: Option<String>, #[arg(long)] ip: Option<String>, #[arg(long)] priority: Option<i32> },
+    Update { #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String, #[arg(long)] team_id: Option<String>, #[arg(long)] name: Option<String>, #[arg(long)] ip: Option<String>, #[arg(long)] priority: Option<i32> },
     /// Delete a team
-    Delete { id: i32 },
+    Delete { #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String },
     /// Enable a team
-    Enable { id: i32 },
+    Enable { #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String },
     /// Disable a team
-    Disable { id: i32 },
+    Disable { #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String },
 }
 
 #[derive(Subcommand)]
@@ -104,15 +104,15 @@ enum ExploitCmd {
     /// Disable an exploit
     Disable { name: String, #[arg(long)] challenge: Option<String> },
     /// Run exploit immediately against a team
-    Run { name: String, #[arg(long)] challenge: Option<String>, #[arg(long)] team: i32 },
+    Run { name: String, #[arg(long)] challenge: Option<String>, #[arg(long, value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String },
 }
 
 #[derive(Subcommand)]
 enum RunCmd {
     /// Add a new exploit run
-    Add { #[arg(long)] exploit: i32, #[arg(long)] challenge: i32, #[arg(long)] team: i32, #[arg(long)] priority: Option<i32>, #[arg(long)] sequence: Option<i32> },
+    Add { #[arg(long)] exploit: i32, #[arg(long)] challenge: i32, #[arg(long, value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String, #[arg(long)] priority: Option<i32>, #[arg(long)] sequence: Option<i32> },
     /// List exploit runs
-    List { #[arg(long)] challenge: Option<i32>, #[arg(long)] team: Option<i32> },
+    List { #[arg(long)] challenge: Option<i32>, #[arg(long, value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: Option<String> },
     /// Update an exploit run
     Update { id: i32, #[arg(long)] priority: Option<i32>, #[arg(long)] sequence: Option<i32> },
     /// Delete an exploit run
@@ -172,9 +172,9 @@ enum RelationCmd {
     /// List relations for a challenge
     List { challenge: i32 },
     /// Get a specific relation
-    Get { challenge: i32, team: i32 },
+    Get { challenge: i32, #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String },
     /// Update a relation
-    Update { challenge: i32, team: i32, #[arg(long)] ip: Option<String>, #[arg(long)] port: Option<i32> },
+    Update { challenge: i32, #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String, #[arg(long)] ip: Option<String>, #[arg(long)] port: Option<i32> },
 }
 
 #[derive(Tabled)] struct ChallengeRow { id: i32, name: String, enabled: bool, port: String, priority: i32 }
@@ -400,17 +400,24 @@ async fn main() -> Result<()> {
                 let rows: Vec<_> = db.list_teams().await?.into_iter().map(|t| TeamRow { id: t.id, team_id: t.team_id, name: t.team_name, enabled: t.enabled, ip: t.default_ip.unwrap_or_default(), priority: t.priority }).collect();
                 println!("{}", Table::new(rows));
             }
-            TeamCmd::Update { id, team_id, name, ip, priority } => {
+            TeamCmd::Update { team, team_id, name, ip, priority } => {
+                let id = team.parse::<i32>()?;
                 let t = db.get_team(id).await?;
                 db.update_team(id, CreateTeam { team_id: team_id.unwrap_or(t.team_id), team_name: name.unwrap_or(t.team_name), default_ip: ip.or(t.default_ip), priority: priority.or(Some(t.priority)), enabled: Some(t.enabled) }).await?;
                 println!("Updated team {}", id);
             }
-            TeamCmd::Delete { id } => { db.delete_team(id).await?; println!("Deleted team {}", id); }
-            TeamCmd::Enable { id } => {
+            TeamCmd::Delete { team } => {
+                let id = team.parse::<i32>()?;
+                db.delete_team(id).await?;
+                println!("Deleted team {}", id);
+            }
+            TeamCmd::Enable { team } => {
+                let id = team.parse::<i32>()?;
                 db.set_team_enabled(id, true).await?;
                 println!("Enabled");
             }
-            TeamCmd::Disable { id } => {
+            TeamCmd::Disable { team } => {
+                let id = team.parse::<i32>()?;
                 db.set_team_enabled(id, false).await?;
                 println!("Disabled");
             }
@@ -522,13 +529,14 @@ async fn main() -> Result<()> {
                 println!("Disabled");
             }
             ExploitCmd::Run { name, challenge, team } => {
+                let team_id = team.parse::<i32>()?;
                 let challenge = resolve_challenge(&db, challenge, None).await?;
                 let exploit = resolve_exploit(&db, challenge.id, &name).await?;
-                let team_obj = db.get_team(team).await?;
-                let run = db.create_exploit_run(CreateExploitRun { exploit_id: exploit.id, challenge_id: exploit.challenge_id, team_id: team, priority: None, sequence: None }).await?;
-                let job = db.create_adhoc_job(run.id, team).await?;
+                let team_obj = db.get_team(team_id).await?;
+                let run = db.create_exploit_run(CreateExploitRun { exploit_id: exploit.id, challenge_id: exploit.challenge_id, team_id: team_id, priority: None, sequence: None }).await?;
+                let job = db.create_adhoc_job(run.id, team_id).await?;
                 let relations = db.list_relations(challenge.id).await?;
-                let rel = relations.iter().find(|r| r.team_id == team);
+                let rel = relations.iter().find(|r| r.team_id == team_id);
                 let conn = rel.and_then(|r| r.connection_info(&challenge, &team_obj)).ok_or(anyhow::anyhow!("No connection info"))?;
                 let (tx, _) = tokio::sync::broadcast::channel(1);
                 let executor = mazuadm_core::executor::Executor::new(db.clone(), tx)?;
@@ -541,10 +549,15 @@ async fn main() -> Result<()> {
         },
         Cmd::Run { cmd } => match cmd {
             RunCmd::Add { exploit, challenge, team, priority, sequence } => {
-                let r = db.create_exploit_run(CreateExploitRun { exploit_id: exploit, challenge_id: challenge, team_id: team, priority, sequence }).await?;
+                let team_id = team.parse::<i32>()?;
+                let r = db.create_exploit_run(CreateExploitRun { exploit_id: exploit, challenge_id: challenge, team_id, priority, sequence }).await?;
                 println!("Created run {}", r.id);
             }
             RunCmd::List { challenge, team } => {
+                let team = match team {
+                    Some(team_ref) => Some(team_ref.parse::<i32>()?),
+                    None => None,
+                };
                 let rows: Vec<_> = db.list_exploit_runs(challenge, team).await?.into_iter().map(|r| RunRow { id: r.id, exploit: r.exploit_id, challenge: r.challenge_id, team: r.team_id, priority: r.priority.map(|p| p.to_string()).unwrap_or("-".into()), seq: r.sequence }).collect();
                 println!("{}", Table::new(rows));
             }
@@ -644,12 +657,14 @@ async fn main() -> Result<()> {
                 println!("{}", Table::new(rows));
             }
             RelationCmd::Get { challenge, team } => {
-                if let Some(r) = db.get_relation(challenge, team).await? {
+                let team_id = team.parse::<i32>()?;
+                if let Some(r) = db.get_relation(challenge, team_id).await? {
                     println!("Challenge: {}, Team: {}, Addr: {}, Port: {}", r.challenge_id, r.team_id, r.addr.unwrap_or_default(), r.port.map(|p| p.to_string()).unwrap_or_default());
                 } else { println!("Relation not found"); }
             }
             RelationCmd::Update { challenge, team, ip, port } => {
-                db.update_relation(challenge, team, ip, port).await?;
+                let team_id = team.parse::<i32>()?;
+                db.update_relation(challenge, team_id, ip, port).await?;
                 println!("Updated relation");
             }
         },
