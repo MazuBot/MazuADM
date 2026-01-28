@@ -117,6 +117,10 @@ enum RunCmd {
     Update { id: i32, #[arg(long)] priority: Option<i32>, #[arg(long)] sequence: Option<i32> },
     /// Delete an exploit run
     Delete { id: i32 },
+    /// Append exploit run to all teams for an exploit/challenge pair
+    AppendAll { #[arg(long)] exploit: i32, #[arg(long)] challenge: i32, #[arg(long)] priority: Option<i32> },
+    /// Prepend exploit run to all teams for an exploit/challenge pair
+    PrependAll { #[arg(long)] exploit: i32, #[arg(long)] challenge: i32, #[arg(long)] priority: Option<i32> },
 }
 
 #[derive(Subcommand)]
@@ -249,6 +253,12 @@ struct TeamLabel {
     team_name: String,
 }
 
+#[derive(Clone, Copy)]
+enum RunInsertPosition {
+    Append,
+    Prepend,
+}
+
 async fn load_team_map(db: &Database) -> Result<std::collections::HashMap<i32, TeamLabel>> {
     Ok(db
         .list_teams()
@@ -271,6 +281,30 @@ fn team_label(map: &std::collections::HashMap<i32, TeamLabel>, id: i32) -> TeamL
         team_id: id.to_string(),
         team_name: "-".to_string(),
     })
+}
+
+fn has_exploit_run(runs: &[ExploitRun], exploit_id: i32) -> bool {
+    runs.iter().any(|r| r.exploit_id == exploit_id)
+}
+
+fn next_sequence(position: RunInsertPosition, runs: &[ExploitRun]) -> Result<i32> {
+    if runs.is_empty() {
+        return Ok(0);
+    }
+    let mut min = i32::MAX;
+    let mut max = i32::MIN;
+    for run in runs {
+        min = min.min(run.sequence);
+        max = max.max(run.sequence);
+    }
+    match position {
+        RunInsertPosition::Append => max
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("sequence overflow while appending exploit run")),
+        RunInsertPosition::Prepend => min
+            .checked_sub(1)
+            .ok_or_else(|| anyhow::anyhow!("sequence overflow while prepending exploit run")),
+    }
 }
 
 fn cwd_basename() -> Result<String> {
@@ -336,6 +370,45 @@ mod tests {
     fn test_resolve_team_ref_missing() {
         let err = resolve_team_ref_sync("missing", |_| None, |_| None).unwrap_err();
         assert!(err.to_string().contains("team not found"));
+    }
+
+    fn make_run(sequence: i32, exploit_id: i32) -> ExploitRun {
+        ExploitRun {
+            id: 1,
+            exploit_id,
+            challenge_id: 2,
+            team_id: 3,
+            priority: None,
+            sequence,
+            enabled: true,
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn test_next_sequence_append_empty() {
+        let seq = next_sequence(RunInsertPosition::Append, &[]).unwrap();
+        assert_eq!(seq, 0);
+    }
+
+    #[test]
+    fn test_next_sequence_prepend_empty() {
+        let seq = next_sequence(RunInsertPosition::Prepend, &[]).unwrap();
+        assert_eq!(seq, 0);
+    }
+
+    #[test]
+    fn test_next_sequence_append_nonempty() {
+        let runs = vec![make_run(2, 1), make_run(5, 2), make_run(3, 3)];
+        let seq = next_sequence(RunInsertPosition::Append, &runs).unwrap();
+        assert_eq!(seq, 6);
+    }
+
+    #[test]
+    fn test_next_sequence_prepend_nonempty() {
+        let runs = vec![make_run(2, 1), make_run(5, 2), make_run(3, 3)];
+        let seq = next_sequence(RunInsertPosition::Prepend, &runs).unwrap();
+        assert_eq!(seq, 1);
     }
 }
 
@@ -623,6 +696,64 @@ async fn main() -> Result<()> {
                 println!("Updated run {}", id);
             }
             RunCmd::Delete { id } => { db.delete_exploit_run(id).await?; println!("Deleted run {}", id); }
+            RunCmd::AppendAll { exploit, challenge, priority } => {
+                let teams = db.list_teams().await?;
+                let mut created = 0usize;
+                let mut updated = 0usize;
+                for team in teams.iter() {
+                    let runs = db.list_exploit_runs(Some(challenge), Some(team.id)).await?;
+                    let sequence = next_sequence(RunInsertPosition::Append, &runs)?;
+                    let existed = has_exploit_run(&runs, exploit);
+                    let run = db
+                        .create_exploit_run(CreateExploitRun {
+                            exploit_id: exploit,
+                            challenge_id: challenge,
+                            team_id: team.id,
+                            priority,
+                            sequence: Some(sequence),
+                        })
+                        .await?;
+                    if existed {
+                        updated += 1;
+                    } else {
+                        created += 1;
+                    }
+                    println!(
+                        "Team {} ({}): set run {} sequence {}",
+                        team.team_id, team.team_name, run.id, run.sequence
+                    );
+                }
+                println!("Appended run to {} teams (created {}, updated {})", teams.len(), created, updated);
+            }
+            RunCmd::PrependAll { exploit, challenge, priority } => {
+                let teams = db.list_teams().await?;
+                let mut created = 0usize;
+                let mut updated = 0usize;
+                for team in teams.iter() {
+                    let runs = db.list_exploit_runs(Some(challenge), Some(team.id)).await?;
+                    let sequence = next_sequence(RunInsertPosition::Prepend, &runs)?;
+                    let existed = has_exploit_run(&runs, exploit);
+                    let run = db
+                        .create_exploit_run(CreateExploitRun {
+                            exploit_id: exploit,
+                            challenge_id: challenge,
+                            team_id: team.id,
+                            priority,
+                            sequence: Some(sequence),
+                        })
+                        .await?;
+                    if existed {
+                        updated += 1;
+                    } else {
+                        created += 1;
+                    }
+                    println!(
+                        "Team {} ({}): set run {} sequence {}",
+                        team.team_id, team.team_name, run.id, run.sequence
+                    );
+                }
+                println!("Prepended run to {} teams (created {}, updated {})", teams.len(), created, updated);
+            }
         },
         Cmd::Round { cmd } => match cmd {
             RoundCmd::New => {
