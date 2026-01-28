@@ -1,4 +1,4 @@
-use crate::{Database, Exploit, ExploitJob, ExploitRun, ConnectionInfo, WsMessage};
+use crate::{Database, Exploit, ExploitJob, ExploitRun, ConnectionInfo, WsMessage, Challenge, Team};
 use crate::container_manager::ContainerManager;
 use anyhow::Result;
 use std::time::{Instant, Duration};
@@ -14,6 +14,22 @@ pub struct Executor {
     pub db: Database,
     pub container_manager: ContainerManager,
     pub tx: broadcast::Sender<WsMessage>,
+}
+
+struct JobContext {
+    job: ExploitJob,
+    run: ExploitRun,
+    exploit: Exploit,
+    challenge: Challenge,
+    team: Team,
+    conn: ConnectionInfo,
+}
+
+enum JobContextError {
+    NotPending,
+    MissingExploitRunId,
+    MissingConnectionInfo,
+    Db(anyhow::Error),
 }
 
 fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &str, data: &T) {
@@ -149,78 +165,30 @@ impl Executor {
 
             join_set.spawn(async move {
                 let _permit = permit;
-                
-                // Re-check job status before running (may have been skipped/stopped)
-                let current_job = match db.get_job(job.id).await {
-                    Ok(j) => j,
-                    Err(_) => return,
-                };
-                if current_job.status != "pending" {
-                    return;
-                }
 
-                let exploit_run_id = match job.exploit_run_id {
-                    Some(id) => id,
-                    None => {
+                let ctx = match build_job_context(&db, job.id).await {
+                    Ok(ctx) => ctx,
+                    Err(JobContextError::NotPending) => return,
+                    Err(JobContextError::MissingExploitRunId) => {
                         finish_job_and_broadcast(&db, &tx, job.id, "error", None, Some("Job missing exploit_run_id"), 0).await;
                         return;
                     }
-                };
-
-                let run: ExploitRun = match db.get_exploit_run(exploit_run_id).await {
-                    Ok(r) => r,
-                    Err(e) => { log_job_error(job.id, &e); return; }
-                };
-                
-                let exploit = match db.get_exploit(run.exploit_id).await {
-                    Ok(e) => e,
-                    Err(e) => { log_job_error(job.id, &e); return; }
-                };
-                
-                let challenge = match db.get_challenge(run.challenge_id).await {
-                    Ok(c) => c,
-                    Err(e) => { log_job_error(job.id, &e); return; }
-                };
-                
-                let team = match db.get_team(job.team_id).await {
-                    Ok(t) => t,
-                    Err(e) => { log_job_error(job.id, &e); return; }
-                };
-
-                if !exploit.enabled {
-                    finish_job_and_broadcast(&db, &tx, job.id, "skipped", None, Some("Exploit disabled"), 0).await;
-                    return;
-                }
-
-                if !team.enabled {
-                    finish_job_and_broadcast(&db, &tx, job.id, "skipped", None, Some("Team disabled"), 0).await;
-                    return;
-                }
-
-                if skip_on_flag && has_flag_and_skip(&db, &tx, round_id, job.id, challenge.id, team.id).await {
-                    return;
-                }
-
-                let rel = match db.get_relation(challenge.id, team.id).await {
-                    Ok(r) => r,
-                    Err(e) => { log_job_error(job.id, &e); return; }
-                };
-                
-                let conn = match rel.and_then(|r| r.connection_info(&challenge, &team)) {
-                    Some(c) => c,
-                    None => {
+                    Err(JobContextError::MissingConnectionInfo) => {
                         finish_job_and_broadcast(&db, &tx, job.id, "error", None, Some("No connection info (missing IP or port)"), 0).await;
+                        return;
+                    }
+                    Err(JobContextError::Db(e)) => {
+                        log_job_error(job.id, &e);
                         return;
                     }
                 };
 
+                if should_skip_job(&db, &tx, &ctx, skip_on_flag, round_id).await {
+                    return;
+                }
+
                 // Get or create per-target lock
-                let target_lock = if sequential_per_target {
-                    let mut locks = target_locks.lock().await;
-                    Some(locks.entry((challenge.id, team.id)).or_insert_with(|| Arc::new(Mutex::new(()))).clone())
-                } else {
-                    None
-                };
+                let target_lock = get_target_lock(&target_locks, sequential_per_target, (ctx.challenge.id, ctx.team.id)).await;
 
                 // Acquire target lock if sequential mode
                 let _target_guard = match &target_lock {
@@ -229,28 +197,28 @@ impl Executor {
                 };
 
                 // Re-check skip_on_flag after acquiring lock
-                if skip_on_flag && has_flag_and_skip(&db, &tx, round_id, job.id, challenge.id, team.id).await {
+                if should_skip_job(&db, &tx, &ctx, skip_on_flag, round_id).await {
                     return;
                 }
 
                 // Random delay 0-500ms to spread container reuse
-                let delay = stagger_delay_ms(job.id);
+                let delay = stagger_delay_ms(ctx.job.id);
                 tokio::time::sleep(Duration::from_millis(delay)).await;
 
                 // Use exploit timeout if set, otherwise global worker_timeout
-                let timeout = compute_timeout(exploit.timeout_secs, worker_timeout);
+                let timeout = compute_timeout(ctx.exploit.timeout_secs, worker_timeout);
 
-                match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), timeout, max_flags).await {
+                match executor.execute_job(&ctx.job, &ctx.run, &ctx.exploit, &ctx.conn, ctx.challenge.flag_regex.as_deref(), timeout, max_flags).await {
                     Ok(result) => {
                         for flag in result.flags {
-                            if let Ok(f) = db.create_flag(job.id, round_id, challenge.id, team.id, &flag).await {
+                            if let Ok(f) = db.create_flag(ctx.job.id, round_id, ctx.challenge.id, ctx.team.id, &flag).await {
                                 broadcast(&tx, "flag_created", &f);
                             }
                         }
                     }
                     Err(e) => {
-                        log_job_error(job.id, &e);
-                        finish_job_and_broadcast(&db, &tx, job.id, "error", None, Some(&e.to_string()), 0).await;
+                        log_job_error(ctx.job.id, &e);
+                        finish_job_and_broadcast(&db, &tx, ctx.job.id, "error", None, Some(&e.to_string()), 0).await;
                     }
                 }
             });
@@ -269,19 +237,76 @@ impl Executor {
 
 // settings helpers live in crate::settings
 
-async fn has_flag_and_skip(
+fn skip_reason(exploit_enabled: bool, team_enabled: bool, skip_on_flag: bool, has_flag: bool) -> Option<&'static str> {
+    if !exploit_enabled {
+        Some("Exploit disabled")
+    } else if !team_enabled {
+        Some("Team disabled")
+    } else if skip_on_flag && has_flag {
+        Some("Flag already found")
+    } else {
+        None
+    }
+}
+
+async fn should_skip_job(
     db: &Database,
     tx: &broadcast::Sender<WsMessage>,
+    ctx: &JobContext,
+    skip_on_flag: bool,
     round_id: i32,
-    job_id: i32,
-    challenge_id: i32,
-    team_id: i32,
 ) -> bool {
-    if let Ok(true) = db.has_flag_for(round_id, challenge_id, team_id).await {
-        finish_job_and_broadcast(db, tx, job_id, "skipped", None, Some("Flag already found"), 0).await;
+    let has_flag = if skip_on_flag {
+        db.has_flag_for(round_id, ctx.challenge.id, ctx.team.id).await.ok().unwrap_or(false)
+    } else {
+        false
+    };
+
+    if let Some(reason) = skip_reason(ctx.exploit.enabled, ctx.team.enabled, skip_on_flag, has_flag) {
+        finish_job_and_broadcast(db, tx, ctx.job.id, "skipped", None, Some(reason), 0).await;
         return true;
     }
     false
+}
+
+async fn build_job_context(db: &Database, job_id: i32) -> std::result::Result<JobContext, JobContextError> {
+    let job = db.get_job(job_id).await.map_err(JobContextError::Db)?;
+    ensure_pending(&job)?;
+    let exploit_run_id = require_exploit_run_id(&job)?;
+
+    let run = db.get_exploit_run(exploit_run_id).await.map_err(JobContextError::Db)?;
+    let exploit = db.get_exploit(run.exploit_id).await.map_err(JobContextError::Db)?;
+    let challenge = db.get_challenge(run.challenge_id).await.map_err(JobContextError::Db)?;
+    let team = db.get_team(job.team_id).await.map_err(JobContextError::Db)?;
+
+    let rel = db.get_relation(challenge.id, team.id).await.map_err(JobContextError::Db)?;
+    let conn = rel.and_then(|r| r.connection_info(&challenge, &team)).ok_or(JobContextError::MissingConnectionInfo)?;
+
+    Ok(JobContext { job, run, exploit, challenge, team, conn })
+}
+
+fn ensure_pending(job: &ExploitJob) -> std::result::Result<(), JobContextError> {
+    if job.status == "pending" {
+        Ok(())
+    } else {
+        Err(JobContextError::NotPending)
+    }
+}
+
+fn require_exploit_run_id(job: &ExploitJob) -> std::result::Result<i32, JobContextError> {
+    job.exploit_run_id.ok_or(JobContextError::MissingExploitRunId)
+}
+
+async fn get_target_lock(
+    target_locks: &Arc<Mutex<HashMap<(i32, i32), Arc<Mutex<()>>>>>,
+    sequential_per_target: bool,
+    key: (i32, i32),
+) -> Option<Arc<Mutex<()>>> {
+    if !sequential_per_target {
+        return None;
+    }
+    let mut locks = target_locks.lock().await;
+    Some(locks.entry(key).or_insert_with(|| Arc::new(Mutex::new(()))).clone())
 }
 
 async fn finish_job_and_broadcast(
@@ -331,8 +356,39 @@ pub struct JobResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{derive_job_status, stagger_delay_ms, Executor};
+    use super::{
+        derive_job_status,
+        ensure_pending,
+        get_target_lock,
+        require_exploit_run_id,
+        skip_reason,
+        stagger_delay_ms,
+        Executor,
+    };
     use crate::container_manager::ContainerManager;
+    use crate::ExploitJob;
+    use chrono::{TimeZone, Utc};
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    fn make_job(status: &str, exploit_run_id: Option<i32>) -> ExploitJob {
+        ExploitJob {
+            id: 1,
+            round_id: Some(1),
+            exploit_run_id,
+            team_id: 1,
+            priority: 0,
+            status: status.to_string(),
+            container_id: None,
+            stdout: None,
+            stderr: None,
+            duration_ms: None,
+            started_at: None,
+            finished_at: None,
+            created_at: Utc.timestamp_opt(0, 0).single().unwrap(),
+        }
+    }
 
     #[test]
     fn derive_job_status_flag() {
@@ -369,5 +425,40 @@ mod tests {
         fn assert_clone<T: Clone>() {}
         assert_clone::<Executor>();
         assert_clone::<ContainerManager>();
+    }
+
+    #[test]
+    fn ensure_pending_rejects_non_pending() {
+        let job = make_job("running", Some(1));
+        assert!(ensure_pending(&job).is_err());
+    }
+
+    #[test]
+    fn require_exploit_run_id_errors() {
+        let job = make_job("pending", None);
+        assert!(require_exploit_run_id(&job).is_err());
+    }
+
+    #[test]
+    fn skip_reason_precedence() {
+        assert_eq!(skip_reason(false, true, true, true), Some("Exploit disabled"));
+        assert_eq!(skip_reason(true, false, true, true), Some("Team disabled"));
+        assert_eq!(skip_reason(true, true, true, true), Some("Flag already found"));
+        assert_eq!(skip_reason(true, true, true, false), None);
+    }
+
+    #[tokio::test]
+    async fn get_target_lock_none_when_disabled() {
+        let locks: Arc<Mutex<HashMap<(i32, i32), Arc<Mutex<()>>>>> = Arc::new(Mutex::new(HashMap::new()));
+        let lock = get_target_lock(&locks, false, (1, 1)).await;
+        assert!(lock.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_target_lock_reuses_arc() {
+        let locks: Arc<Mutex<HashMap<(i32, i32), Arc<Mutex<()>>>>> = Arc::new(Mutex::new(HashMap::new()));
+        let first = get_target_lock(&locks, true, (1, 1)).await.unwrap();
+        let second = get_target_lock(&locks, true, (1, 1)).await.unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
     }
 }
