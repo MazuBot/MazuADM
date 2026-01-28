@@ -16,10 +16,10 @@
   $: pathname = $page.url.pathname
 
   function navHref(section) {
-    if (section === 'board') return $selectedChallengeId ? `#/board/${$selectedChallengeId}` : '#/board'
-    if (section === 'rounds') return $selectedRoundId ? `#/rounds/${$selectedRoundId}` : '#/rounds'
-    if (section === 'flags') return $selectedFlagRoundId ? `#/flags/${$selectedFlagRoundId}` : '#/flags'
-    return `#/${section}`
+    if (section === 'board') return $selectedChallengeId ? `/board/${$selectedChallengeId}` : '/board'
+    if (section === 'rounds') return $selectedRoundId ? `/rounds/${$selectedRoundId}` : '/rounds'
+    if (section === 'flags') return $selectedFlagRoundId ? `/flags/${$selectedFlagRoundId}` : '/flags'
+    return `/${section}`
   }
 
   onMount(() => {
