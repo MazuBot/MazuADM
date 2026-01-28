@@ -1,5 +1,5 @@
 <script>
-  import { app } from '$lib/stores/app.js'
+  import { app } from '$lib/data/stores/app.js'
   import TeamsPage from '$lib/pages/TeamsPage.svelte'
 
   const { teams, loadAll } = app

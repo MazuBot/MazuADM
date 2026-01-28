@@ -1,5 +1,5 @@
 <script>
-  import { app } from '$lib/stores/app.js'
+  import { app } from '$lib/data/stores/app.js'
   import ChallengesPage from '$lib/pages/ChallengesPage.svelte'
 
   const { challenges, loadAll } = app

@@ -1,110 +1,24 @@
 import { get, writable } from 'svelte/store'
 import * as api from '$lib/data/api'
 import { connect, disconnect } from '$lib/websocket.js'
-import { isValidId, pickDefaultRound } from './app-logic.js'
+import { challenges, exploits, exploitRuns, loadAllEntities, teams } from './entities.js'
+import { flags, loadFlags, selectedFlagRoundId } from './flags.js'
+import { containers, containerRunners, loadContainers, loadRunners, resetContainers } from './containers.js'
+import { jobs, loadJobs, rounds, selectedRoundId, createRound, loadRounds, rerunRound, runRound } from './rounds.js'
+import { selectedChallengeId, ensureSelections } from './selections.js'
 
 export const ready = writable(false)
-export const challenges = writable([])
-export const teams = writable([])
-export const exploits = writable([])
-export const exploitRuns = writable([])
-export const rounds = writable([])
-export const jobs = writable([])
-export const flags = writable([])
 export const settings = writable([])
-export const containers = writable([])
-export const containerRunners = writable({})
 
-export const selectedChallengeId = writable(null)
-export const selectedRoundId = writable(null)
-export const selectedFlagRoundId = writable(null)
-
-let started = false
-
-function ensureSelections() {
-  const currentChallenges = get(challenges)
-  const currentRounds = get(rounds)
-  const currentChallengeId = get(selectedChallengeId)
-  const currentRoundId = get(selectedRoundId)
-  const currentFlagRoundId = get(selectedFlagRoundId)
-
-  if (!isValidId(currentChallenges, currentChallengeId)) {
-    selectedChallengeId.set(currentChallenges[0]?.id ?? null)
-  }
-
-  if (!isValidId(currentRounds, currentRoundId)) {
-    selectedRoundId.set(pickDefaultRound(currentRounds))
-  }
-
-  if (currentFlagRoundId && !isValidId(currentRounds, currentFlagRoundId)) {
-    selectedFlagRoundId.set(null)
-  }
+async function loadSettings() {
+  settings.set(await api.settings())
 }
 
 export async function loadAll() {
   ready.set(false)
-  const [c, t, e, r, ro, s] = await Promise.all([
-    api.challenges(),
-    api.teams(),
-    api.exploits(),
-    api.exploitRuns(),
-    api.rounds(),
-    api.settings()
-  ])
-
-  challenges.set(c)
-  teams.set(t)
-  exploits.set(e)
-  exploitRuns.set(r)
-  rounds.set(ro)
-  settings.set(s)
-
+  await Promise.all([loadAllEntities(), loadRounds(), loadSettings()])
   ensureSelections()
   ready.set(true)
-}
-
-export async function loadJobs(roundId) {
-  if (!roundId) {
-    jobs.set([])
-    return
-  }
-  const result = await api.jobs(roundId)
-  if (roundId === get(selectedRoundId)) jobs.set(result)
-}
-
-export async function loadFlags(roundId) {
-  flags.set(await api.flags(roundId))
-}
-
-export async function loadContainers() {
-  containers.set(await api.containers())
-}
-
-export async function loadRunners(containerId) {
-  const runners = await api.containerRunners(containerId)
-  containerRunners.update((current) => ({ ...current, [containerId]: runners }))
-}
-
-export function resetContainers() {
-  containers.set([])
-  containerRunners.set({})
-}
-
-export async function createRound() {
-  const id = await api.createRound()
-  selectedRoundId.set(id)
-  jobs.set([])
-  return id
-}
-
-export async function runRound(id) {
-  if (!id) return
-  await api.runRound(id)
-}
-
-export async function rerunRound(id) {
-  if (!id) return
-  await api.rerunRound(id)
 }
 
 function handleWsMessage(msg) {
@@ -182,6 +96,8 @@ function handleWsMessage(msg) {
       break
   }
 }
+
+let started = false
 
 export function start() {
   if (started) return

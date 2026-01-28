@@ -2,7 +2,7 @@
   import '../app.css'
   import { onMount } from 'svelte'
   import { page } from '$app/stores'
-  import { app } from '$lib/stores/app.js'
+  import { app } from '$lib/data/stores/app.js'
 
   const {
     selectedChallengeId,
