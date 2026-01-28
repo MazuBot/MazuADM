@@ -139,6 +139,7 @@
     }
 
     if (route.page === 'containers') {
+      containerRunners = {};
       loadContainers();
       return;
     }
