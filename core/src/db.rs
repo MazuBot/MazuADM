@@ -246,7 +246,7 @@ impl Database {
 
     pub async fn get_pending_jobs(&self, round_id: i32) -> Result<Vec<ExploitJob>> {
         Ok(sqlx::query_as!(ExploitJob,
-            "SELECT * FROM exploit_jobs WHERE round_id = $1 AND status = 'pending' ORDER BY priority DESC", round_id
+            "SELECT * FROM exploit_jobs WHERE round_id = $1 AND status = 'pending' ORDER BY priority DESC, id", round_id
         ).fetch_all(&self.pool).await?)
     }
 
