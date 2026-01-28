@@ -12,7 +12,7 @@ use bollard::exec::{CreateExecOptions, StartExecOptions};
 use bollard::secret::{ContainerCreateBody, HostConfig};
 use chrono::{DateTime, TimeZone, Utc};
 use futures::{Stream, StreamExt};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, atomic::{AtomicI32, AtomicUsize, Ordering}};
 use std::time::Duration;
 use tokio::sync::{oneshot, Semaphore, Mutex};
@@ -32,6 +32,7 @@ const LABEL_MANAGED: &str = "mazuadm.managed";
 const LABEL_EXPLOIT_ID: &str = "mazuadm.exploit_id";
 const LABEL_EXPLOIT_NAME: &str = "mazuadm.exploit_name";
 const LABEL_COUNTER: &str = "mazuadm.counter";
+const LABEL_AFFINITY_LIST: &str = "mazuadm.affinity";
 
 struct ExecOutput {
     stdout: String,
@@ -53,6 +54,8 @@ struct ManagedContainer {
 struct ContainerRegistry {
     by_id: HashMap<String, Arc<ManagedContainer>>,
     pools: HashMap<i32, Vec<Arc<ManagedContainer>>>,
+    affinity: HashMap<i32, String>,
+    reverse_affinity: HashMap<String, HashSet<i32>>,
 }
 
 pub struct ContainerLease {
@@ -189,6 +192,20 @@ impl ContainerManager {
             });
             registry.by_id.insert(container_id.clone(), managed.clone());
             registry.pools.entry(exploit_id).or_default().push(managed);
+
+            if let Some(list) = labels.get(LABEL_AFFINITY_LIST) {
+                let runs = parse_affinity_list(list);
+                if !runs.is_empty() {
+                    let mut set = HashSet::new();
+                    for run_id in runs {
+                        if registry.affinity.insert(run_id, container_id.clone()).is_some() {
+                            warn!("Affinity run {} assigned to multiple containers; latest wins", run_id);
+                        }
+                        set.insert(run_id);
+                    }
+                    registry.reverse_affinity.insert(container_id.clone(), set);
+                }
+            }
         }
 
         let mut guard = self.registry.lock().await;
@@ -197,9 +214,12 @@ impl ContainerManager {
     }
 
     pub async fn list_containers(&self) -> Result<Vec<ContainerInfo>> {
-        let containers: Vec<Arc<ManagedContainer>> = {
+        let (containers, affinity_map) = {
             let guard = self.registry.lock().await;
-            guard.by_id.values().cloned().collect()
+            (
+                guard.by_id.values().cloned().collect::<Vec<_>>(),
+                guard.reverse_affinity.clone(),
+            )
         };
 
         let mut infos = Vec::new();
@@ -209,6 +229,10 @@ impl ContainerManager {
                 Err(_) => "dead",
             };
             let running_execs = container.max_execs.saturating_sub(container.exec_sem.available_permits());
+            let affinity_runs = affinity_map
+                .get(&container.container_id)
+                .map(sorted_run_ids)
+                .unwrap_or_default();
             infos.push(ContainerInfo {
                 id: container.container_id.clone(),
                 exploit_id: container.exploit_id,
@@ -217,71 +241,38 @@ impl ContainerManager {
                 running_execs,
                 max_execs: container.max_execs,
                 created_at: container.created_at,
+                affinity_runs,
             });
         }
         Ok(infos)
     }
 
-    pub async fn lease_container(&self, exploit: &Exploit) -> Result<ContainerLease> {
+    pub async fn lease_container(&self, exploit: &Exploit, exploit_run_id: i32) -> Result<ContainerLease> {
         let max_execs = exploit.max_per_container.max(1) as usize;
         let exploit_id = exploit.id;
         let max_containers = exploit.max_containers;
 
-        loop {
-            let mut expired_ids: Vec<String> = Vec::new();
-            let mut wait_target: Option<Arc<ManagedContainer>> = None;
-            let mut available: Option<(Arc<ManagedContainer>, tokio::sync::OwnedSemaphorePermit)> = None;
-            let pool_len = {
-                let guard = self.registry.lock().await;
-                let pool = guard.pools.get(&exploit_id);
-                let pool_len = pool.map(|p| p.len()).unwrap_or(0);
-
-                if let Some(pool) = pool {
-                    for container in pool {
-                        if container.counter.load(Ordering::SeqCst) <= 0 {
-                            if container.exec_sem.available_permits() == container.max_execs {
-                                expired_ids.push(container.container_id.clone());
-                            }
-                            continue;
-                        }
-
-                        if available.is_none() {
-                            if let Ok(permit) = container.exec_sem.clone().try_acquire_owned() {
-                                available = Some((container.clone(), permit));
-                                break;
-                            }
-                            if wait_target.is_none() {
-                                wait_target = Some(container.clone());
-                            }
-                        }
-                    }
-                }
-
-                pool_len
-            };
-
-            for container_id in expired_ids {
-                let _ = self.destroy_container_by_id(&container_id).await;
-            }
-
-            if let Some((container, permit)) = available {
-                return Ok(ContainerLease { manager: self.clone(), container, permit });
-            }
-
-            let can_spawn = max_containers <= 0 || (pool_len as i32) < max_containers;
-            if can_spawn {
-                let container = self.spawn_container(exploit, max_execs).await?;
-                let permit = container.exec_sem.clone().acquire_owned().await?;
-                return Ok(ContainerLease { manager: self.clone(), container, permit });
-            }
-
-            if let Some(container) = wait_target {
-                let permit = container.exec_sem.clone().acquire_owned().await?;
-                return Ok(ContainerLease { manager: self.clone(), container, permit });
-            }
-
-            return Err(anyhow::anyhow!("No containers available for exploit {}", exploit_id));
+        if let Some(lease) = self.try_acquire_affinity(exploit_id, exploit_run_id).await? {
+            return Ok(lease);
         }
+
+        let run_ids = self.db.get_exploit_runs_for_exploit(exploit_id).await?
+            .into_iter()
+            .map(|r| r.id)
+            .collect::<Vec<_>>();
+        let groups = build_affinity_groups(&run_ids, max_containers);
+        let bucket = groups.iter().find(|g| g.contains(&exploit_run_id)).cloned().unwrap_or_else(|| vec![exploit_run_id]);
+
+        if let Some(lease) = self.try_acquire_from_bucket(exploit_id, &bucket, exploit_run_id).await? {
+            return Ok(lease);
+        }
+
+        let unmapped = self.filter_unmapped_runs(&bucket).await;
+        let assigned = if unmapped.is_empty() { vec![exploit_run_id] } else { unmapped };
+
+        let container = self.spawn_container(exploit, max_execs, Some(assigned.clone())).await?;
+        let permit = container.exec_sem.clone().acquire_owned().await?;
+        Ok(ContainerLease { manager: self.clone(), container, permit })
     }
 
     async fn release_container(&self, container: Arc<ManagedContainer>, permit: tokio::sync::OwnedSemaphorePermit) {
@@ -298,8 +289,93 @@ impl ContainerManager {
         guard.pools.entry(container.exploit_id).or_default().push(container);
     }
 
+    async fn register_affinity(&self, container_id: &str, runs: &[i32]) {
+        if runs.is_empty() {
+            return;
+        }
+        let mut guard = self.registry.lock().await;
+        {
+            let entry = guard.reverse_affinity.entry(container_id.to_string()).or_default();
+            for run_id in runs {
+                entry.insert(*run_id);
+            }
+        }
+        for run_id in runs {
+            guard.affinity.insert(*run_id, container_id.to_string());
+        }
+    }
+
+    async fn try_acquire_affinity(&self, exploit_id: i32, run_id: i32) -> Result<Option<ContainerLease>> {
+        let container = {
+            let mut guard = self.registry.lock().await;
+            let Some(container_id) = guard.affinity.get(&run_id).cloned() else {
+                return Ok(None);
+            };
+            let Some(container) = guard.by_id.get(&container_id).cloned() else {
+                guard.affinity.remove(&run_id);
+                return Ok(None);
+            };
+            let has_run = guard
+                .reverse_affinity
+                .get(&container_id)
+                .map(|set| set.contains(&run_id))
+                .unwrap_or(false);
+            if container.exploit_id != exploit_id || !has_run {
+                guard.affinity.remove(&run_id);
+                return Ok(None);
+            }
+            container
+        };
+
+        if container.counter.load(Ordering::SeqCst) <= 0 {
+            let _ = self.destroy_container_by_id(&container.container_id).await;
+            return Ok(None);
+        }
+
+        let permit = container.exec_sem.clone().acquire_owned().await?;
+        Ok(Some(ContainerLease { manager: self.clone(), container, permit }))
+    }
+
+    async fn try_acquire_from_bucket(&self, exploit_id: i32, bucket: &[i32], run_id: i32) -> Result<Option<ContainerLease>> {
+        let container = {
+            let mut guard = self.registry.lock().await;
+            let mut selected: Option<Arc<ManagedContainer>> = None;
+            for candidate in bucket {
+                let Some(container_id) = guard.affinity.get(candidate).cloned() else { continue; };
+                let Some(container) = guard.by_id.get(&container_id).cloned() else { continue; };
+                if container.exploit_id != exploit_id {
+                    continue;
+                }
+                let has_run = guard
+                    .reverse_affinity
+                    .get(&container_id)
+                    .map(|set| set.contains(&run_id))
+                    .unwrap_or(false);
+                if !has_run {
+                    continue;
+                }
+                guard.affinity.insert(run_id, container_id);
+                selected = Some(container);
+                break;
+            }
+            selected
+        };
+
+        let Some(container) = container else { return Ok(None); };
+        let permit = container.exec_sem.clone().acquire_owned().await?;
+        Ok(Some(ContainerLease { manager: self.clone(), container, permit }))
+    }
+
+    async fn filter_unmapped_runs(&self, bucket: &[i32]) -> Vec<i32> {
+        let guard = self.registry.lock().await;
+        bucket.iter().copied().filter(|run_id| !guard.affinity.contains_key(run_id)).collect()
+    }
+
     async fn detach_container(&self, container_id: &str) -> Option<Arc<ManagedContainer>> {
         let mut guard = self.registry.lock().await;
+        let mut reverse = std::mem::take(&mut guard.reverse_affinity);
+        drop_affinity_for_container(&mut guard.affinity, &mut reverse, container_id);
+        guard.reverse_affinity = reverse;
         let container = guard.by_id.remove(container_id)?;
         if let Some(pool) = guard.pools.get_mut(&container.exploit_id) {
             pool.retain(|c| c.container_id != container_id);
@@ -339,13 +415,16 @@ impl ContainerManager {
             guard.pools.get(&exploit_id).map(|p| p.len()).unwrap_or(0)
         };
         if existing == 0 {
-            let _ = self.spawn_container(&exploit, exploit.max_per_container.max(1) as usize).await?;
+            let runs = self.db.get_exploit_runs_for_exploit(exploit_id).await?.into_iter().map(|r| r.id).collect::<Vec<_>>();
+            let groups = build_affinity_groups(&runs, exploit.max_containers);
+            let affinity = groups.get(0).cloned().filter(|g| !g.is_empty());
+            let _ = self.spawn_container(&exploit, exploit.max_per_container.max(1) as usize, affinity).await?;
         }
         Ok(())
     }
 
     /// Spawn a new persistent container for an exploit
-    async fn spawn_container(&self, exploit: &Exploit, max_execs: usize) -> Result<Arc<ManagedContainer>> {
+    async fn spawn_container(&self, exploit: &Exploit, max_execs: usize, affinity_runs: Option<Vec<i32>>) -> Result<Arc<ManagedContainer>> {
         let _permit = self.spawn_gate.acquire().await?;
         let normalized: String = exploit.name.chars()
             .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
@@ -359,6 +438,9 @@ impl ContainerManager {
         labels.insert(LABEL_EXPLOIT_ID.to_string(), exploit.id.to_string());
         labels.insert(LABEL_EXPLOIT_NAME.to_string(), exploit.name.clone());
         labels.insert(LABEL_COUNTER.to_string(), exploit.default_counter.to_string());
+        if let Some(runs) = &affinity_runs {
+            labels.insert(LABEL_AFFINITY_LIST.to_string(), format_affinity_list(runs));
+        }
 
         let config = ContainerCreateBody {
             image: Some(exploit.docker_image.clone()),
@@ -387,6 +469,9 @@ impl ContainerManager {
             created_at: Utc::now(),
         });
         self.register_container(managed.clone()).await;
+        if let Some(runs) = affinity_runs {
+            self.register_affinity(&managed.container_id, &runs).await;
+        }
 
         info!("Spawned container {} for exploit {}", resp.id, exploit.id);
         Ok(managed)
@@ -548,17 +633,27 @@ impl ContainerManager {
 
     /// Restart a container by ID
     pub async fn restart_container_by_id(&self, container_id: &str) -> Result<()> {
-        let exploit_id = if let Some(container) = self.detach_container(container_id).await {
-            container.exploit_id
+        let (exploit_id, affinity_runs) = {
+            let guard = self.registry.lock().await;
+            let exploit_id = guard.by_id.get(container_id).map(|c| c.exploit_id);
+            let runs = guard.reverse_affinity.get(container_id).map(sorted_run_ids);
+            (exploit_id, runs)
+        };
+
+        let (exploit_id, affinity_runs) = if let Some(exploit_id) = exploit_id {
+            let _ = self.detach_container(container_id).await;
+            (exploit_id, affinity_runs)
         } else {
             let info = self.docker.inspect_container(container_id, None::<InspectContainerOptions>).await?;
             let labels = info.config.and_then(|c| c.labels).unwrap_or_default();
-            parse_label_i32(&labels, LABEL_EXPLOIT_ID).ok_or_else(|| anyhow::anyhow!("Missing exploit_id label"))?
+            let exploit_id = parse_label_i32(&labels, LABEL_EXPLOIT_ID).ok_or_else(|| anyhow::anyhow!("Missing exploit_id label"))?;
+            let runs = labels.get(LABEL_AFFINITY_LIST).map(|v| parse_affinity_list(v));
+            (exploit_id, runs)
         };
 
         let _ = self.docker.remove_container(container_id, Some(RemoveContainerOptions { force: true, ..Default::default() })).await;
         let exploit = self.db.get_exploit(exploit_id).await?;
-        let _ = self.spawn_container(&exploit, exploit.max_per_container.max(1) as usize).await?;
+        let _ = self.spawn_container(&exploit, exploit.max_per_container.max(1) as usize, affinity_runs).await?;
         Ok(())
     }
 
@@ -593,6 +688,9 @@ impl ContainerManager {
             let runs = self.db.get_exploit_runs_for_exploit(exploit.id).await?;
             if runs.is_empty() { continue; }
 
+            let run_ids = runs.iter().map(|r| r.id).collect::<Vec<_>>();
+            let groups = build_affinity_groups(&run_ids, exploit.max_containers);
+
             let active_runs = runs.len().min(concurrent_limit);
             let mut needed = needed_containers(active_runs, exploit.max_per_container);
             if exploit.max_containers > 0 {
@@ -609,9 +707,25 @@ impl ContainerManager {
             let to_spawn = needed.saturating_sub(existing);
             if to_spawn > 0 {
                 info!("Pre-warming {} containers for exploit {} (need {}, have {})", to_spawn, exploit.name, needed, existing);
-                for _ in 0..to_spawn {
-                    if let Err(e) = self.spawn_container(&exploit, exploit.max_per_container.max(1) as usize).await {
+                let mut spawned = 0usize;
+                for group in groups {
+                    if spawned >= to_spawn {
+                        break;
+                    }
+                    if group.is_empty() {
+                        continue;
+                    }
+                    let mapped = {
+                        let guard = self.registry.lock().await;
+                        group.iter().any(|run_id| guard.affinity.contains_key(run_id))
+                    };
+                    if mapped {
+                        continue;
+                    }
+                    if let Err(e) = self.spawn_container(&exploit, exploit.max_per_container.max(1) as usize, Some(group)).await {
                         error!("Failed to spawn container for {}: {}", exploit.name, e);
+                    } else {
+                        spawned += 1;
                     }
                 }
             }
@@ -623,6 +737,60 @@ impl ContainerManager {
 fn needed_containers(active_runs: usize, max_per_container: i32) -> usize {
     let per_container = max_per_container.max(1) as usize;
     (active_runs + per_container - 1) / per_container
+}
+
+fn build_affinity_groups(run_ids: &[i32], max_containers: i32) -> Vec<Vec<i32>> {
+    if run_ids.is_empty() {
+        return Vec::new();
+    }
+    let mut ids = run_ids.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    let bucket_count = if max_containers > 0 {
+        max_containers as usize
+    } else {
+        ids.len()
+    };
+    let bucket_count = bucket_count.max(1).min(ids.len());
+    let mut buckets = vec![Vec::new(); bucket_count];
+    for (idx, run_id) in ids.iter().enumerate() {
+        buckets[idx % bucket_count].push(*run_id);
+    }
+    buckets
+}
+
+fn parse_affinity_list(value: &str) -> Vec<i32> {
+    value
+        .split(',')
+        .filter_map(|v| v.trim().parse::<i32>().ok())
+        .collect()
+}
+
+fn format_affinity_list(runs: &[i32]) -> String {
+    let mut ids = runs.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",")
+}
+
+fn sorted_run_ids(set: &HashSet<i32>) -> Vec<i32> {
+    let mut ids: Vec<i32> = set.iter().copied().collect();
+    ids.sort_unstable();
+    ids
+}
+
+fn drop_affinity_for_container(
+    affinity: &mut HashMap<i32, String>,
+    reverse_affinity: &mut HashMap<String, HashSet<i32>>,
+    container_id: &str,
+) {
+    if let Some(runs) = reverse_affinity.remove(container_id) {
+        for run_id in runs {
+            if affinity.get(&run_id).map(|cid| cid == container_id).unwrap_or(false) {
+                affinity.remove(&run_id);
+            }
+        }
+    }
 }
 
 fn parse_label_i32(labels: &HashMap<String, String>, key: &str) -> Option<i32> {
@@ -644,9 +812,10 @@ pub struct ExecResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_exec_output, MAX_OUTPUT, needed_containers};
+    use super::{collect_exec_output, MAX_OUTPUT, needed_containers, parse_affinity_list, format_affinity_list, drop_affinity_for_container, build_affinity_groups};
     use bollard::container::LogOutput;
     use futures::stream;
+    use std::collections::{HashMap, HashSet};
     use std::time::Duration;
 
     #[tokio::test]
@@ -695,5 +864,41 @@ mod tests {
         assert_eq!(needed_containers(1, 1), 1);
         assert_eq!(needed_containers(2, 1), 2);
         assert_eq!(needed_containers(3, 2), 2);
+    }
+
+    #[test]
+    fn parse_affinity_list_handles_csv() {
+        assert_eq!(parse_affinity_list("1, 2,3"), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn format_affinity_list_sorts_and_dedups() {
+        assert_eq!(format_affinity_list(&[3, 1, 1, 2]), "1,2,3");
+    }
+
+    #[test]
+    fn drop_affinity_for_container_removes_mappings() {
+        let mut affinity = HashMap::new();
+        let mut reverse = HashMap::new();
+        affinity.insert(1, "c1".to_string());
+        affinity.insert(2, "c1".to_string());
+        affinity.insert(3, "c2".to_string());
+        reverse.insert("c1".to_string(), HashSet::from([1, 2]));
+        reverse.insert("c2".to_string(), HashSet::from([3]));
+
+        drop_affinity_for_container(&mut affinity, &mut reverse, "c1");
+
+        assert!(!affinity.contains_key(&1));
+        assert!(!affinity.contains_key(&2));
+        assert!(affinity.contains_key(&3));
+        assert!(!reverse.contains_key("c1"));
+    }
+
+    #[test]
+    fn build_affinity_groups_round_robin() {
+        let groups = build_affinity_groups(&[1, 2, 3, 4], 2);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0], vec![1, 3]);
+        assert_eq!(groups[1], vec![2, 4]);
     }
 }

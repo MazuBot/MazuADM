@@ -124,7 +124,7 @@ impl Executor {
         map.remove(&job_id);
     }
 
-    pub async fn execute_job(&self, job: &ExploitJob, _run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64, max_flags: usize) -> Result<JobResult> {
+    pub async fn execute_job(&self, job: &ExploitJob, run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64, max_flags: usize) -> Result<JobResult> {
         let start = Instant::now();
         self.db.update_job_status(job.id, "running", true).await?;
         
@@ -137,7 +137,7 @@ impl Executor {
         
         let exploit_exec = self.get_exploit_executor(exploit).await;
         let _guard = exploit_exec.gate.lock().await;
-        let lease = self.container_manager.lease_container(exploit).await?;
+        let lease = self.container_manager.lease_container(exploit, run.id).await?;
         drop(_guard);
         self.db.set_job_container(job.id, lease.container_id()).await?;
         self.register_container(job.id, lease.container_id().to_string()).await;
