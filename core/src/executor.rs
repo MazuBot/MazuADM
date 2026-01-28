@@ -187,16 +187,6 @@ impl Executor {
         let (stdout, stderr, exit_code, timed_out, ole) = 
             (result.stdout, result.stderr, result.exit_code, result.timed_out, result.ole);
 
-        // Decrement counter and destroy if exhausted
-        let new_counter = self.db.decrement_container_counter(container.id).await?;
-        if new_counter <= 0 {
-            // Only destroy if no other jobs are using this container
-            let active = self.db.count_running_jobs_for_container(&container.container_id).await.unwrap_or(1);
-            if active <= 1 {
-                let _ = self.container_manager.destroy_container(container.id).await;
-            }
-        }
-
         let duration_ms = start.elapsed().as_millis() as i32;
         let combined_output = if stderr.is_empty() {
             stdout.clone()
@@ -230,6 +220,14 @@ impl Executor {
         // Broadcast job finished
         if let Ok(updated_job) = self.db.get_job(job.id).await {
             broadcast(&self.tx, "job_updated", &updated_job);
+        }
+        if let Ok(container_state) = self.db.get_container(container.id).await {
+            if container_state.counter <= 0 {
+                let active = self.db.count_running_jobs_for_container(&container.container_id).await.unwrap_or(1);
+                if active == 0 {
+                    let _ = self.container_manager.destroy_container(container.id).await;
+                }
+            }
         }
         self.clear_pid(job.id).await;
 

@@ -161,16 +161,19 @@ impl ContainerManager {
 
         let exploit = self.db.get_exploit(run.exploit_id).await?;
         
-        // Find available container or spawn new one
-        let container = match self.db.get_available_container(exploit.id, exploit.max_per_container).await? {
-            Some(c) => c,
-            None => self.spawn_container(&exploit).await?,
-        };
+        let max_per_container = exploit.max_per_container.max(1);
+        if let Some((container, _runner)) = self
+            .db
+            .assign_container_for_run(exploit.id, run.id, run.team_id, max_per_container)
+            .await?
+        {
+            return Ok(container);
+        }
 
-        // Create runner assignment (ignore if already exists)
-        let _ = self.db.create_exploit_runner(container.id, run.id, run.team_id).await;
-        
-        Ok(container)
+        // No available container, spawn a new one and assign
+        let container = self.spawn_container(&exploit).await?;
+        let assigned = self.db.assign_new_container_for_run(container.id, run.id, run.team_id).await?;
+        Ok(assigned)
     }
 
     /// Execute command in a persistent container with timeout support

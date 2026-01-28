@@ -449,6 +449,125 @@ impl Database {
         ).fetch_optional(&self.pool).await?)
     }
 
+    pub async fn assign_container_for_run(
+        &self,
+        exploit_id: i32,
+        exploit_run_id: i32,
+        team_id: i32,
+        max_per_container: i32,
+    ) -> Result<Option<(ExploitContainer, ExploitRunner)>> {
+        let mut tx = self.pool.begin().await?;
+        let candidate_id = sqlx::query_scalar!(
+            r#"
+            SELECT c.id as "id!"
+            FROM exploit_containers c
+            WHERE c.exploit_id = $1
+              AND c.status = 'running'
+              AND c.counter > 0
+              AND (SELECT COUNT(*) FROM exploit_runners r WHERE r.exploit_container_id = c.id) < $2
+            ORDER BY c.id
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+            "#,
+            exploit_id,
+            max_per_container as i64
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some(container_id) = candidate_id else {
+            tx.commit().await?;
+            return Ok(None);
+        };
+
+        let container = sqlx::query_as!(ExploitContainer,
+            "UPDATE exploit_containers SET counter = counter - 1 WHERE id = $1 AND counter > 0 RETURNING *",
+            container_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some(container) = container else {
+            tx.commit().await?;
+            return Ok(None);
+        };
+
+        let runner_result = sqlx::query_as!(ExploitRunner,
+            "INSERT INTO exploit_runners (exploit_container_id, exploit_run_id, team_id) VALUES ($1, $2, $3) RETURNING *",
+            container.id,
+            exploit_run_id,
+            team_id
+        )
+        .fetch_one(&mut *tx)
+        .await;
+
+        match runner_result {
+            Ok(runner) => {
+                tx.commit().await?;
+                Ok(Some((container, runner)))
+            }
+            Err(e) => {
+                if is_unique_violation(&e) {
+                    tx.rollback().await?;
+                    if let Some(existing) = self.get_runner_for_run(exploit_run_id).await? {
+                        let container = self.get_container(existing.exploit_container_id).await?;
+                        return Ok(Some((container, existing)));
+                    }
+                    return Ok(None);
+                }
+                tx.rollback().await?;
+                Err(e.into())
+            }
+        }
+    }
+
+    pub async fn assign_new_container_for_run(
+        &self,
+        container_id: i32,
+        exploit_run_id: i32,
+        team_id: i32,
+    ) -> Result<ExploitContainer> {
+        let mut tx = self.pool.begin().await?;
+        let container = sqlx::query_as!(ExploitContainer,
+            "UPDATE exploit_containers SET counter = counter - 1 WHERE id = $1 AND counter > 0 RETURNING *",
+            container_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some(container) = container else {
+            tx.rollback().await?;
+            return Err(anyhow::anyhow!("Container counter exhausted"));
+        };
+
+        let runner_result = sqlx::query_as!(ExploitRunner,
+            "INSERT INTO exploit_runners (exploit_container_id, exploit_run_id, team_id) VALUES ($1, $2, $3) RETURNING *",
+            container.id,
+            exploit_run_id,
+            team_id
+        )
+        .fetch_one(&mut *tx)
+        .await;
+
+        match runner_result {
+            Ok(_) => {
+                tx.commit().await?;
+                Ok(container)
+            }
+            Err(e) => {
+                if is_unique_violation(&e) {
+                    tx.rollback().await?;
+                    if let Some(existing) = self.get_runner_for_run(exploit_run_id).await? {
+                        return self.get_container(existing.exploit_container_id).await;
+                    }
+                    return Err(anyhow::anyhow!("Runner already assigned"));
+                }
+                tx.rollback().await?;
+                Err(e.into())
+            }
+        }
+    }
+
     pub async fn get_available_container(&self, exploit_id: i32, max_per_container: i32) -> Result<Option<ExploitContainer>> {
         Ok(sqlx::query_as!(ExploitContainer,
             r#"SELECT c.* FROM exploit_containers c
@@ -507,4 +626,8 @@ impl Database {
             .execute(&self.pool).await?;
         Ok(result.rows_affected())
     }
+}
+
+fn is_unique_violation(err: &sqlx::Error) -> bool {
+    matches!(err, sqlx::Error::Database(db_err) if db_err.code().as_deref() == Some("23505"))
 }
