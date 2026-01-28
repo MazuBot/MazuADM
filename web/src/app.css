@@ -203,6 +203,16 @@ code {
   font-size: 0.9rem;
 }
 
+.modal label.field-changed {
+  color: #00d9ff;
+}
+
+.modal label.field-changed input,
+.modal label.field-changed select {
+  border-color: #00d9ff;
+  box-shadow: 0 0 0 1px rgba(0, 217, 255, 0.35);
+}
+
 .modal label input {
   display: block;
   width: 100%;

@@ -5,17 +5,22 @@
 
   let { teams, exploits, exploitRuns, challengeId, onRefresh } = $props();
 
+  const emptyExploit = { name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, timeout_secs: 0, auto_add: 'none', insert_into_rounds: false };
   let showAddExploit = $state(false);
-  let newExploit = $state({ name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, timeout_secs: 0, auto_add: 'none', insert_into_rounds: false });
+  let newExploit = $state({ ...emptyExploit });
+  let newExploitInitial = $state({ ...emptyExploit });
 
   let editingRun = $state(null);
   let editForm = $state({ priority: '', sequence: 0, enabled: true });
+  let editFormInitial = $state(null);
 
   let editingExploit = $state(null);
   let exploitForm = $state({ name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, timeout_secs: 0, enabled: true });
+  let exploitFormInitial = $state(null);
 
   let editingRelation = $state(null);
   let relationForm = $state({ addr: '', port: '' });
+  let relationFormInitial = $state(null);
 
   let draggingCard = $state(null);
 
@@ -57,13 +62,21 @@
       insert_into_rounds: newExploit.insert_into_rounds
     });
     showAddExploit = false;
-    newExploit = { name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, timeout_secs: 0, auto_add: 'none', insert_into_rounds: false };
+    newExploit = { ...emptyExploit };
+    newExploitInitial = { ...emptyExploit };
     onRefresh();
+  }
+
+  function openAddExploit() {
+    showAddExploit = true;
+    newExploit = { ...emptyExploit };
+    newExploitInitial = { ...emptyExploit };
   }
 
   function openEditExploit(e) {
     editingExploit = e;
     exploitForm = { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint || '', priority: e.priority, max_per_container: e.max_per_container, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, enabled: e.enabled };
+    exploitFormInitial = { ...exploitForm };
   }
 
   async function saveExploit() {
@@ -87,6 +100,7 @@
     editingRelation = team;
     const rel = await api.getRelation(challengeId, team.id);
     relationForm = { addr: rel?.addr || '', port: rel?.port || '' };
+    relationFormInitial = { ...relationForm };
   }
 
   async function saveRelation() {
@@ -108,6 +122,7 @@
     e.stopPropagation();
     editingRun = run;
     editForm = { priority: run.priority ?? '', sequence: run.sequence, enabled: run.enabled };
+    editFormInitial = { ...editForm };
   }
 
   async function saveRun() {
@@ -181,7 +196,7 @@
         {e.name}
       </button>
     {/each}
-    <button class="add-btn" onclick={() => showAddExploit = true}>+ Add Exploit</button>
+    <button class="add-btn" onclick={openAddExploit}>+ Add Exploit</button>
   </div>
 
   <div class="columns">
@@ -244,77 +259,128 @@
 
 {#if showAddExploit}
   <Modal onClose={() => showAddExploit = false}>
-    <h3>Add Exploit</h3>
-    <label>Name <input type="text" bind:value={newExploit.name} /></label>
-    <label>Docker Image <input type="text" bind:value={newExploit.docker_image} /></label>
-    <label>Entrypoint <input type="text" bind:value={newExploit.entrypoint} placeholder="Leave empty to use image CMD" /></label>
-    <label>Priority <input bind:value={newExploit.priority} type="number" /></label>
-    <label>Max per container <input bind:value={newExploit.max_per_container} type="number" placeholder="Default: 1" /></label>
-    <label>Default counter <input bind:value={newExploit.default_counter} type="number" placeholder="Default: 999" /></label>
-    <label>Timeout (secs) <input bind:value={newExploit.timeout_secs} type="number" placeholder="0 = use global" /></label>
-    <label>Auto-add to teams
-      <select bind:value={newExploit.auto_add}>
-        <option value="none">Don't add</option>
-        <option value="start">Add to start of each team</option>
-        <option value="end">Add to end of each team</option>
-      </select>
-    </label>
-    <label class="checkbox"><input type="checkbox" bind:checked={newExploit.insert_into_rounds} /> Insert jobs into active rounds</label>
-    <div class="modal-actions">
-      <button onclick={() => showAddExploit = false}>Cancel</button>
-      <button onclick={addExploit}>Add</button>
+    <div onkeydown={(e) => onFormKeydown(e, addExploit)}>
+      <h3>Add Exploit</h3>
+      <label class:field-changed={isNewExploitChanged('name')}>
+        Name <input type="text" bind:value={newExploit.name} />
+      </label>
+      <label class:field-changed={isNewExploitChanged('docker_image')}>
+        Docker Image <input type="text" bind:value={newExploit.docker_image} />
+      </label>
+      <label class:field-changed={isNewExploitChanged('entrypoint')}>
+        Entrypoint <input type="text" bind:value={newExploit.entrypoint} placeholder="Leave empty to use image CMD" />
+      </label>
+      <label class:field-changed={isNewExploitChanged('priority')}>
+        Priority <input bind:value={newExploit.priority} type="number" />
+      </label>
+      <label class:field-changed={isNewExploitChanged('max_per_container')}>
+        Max per container <input bind:value={newExploit.max_per_container} type="number" placeholder="Default: 1" />
+      </label>
+      <label class:field-changed={isNewExploitChanged('default_counter')}>
+        Default counter <input bind:value={newExploit.default_counter} type="number" placeholder="Default: 999" />
+      </label>
+      <label class:field-changed={isNewExploitChanged('timeout_secs')}>
+        Timeout (secs) <input bind:value={newExploit.timeout_secs} type="number" placeholder="0 = use global" />
+      </label>
+      <label class:field-changed={isNewExploitChanged('auto_add')}>
+        Auto-add to teams
+        <select bind:value={newExploit.auto_add}>
+          <option value="none">Don't add</option>
+          <option value="start">Add to start of each team</option>
+          <option value="end">Add to end of each team</option>
+        </select>
+      </label>
+      <label class="checkbox" class:field-changed={isNewExploitChanged('insert_into_rounds')}>
+        <input type="checkbox" bind:checked={newExploit.insert_into_rounds} /> Insert jobs into active rounds
+      </label>
+      <div class="modal-actions">
+        <button onclick={() => showAddExploit = false}>Cancel</button>
+        <button onclick={addExploit}>Add</button>
+      </div>
     </div>
   </Modal>
 {/if}
 
 {#if editingRun}
   <Modal onClose={() => editingRun = null}>
-    <h3>Edit Exploit Run</h3>
-    <div class="info">
-      <p><strong>Exploit:</strong> {getExploitName(exploits, editingRun.exploit_id)}</p>
-      <p><strong>Team:</strong> {getTeamName(teams, editingRun.team_id)}</p>
-      <p><strong>Image:</strong> <code>{getExploit(editingRun.exploit_id)?.docker_image}</code></p>
-      <p><strong>Entrypoint:</strong> <code>{getExploit(editingRun.exploit_id)?.entrypoint || '(image CMD)'}</code></p>
-    </div>
-    <label>Priority <input bind:value={editForm.priority} type="number" placeholder="Auto" /></label>
-    <label>Sequence <input bind:value={editForm.sequence} type="number" /></label>
-    <label class="checkbox"><input type="checkbox" bind:checked={editForm.enabled} /> Enabled</label>
-    <div class="modal-actions">
-      <button class="danger" onclick={deleteRun}>Delete</button>
-      <button onclick={() => editingRun = null}>Cancel</button>
-      <button onclick={saveRun}>Save</button>
+    <div onkeydown={(e) => onFormKeydown(e, saveRun)}>
+      <h3>Edit Exploit Run</h3>
+      <div class="info">
+        <p><strong>Exploit:</strong> {getExploitName(exploits, editingRun.exploit_id)}</p>
+        <p><strong>Team:</strong> {getTeamName(teams, editingRun.team_id)}</p>
+        <p><strong>Image:</strong> <code>{getExploit(editingRun.exploit_id)?.docker_image}</code></p>
+        <p><strong>Entrypoint:</strong> <code>{getExploit(editingRun.exploit_id)?.entrypoint || '(image CMD)'}</code></p>
+      </div>
+      <label class:field-changed={isEditRunChanged('priority')}>
+        Priority <input bind:value={editForm.priority} type="number" placeholder="Auto" />
+      </label>
+      <label class:field-changed={isEditRunChanged('sequence')}>
+        Sequence <input bind:value={editForm.sequence} type="number" />
+      </label>
+      <label class="checkbox" class:field-changed={isEditRunChanged('enabled')}>
+        <input type="checkbox" bind:checked={editForm.enabled} /> Enabled
+      </label>
+      <div class="modal-actions">
+        <button class="danger" onclick={deleteRun}>Delete</button>
+        <button onclick={() => editingRun = null}>Cancel</button>
+        <button onclick={saveRun}>Save</button>
+      </div>
     </div>
   </Modal>
 {/if}
 
 {#if editingExploit}
   <Modal onClose={() => editingExploit = null}>
-    <h3>Edit Exploit</h3>
-    <label>Name <input type="text" bind:value={exploitForm.name} /></label>
-    <label>Docker Image <input type="text" bind:value={exploitForm.docker_image} /></label>
-    <label>Entrypoint <input type="text" bind:value={exploitForm.entrypoint} placeholder="Leave empty to use image CMD" /></label>
-    <label>Priority <input bind:value={exploitForm.priority} type="number" /></label>
-    <label>Max per container <input bind:value={exploitForm.max_per_container} type="number" /></label>
-    <label>Default counter <input bind:value={exploitForm.default_counter} type="number" /></label>
-    <label>Timeout (secs) <input bind:value={exploitForm.timeout_secs} type="number" placeholder="0 = use global" /></label>
-    <label class="checkbox"><input type="checkbox" bind:checked={exploitForm.enabled} /> Enabled</label>
-    <div class="modal-actions">
-      <button class="danger" onclick={deleteExploit}>Delete</button>
-      <button onclick={() => editingExploit = null}>Cancel</button>
-      <button onclick={saveExploit}>Save</button>
+    <div onkeydown={(e) => onFormKeydown(e, saveExploit)}>
+      <h3>Edit Exploit</h3>
+      <label class:field-changed={isExploitFieldChanged('name')}>
+        Name <input type="text" bind:value={exploitForm.name} />
+      </label>
+      <label class:field-changed={isExploitFieldChanged('docker_image')}>
+        Docker Image <input type="text" bind:value={exploitForm.docker_image} />
+      </label>
+      <label class:field-changed={isExploitFieldChanged('entrypoint')}>
+        Entrypoint <input type="text" bind:value={exploitForm.entrypoint} placeholder="Leave empty to use image CMD" />
+      </label>
+      <label class:field-changed={isExploitFieldChanged('priority')}>
+        Priority <input bind:value={exploitForm.priority} type="number" />
+      </label>
+      <label class:field-changed={isExploitFieldChanged('max_per_container')}>
+        Max per container <input bind:value={exploitForm.max_per_container} type="number" />
+      </label>
+      <label class:field-changed={isExploitFieldChanged('default_counter')}>
+        Default counter <input bind:value={exploitForm.default_counter} type="number" />
+      </label>
+      <label class:field-changed={isExploitFieldChanged('timeout_secs')}>
+        Timeout (secs) <input bind:value={exploitForm.timeout_secs} type="number" placeholder="0 = use global" />
+      </label>
+      <label class="checkbox" class:field-changed={isExploitFieldChanged('enabled')}>
+        <input type="checkbox" bind:checked={exploitForm.enabled} /> Enabled
+      </label>
+      <div class="modal-actions">
+        <button class="danger" onclick={deleteExploit}>Delete</button>
+        <button onclick={() => editingExploit = null}>Cancel</button>
+        <button onclick={saveExploit}>Save</button>
+      </div>
     </div>
   </Modal>
 {/if}
 
 {#if editingRelation}
   <Modal onClose={() => editingRelation = null}>
-    <h3>Connection for {editingRelation.team_name}</h3>
-    <p class="hint">Leave empty to use team default IP + challenge default port</p>
-    <label>IP/Host <input type="text" bind:value={relationForm.addr} placeholder="Team default" /></label>
-    <label>Port <input bind:value={relationForm.port} type="number" placeholder="Challenge default" /></label>
-    <div class="modal-actions">
-      <button onclick={() => editingRelation = null}>Cancel</button>
-      <button onclick={saveRelation}>Save</button>
+    <div onkeydown={(e) => onFormKeydown(e, saveRelation)}>
+      <h3>Connection for {editingRelation.team_name}</h3>
+      <p class="hint">Leave empty to use team default IP + challenge default port</p>
+      <label class:field-changed={isRelationFieldChanged('addr')}>
+        IP/Host <input type="text" bind:value={relationForm.addr} placeholder="Team default" />
+      </label>
+      <label class:field-changed={isRelationFieldChanged('port')}>
+        Port <input bind:value={relationForm.port} type="number" placeholder="Challenge default" />
+      </label>
+      <div class="modal-actions">
+        <button onclick={() => editingRelation = null}>Cancel</button>
+        <button onclick={saveRelation}>Save</button>
+      </div>
     </div>
   </Modal>
 {/if}
@@ -348,3 +414,36 @@
   .card-play:hover { opacity: 1; }
   .danger { background: #d9534f; }
 </style>
+  function normalizeField(value) {
+    if (typeof value === 'boolean') return value;
+    return value ?? '';
+  }
+
+  function isNewExploitChanged(field) {
+    if (!newExploitInitial) return false;
+    return String(normalizeField(newExploit[field])) !== String(normalizeField(newExploitInitial[field]));
+  }
+
+  function isEditRunChanged(field) {
+    if (!editFormInitial) return false;
+    return String(normalizeField(editForm[field])) !== String(normalizeField(editFormInitial[field]));
+  }
+
+  function isExploitFieldChanged(field) {
+    if (!exploitFormInitial) return false;
+    return String(normalizeField(exploitForm[field])) !== String(normalizeField(exploitFormInitial[field]));
+  }
+
+  function isRelationFieldChanged(field) {
+    if (!relationFormInitial) return false;
+    return String(normalizeField(relationForm[field])) !== String(normalizeField(relationFormInitial[field]));
+  }
+
+  function onFormKeydown(e, onSave) {
+    if (e.key !== 'Enter') return;
+    const target = e.target;
+    if (!target || (target.tagName !== 'INPUT' && target.tagName !== 'SELECT')) return;
+    if (target.type === 'checkbox') return;
+    e.preventDefault();
+    onSave();
+  }

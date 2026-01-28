@@ -7,10 +7,22 @@
   let showTeamModal = $state(false);
   let editingTeam = $state(null);
   let teamForm = $state({ team_id: '', team_name: '', default_ip: '', priority: 0, enabled: true });
+  let teamFormInitial = $state(null);
+
+  function normalizeField(value) {
+    if (typeof value === 'boolean') return value;
+    return value ?? '';
+  }
+
+  function isTeamFieldChanged(field) {
+    if (!teamFormInitial) return false;
+    return String(normalizeField(teamForm[field])) !== String(normalizeField(teamFormInitial[field]));
+  }
 
   function openAddTeam() {
     editingTeam = null;
     teamForm = { team_id: '', team_name: '', default_ip: '', priority: 0, enabled: true };
+    teamFormInitial = { ...teamForm };
     showTeamModal = true;
   }
 
@@ -23,7 +35,17 @@
       priority: t.priority,
       enabled: t.enabled
     };
+    teamFormInitial = { ...teamForm };
     showTeamModal = true;
+  }
+
+  function onFormKeydown(e, onSave) {
+    if (e.key !== 'Enter') return;
+    const target = e.target;
+    if (!target || (target.tagName !== 'INPUT' && target.tagName !== 'SELECT')) return;
+    if (target.type === 'checkbox') return;
+    e.preventDefault();
+    onSave();
   }
 
   async function saveTeam() {
@@ -91,16 +113,28 @@
 
 {#if showTeamModal}
   <Modal onClose={closeModal}>
-    <h3>{editingTeam ? 'Edit' : 'Add'} Team</h3>
-    <label>Team ID <input bind:value={teamForm.team_id} disabled={!!editingTeam} /></label>
-    <label>Team Name <input bind:value={teamForm.team_name} /></label>
-    <label>Default IP <input bind:value={teamForm.default_ip} placeholder="Optional" /></label>
-    <label>Priority <input bind:value={teamForm.priority} type="number" /></label>
-    <label class="checkbox"><input type="checkbox" bind:checked={teamForm.enabled} /> Enabled</label>
-    <div class="modal-actions">
-      {#if editingTeam}<button class="danger" onclick={deleteTeam}>Delete</button>{/if}
-      <button onclick={closeModal}>Cancel</button>
-      <button onclick={saveTeam}>Save</button>
+    <div onkeydown={(e) => onFormKeydown(e, saveTeam)}>
+      <h3>{editingTeam ? 'Edit' : 'Add'} Team</h3>
+      <label class:field-changed={isTeamFieldChanged('team_id')}>
+        Team ID <input bind:value={teamForm.team_id} disabled={!!editingTeam} />
+      </label>
+      <label class:field-changed={isTeamFieldChanged('team_name')}>
+        Team Name <input bind:value={teamForm.team_name} />
+      </label>
+      <label class:field-changed={isTeamFieldChanged('default_ip')}>
+        Default IP <input bind:value={teamForm.default_ip} placeholder="Optional" />
+      </label>
+      <label class:field-changed={isTeamFieldChanged('priority')}>
+        Priority <input bind:value={teamForm.priority} type="number" />
+      </label>
+      <label class="checkbox" class:field-changed={isTeamFieldChanged('enabled')}>
+        <input type="checkbox" bind:checked={teamForm.enabled} /> Enabled
+      </label>
+      <div class="modal-actions">
+        {#if editingTeam}<button class="danger" onclick={deleteTeam}>Delete</button>{/if}
+        <button onclick={closeModal}>Cancel</button>
+        <button onclick={saveTeam}>Save</button>
+      </div>
     </div>
   </Modal>
 {/if}

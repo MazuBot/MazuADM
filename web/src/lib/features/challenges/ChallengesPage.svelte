@@ -13,10 +13,22 @@
     flag_regex: '',
     enabled: true
   });
+  let challengeFormInitial = $state(null);
+
+  function normalizeField(value) {
+    if (typeof value === 'boolean') return value;
+    return value ?? '';
+  }
+
+  function isChallengeFieldChanged(field) {
+    if (!challengeFormInitial) return false;
+    return String(normalizeField(challengeForm[field])) !== String(normalizeField(challengeFormInitial[field]));
+  }
 
   function openAddChallenge() {
     editingChallenge = null;
     challengeForm = { name: '', default_port: '', priority: 0, flag_regex: '', enabled: true };
+    challengeFormInitial = { ...challengeForm };
     showChallengeModal = true;
   }
 
@@ -29,7 +41,17 @@
       flag_regex: c.flag_regex ?? '',
       enabled: c.enabled
     };
+    challengeFormInitial = { ...challengeForm };
     showChallengeModal = true;
+  }
+
+  function onFormKeydown(e, onSave) {
+    if (e.key !== 'Enter') return;
+    const target = e.target;
+    if (!target || (target.tagName !== 'INPUT' && target.tagName !== 'SELECT')) return;
+    if (target.type === 'checkbox') return;
+    e.preventDefault();
+    onSave();
   }
 
   async function saveChallenge() {
@@ -97,16 +119,28 @@
 
 {#if showChallengeModal}
   <Modal onClose={closeModal}>
-    <h3>{editingChallenge ? 'Edit' : 'Add'} Challenge</h3>
-    <label>Name <input bind:value={challengeForm.name} /></label>
-    <label>Default Port <input bind:value={challengeForm.default_port} type="number" placeholder="Optional" /></label>
-    <label>Priority <input bind:value={challengeForm.priority} type="number" /></label>
-    <label>Flag Regex <input bind:value={challengeForm.flag_regex} placeholder="e.g. [A-Za-z0-9]{31}=" /></label>
-    <label class="checkbox"><input type="checkbox" bind:checked={challengeForm.enabled} /> Enabled</label>
-    <div class="modal-actions">
-      {#if editingChallenge}<button class="danger" onclick={deleteChallenge}>Delete</button>{/if}
-      <button onclick={closeModal}>Cancel</button>
-      <button onclick={saveChallenge}>Save</button>
+    <div onkeydown={(e) => onFormKeydown(e, saveChallenge)}>
+      <h3>{editingChallenge ? 'Edit' : 'Add'} Challenge</h3>
+      <label class:field-changed={isChallengeFieldChanged('name')}>
+        Name <input bind:value={challengeForm.name} />
+      </label>
+      <label class:field-changed={isChallengeFieldChanged('default_port')}>
+        Default Port <input bind:value={challengeForm.default_port} type="number" placeholder="Optional" />
+      </label>
+      <label class:field-changed={isChallengeFieldChanged('priority')}>
+        Priority <input bind:value={challengeForm.priority} type="number" />
+      </label>
+      <label class:field-changed={isChallengeFieldChanged('flag_regex')}>
+        Flag Regex <input bind:value={challengeForm.flag_regex} placeholder="e.g. [A-Za-z0-9]{31}=" />
+      </label>
+      <label class="checkbox" class:field-changed={isChallengeFieldChanged('enabled')}>
+        <input type="checkbox" bind:checked={challengeForm.enabled} /> Enabled
+      </label>
+      <div class="modal-actions">
+        {#if editingChallenge}<button class="danger" onclick={deleteChallenge}>Delete</button>{/if}
+        <button onclick={closeModal}>Cancel</button>
+        <button onclick={saveChallenge}>Save</button>
+      </div>
     </div>
   </Modal>
 {/if}
