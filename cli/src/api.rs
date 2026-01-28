@@ -122,10 +122,10 @@ impl ApiClient {
     pub async fn update_setting(&self, s: UpdateSetting) -> Result<()> { let _: String = self.post("/api/settings", &s).await?; Ok(()) }
 
     // Containers
-    pub async fn list_containers(&self) -> Result<Vec<ExploitContainer>> { self.get("/api/containers").await }
-    pub async fn get_container_runners(&self, id: i32) -> Result<Vec<ExploitRunner>> { self.get(&format!("/api/containers/{}/runners", id)).await }
-    pub async fn delete_container(&self, id: i32) -> Result<()> { self.delete(&format!("/api/containers/{}", id)).await }
-    pub async fn restart_container(&self, id: i32) -> Result<()> { let _: String = self.post_empty(&format!("/api/containers/{}/restart", id)).await?; Ok(()) }
+    pub async fn list_containers(&self) -> Result<Vec<ContainerInfo>> { self.get("/api/containers").await }
+    pub async fn get_container_runners(&self, id: &str) -> Result<Vec<ExploitJob>> { self.get(&format!("/api/containers/{}/runners", id)).await }
+    pub async fn delete_container(&self, id: &str) -> Result<()> { self.delete(&format!("/api/containers/{}", id)).await }
+    pub async fn restart_container(&self, id: &str) -> Result<()> { let _: String = self.post_empty(&format!("/api/containers/{}/restart", id)).await?; Ok(()) }
 
     // Relations
     pub async fn list_relations(&self, challenge_id: i32) -> Result<Vec<ChallengeTeamRelation>> { self.get(&format!("/api/relations/{}", challenge_id)).await }

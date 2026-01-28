@@ -88,7 +88,7 @@ enum FlagCmd { List { #[arg(long)] round: Option<i32> } }
 enum SettingCmd { List, Set { key: String, value: String } }
 
 #[derive(Subcommand)]
-enum ContainerCmd { List, Runners { id: i32 }, Delete { id: i32 }, Restart { id: i32 } }
+enum ContainerCmd { List, Runners { id: String }, Delete { id: String }, Restart { id: String } }
 
 #[derive(Subcommand)]
 enum RelationCmd { List { challenge: String }, Get { challenge: String, team: String }, Update { challenge: String, team: String, #[arg(long)] ip: Option<String>, #[arg(long)] port: Option<i32> } }
@@ -101,8 +101,8 @@ enum RelationCmd { List { challenge: String }, Get { challenge: String, team: St
 #[derive(Tabled)] struct JobRow { id: i32, run: String, team_id: String, team_name: String, priority: i32, status: String }
 #[derive(Tabled)] struct FlagRow { id: i32, round: String, challenge: i32, team_id: String, team_name: String, flag: String, status: String }
 #[derive(Tabled)] struct SettingRow { key: String, value: String }
-#[derive(Tabled)] struct ContainerRow { id: i32, container_id: String, exploit: i32, status: String, counter: i32 }
-#[derive(Tabled)] struct RunnerRow { id: i32, container: i32, run: i32, team_id: String, team_name: String }
+#[derive(Tabled)] struct ContainerRow { id: String, exploit: i32, status: String, counter: i32, execs: String }
+#[derive(Tabled)] struct RunnerRow { id: i32, run: String, team_id: String, team_name: String, status: String }
 #[derive(Tabled)] struct RelationRow { challenge: i32, team_id: String, team_name: String, addr: String, port: String }
 
 struct Ctx { api: ApiClient, challenges: Option<Vec<Challenge>>, teams: Option<Vec<Team>>, exploits: Option<Vec<Exploit>> }
@@ -346,16 +346,16 @@ async fn main() -> Result<()> {
         },
         Cmd::Container { cmd } => match cmd {
             ContainerCmd::List => {
-                let rows: Vec<_> = ctx.api.list_containers().await?.into_iter().map(|c| ContainerRow { id: c.id, container_id: c.container_id[..12.min(c.container_id.len())].to_string(), exploit: c.exploit_id, status: c.status, counter: c.counter }).collect();
+                let rows: Vec<_> = ctx.api.list_containers().await?.into_iter().map(|c| ContainerRow { id: c.id[..12.min(c.id.len())].to_string(), exploit: c.exploit_id, status: c.status, counter: c.counter, execs: format!("{}/{}", c.running_execs, c.max_execs) }).collect();
                 println!("{}", Table::new(rows));
             }
             ContainerCmd::Runners { id } => {
                 ctx.teams().await?;
-                let rows: Vec<_> = ctx.api.get_container_runners(id).await?.into_iter().map(|r| { let (tid, tn) = ctx.team_label(r.team_id); RunnerRow { id: r.id, container: r.exploit_container_id, run: r.exploit_run_id, team_id: tid, team_name: tn } }).collect();
+                let rows: Vec<_> = ctx.api.get_container_runners(&id).await?.into_iter().map(|r| { let (tid, tn) = ctx.team_label(r.team_id); RunnerRow { id: r.id, run: r.exploit_run_id.map(|id| id.to_string()).unwrap_or("-".into()), team_id: tid, team_name: tn, status: r.status } }).collect();
                 println!("{}", Table::new(rows));
             }
-            ContainerCmd::Delete { id } => { ctx.api.delete_container(id).await?; println!("Deleted"); }
-            ContainerCmd::Restart { id } => { ctx.api.restart_container(id).await?; println!("Restarted"); }
+            ContainerCmd::Delete { id } => { ctx.api.delete_container(&id).await?; println!("Deleted"); }
+            ContainerCmd::Restart { id } => { ctx.api.restart_container(&id).await?; println!("Restarted"); }
         },
         Cmd::Relation { cmd } => match cmd {
             RelationCmd::List { challenge } => {
