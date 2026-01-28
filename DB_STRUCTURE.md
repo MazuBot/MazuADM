@@ -5,160 +5,202 @@
 ### challenges
 Stores CTF challenge definitions.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | SERIAL | Primary key |
-| name | VARCHAR(255) | Challenge name |
-| enabled | BOOLEAN | Whether challenge is active |
-| default_port | INTEGER | Default service port |
-| priority | INTEGER | Execution priority (higher = first) |
-| flag_regex | VARCHAR(512) | Custom regex for flag extraction |
-| created_at | TIMESTAMPTZ | Creation timestamp |
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| id | SERIAL | NO | Primary key |
+| name | VARCHAR(255) | NO | Challenge name |
+| enabled | BOOLEAN | NO | Whether challenge is active (default: true) |
+| default_port | INTEGER | YES | Default service port |
+| priority | INTEGER | NO | Execution priority (higher = first, default: 0) |
+| flag_regex | VARCHAR(512) | YES | Custom regex for flag extraction |
+| created_at | TIMESTAMPTZ | NO | Creation timestamp |
 
 ### teams
 Target teams in the competition.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | SERIAL | Primary key |
-| team_id | VARCHAR(100) | External team identifier (unique) |
-| team_name | VARCHAR(255) | Display name |
-| default_ip | VARCHAR(255) | Default target IP |
-| priority | INTEGER | Execution priority |
-| enabled | BOOLEAN | Skip if disabled |
-| created_at | TIMESTAMPTZ | Creation timestamp |
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| id | SERIAL | NO | Primary key |
+| team_id | VARCHAR(100) | NO | External team identifier (unique) |
+| team_name | VARCHAR(255) | NO | Display name |
+| default_ip | VARCHAR(255) | YES | Default target IP |
+| priority | INTEGER | NO | Execution priority (default: 0) |
+| enabled | BOOLEAN | NO | Skip if disabled (default: true) |
+| created_at | TIMESTAMPTZ | NO | Creation timestamp |
 
 ### challenge_team_relations
 Per-team connection overrides for challenges.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | SERIAL | Primary key |
-| challenge_id | INTEGER | FK → challenges |
-| team_id | INTEGER | FK → teams |
-| addr | VARCHAR(255) | Override IP/hostname |
-| port | INTEGER | Override port |
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| id | SERIAL | NO | Primary key |
+| challenge_id | INTEGER | NO | FK → challenges (CASCADE) |
+| team_id | INTEGER | NO | FK → teams (CASCADE) |
+| addr | VARCHAR(255) | YES | Override IP/hostname |
+| port | INTEGER | YES | Override port |
+| created_at | TIMESTAMPTZ | NO | Creation timestamp |
+
+Unique constraint: (challenge_id, team_id)
 
 ### exploits
 Docker-based exploit definitions.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | SERIAL | Primary key |
-| name | VARCHAR(255) | Exploit name |
-| challenge_id | INTEGER | FK → challenges |
-| enabled | BOOLEAN | Whether exploit is active |
-| priority | INTEGER | Execution priority |
-| docker_image | VARCHAR(512) | Docker image to run |
-| entrypoint | VARCHAR(512) | Custom entrypoint |
-| timeout_secs | INTEGER | Container timeout (default: 30) |
-| max_per_container | INTEGER | Max runners per container |
-| default_counter | INTEGER | Container lifetime (default: 999) |
-
-### exploit_containers
-Persistent Docker containers for exploits.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | SERIAL | Primary key |
-| exploit_id | INTEGER | FK → exploits |
-| container_id | VARCHAR(100) | Docker container ID |
-| counter | INTEGER | Remaining uses before destroy |
-| status | VARCHAR(50) | running/dead/destroyed |
-| created_at | TIMESTAMPTZ | Creation timestamp |
-
-### exploit_runners
-Pins exploit_runs to specific containers.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | SERIAL | Primary key |
-| exploit_container_id | INTEGER | FK → exploit_containers |
-| exploit_run_id | INTEGER | FK → exploit_runs (unique) |
-| team_id | INTEGER | FK → teams |
-| created_at | TIMESTAMPTZ | Creation timestamp |
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| id | SERIAL | NO | Primary key |
+| name | VARCHAR(255) | NO | Exploit name |
+| challenge_id | INTEGER | NO | FK → challenges (CASCADE) |
+| enabled | BOOLEAN | NO | Whether exploit is active (default: true) |
+| priority | INTEGER | NO | Execution priority (default: 0) |
+| docker_image | VARCHAR(512) | NO | Docker image to run |
+| entrypoint | VARCHAR(512) | YES | Custom entrypoint |
+| timeout_secs | INTEGER | NO | Container timeout (default: 30) |
+| max_per_container | INTEGER | NO | Max runners per container (default: 1) |
+| default_counter | INTEGER | NO | Container lifetime (default: 999) |
+| auto_add | BOOLEAN | NO | Auto-add runs for all teams (default: false) |
+| created_at | TIMESTAMPTZ | NO | Creation timestamp |
 
 ### exploit_runs
 Cards in the board view - which exploits run against which teams.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | SERIAL | Primary key |
-| exploit_id | INTEGER | FK → exploits |
-| challenge_id | INTEGER | FK → challenges |
-| team_id | INTEGER | FK → teams |
-| priority | INTEGER | Override priority |
-| sequence | INTEGER | Order within team column |
-| enabled | BOOLEAN | Skip if disabled |
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| id | SERIAL | NO | Primary key |
+| exploit_id | INTEGER | NO | FK → exploits (CASCADE) |
+| challenge_id | INTEGER | NO | FK → challenges (CASCADE) |
+| team_id | INTEGER | NO | FK → teams (CASCADE) |
+| priority | INTEGER | YES | Override priority |
+| sequence | INTEGER | NO | Order within team column (default: 0) |
+| enabled | BOOLEAN | NO | Skip if disabled (default: true) |
+| created_at | TIMESTAMPTZ | NO | Creation timestamp |
+
+Unique constraint: (exploit_id, challenge_id, team_id)
+
+### exploit_containers
+Persistent Docker containers for exploits.
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| id | SERIAL | NO | Primary key |
+| exploit_id | INTEGER | NO | FK → exploits (CASCADE) |
+| container_id | VARCHAR(100) | NO | Docker container ID |
+| counter | INTEGER | NO | Remaining uses before destroy |
+| status | VARCHAR(50) | NO | running/dead/destroyed (default: running) |
+| created_at | TIMESTAMPTZ | NO | Creation timestamp |
+
+### exploit_runners
+Pins exploit_runs to specific containers.
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| id | SERIAL | NO | Primary key |
+| exploit_container_id | INTEGER | NO | FK → exploit_containers (CASCADE) |
+| exploit_run_id | INTEGER | NO | FK → exploit_runs (CASCADE), unique |
+| team_id | INTEGER | NO | FK → teams (CASCADE) |
+| created_at | TIMESTAMPTZ | NO | Creation timestamp |
 
 ### rounds
 Execution rounds grouping jobs.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | SERIAL | Primary key |
-| started_at | TIMESTAMPTZ | Round start time |
-| finished_at | TIMESTAMPTZ | Round completion time |
-| status | VARCHAR(50) | pending/running/finished |
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| id | SERIAL | NO | Primary key |
+| started_at | TIMESTAMPTZ | NO | Round start time |
+| finished_at | TIMESTAMPTZ | YES | Round completion time |
+| status | VARCHAR(50) | NO | pending/running/finished (default: pending) |
 
 ### exploit_jobs
 Individual exploit executions within a round.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | SERIAL | Primary key |
-| round_id | INTEGER | FK → rounds |
-| exploit_run_id | INTEGER | FK → exploit_runs |
-| team_id | INTEGER | FK → teams |
-| priority | INTEGER | Computed priority |
-| status | VARCHAR(50) | pending/running/success/failed/timeout/error/skipped |
-| stdout | TEXT | Container stdout |
-| stderr | TEXT | Container stderr |
-| duration_ms | INTEGER | Execution time |
-| started_at | TIMESTAMPTZ | Job start |
-| finished_at | TIMESTAMPTZ | Job completion |
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| id | SERIAL | NO | Primary key |
+| round_id | INTEGER | YES | FK → rounds (CASCADE), NULL for ad-hoc jobs |
+| exploit_run_id | INTEGER | YES | FK → exploit_runs (SET NULL) |
+| team_id | INTEGER | NO | FK → teams (CASCADE) |
+| priority | INTEGER | NO | Computed priority |
+| status | VARCHAR(50) | NO | pending/running/success/failed/timeout/ole/error/skipped/flag |
+| container_id | VARCHAR(100) | YES | Docker container ID used |
+| stdout | TEXT | YES | Container stdout |
+| stderr | TEXT | YES | Container stderr |
+| duration_ms | INTEGER | YES | Execution time in milliseconds |
+| started_at | TIMESTAMPTZ | YES | Job start time |
+| finished_at | TIMESTAMPTZ | YES | Job completion time |
+| created_at | TIMESTAMPTZ | NO | Creation timestamp |
 
 ### flags
 Captured flags extracted from job output.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | SERIAL | Primary key |
-| job_id | INTEGER | FK → exploit_jobs |
-| round_id | INTEGER | FK → rounds |
-| challenge_id | INTEGER | FK → challenges |
-| team_id | INTEGER | FK → teams |
-| flag_value | VARCHAR(512) | The captured flag |
-| status | VARCHAR(50) | captured/submitted/accepted/rejected |
-| submitted_at | TIMESTAMPTZ | Submission time |
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| id | SERIAL | NO | Primary key |
+| job_id | INTEGER | YES | FK → exploit_jobs (SET NULL) |
+| round_id | INTEGER | YES | FK → rounds (CASCADE), NULL for ad-hoc |
+| challenge_id | INTEGER | NO | FK → challenges (CASCADE) |
+| team_id | INTEGER | NO | FK → teams (CASCADE) |
+| flag_value | VARCHAR(512) | NO | The captured flag |
+| status | VARCHAR(50) | NO | captured/submitted/accepted/rejected (default: captured) |
+| submitted_at | TIMESTAMPTZ | YES | Submission time |
+| created_at | TIMESTAMPTZ | NO | Creation timestamp |
 
 ### settings
 Runtime configuration key-value store.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| key | VARCHAR(100) | Setting name (PK) |
-| value | TEXT | Setting value |
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| key | VARCHAR(100) | NO | Setting name (PK) |
+| value | TEXT | NO | Setting value |
 
 Known settings:
 - `concurrent_limit` - Max parallel container executions (default: 10)
 - `worker_timeout` - Container timeout override in seconds (default: 60)
+- `max_flags` - Max flags to extract per job (default: 50)
+- `sequential_per_target` - Run one job per target at a time (default: false)
+- `skip_on_flag` - Skip remaining jobs for target after flag (default: false)
+
+## Indexes
+
+| Table | Index | Columns |
+|-------|-------|---------|
+| exploit_jobs | idx_exploit_jobs_round | round_id |
+| exploit_jobs | idx_exploit_jobs_status | status |
+| flags | idx_flags_round | round_id |
+| flags | idx_flags_status | status |
+| exploit_containers | idx_exploit_containers_exploit | exploit_id |
+| exploit_containers | idx_exploit_containers_status | status |
+| exploit_runners | idx_exploit_runners_container | exploit_container_id |
 
 ## Relationships
 
 ```
-challenges ─┬─< exploit_runs >─┬─ teams
-            │                  │
-            └─< exploits ──────┘
+challenges ─┬─< challenge_team_relations >─┬─ teams
+            │                              │
+            ├─< exploit_runs >─────────────┤
+            │       │                      │
+            │       └──< exploit_runners ──┤
+            │               │              │
+            └─< exploits ───┴─< exploit_containers
                     │
-                    ├─< exploit_containers ─< exploit_runners
-                    │                              │
-                    v                              v
-              exploit_jobs ──> flags         exploit_runs
+                    v
+              exploit_jobs ──> flags
                     │
                     v
                   rounds
 ```
+
+## Job Status Values
+
+| Status | Description |
+|--------|-------------|
+| pending | Waiting to execute |
+| running | Currently executing |
+| success | Completed with exit code 0, no flags |
+| failed | Completed with non-zero exit code |
+| timeout | Execution timed out |
+| ole | Output limit exceeded |
+| error | Internal error during execution |
+| skipped | Skipped (exploit/team disabled, or skip_on_flag) |
+| flag | Completed and captured flag(s) |
 
 ## Container Lifecycle
 
@@ -168,3 +210,18 @@ challenges ─┬─< exploit_runs >─┬─ teams
 4. When counter reaches 0, container is destroyed and runners reassigned
 5. Dead containers are auto-detected and recreated with runners reassigned
 6. Containers stay running between rounds
+
+## Ad-hoc Jobs
+
+Jobs can be created without a round (round_id = NULL) for immediate execution:
+- Created via "play" button on Board or Rounds page
+- Created via CLI `exploit run` or `job run` commands
+- Bypass sequential_per_target, skip_on_flag, and concurrent_limit checks
+- Flags from ad-hoc jobs have round_id = NULL
+
+## Round Lifecycle
+
+1. `round new` - Creates round with status 'pending', generates jobs from enabled exploit_runs
+2. `round run` - Sets status to 'running', executes pending jobs
+3. Round stays 'running' until next round starts
+4. Starting a new round sets previous running rounds to 'finished'
