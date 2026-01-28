@@ -88,7 +88,8 @@
 
   async function loadJobs(roundId) {
     if (!roundId) return;
-    jobs = await api.jobs(roundId);
+    const result = await api.jobs(roundId);
+    if (roundId === selectedRound) jobs = result;
   }
 
   async function loadFlags(roundId) {
@@ -160,8 +161,8 @@
 
   async function newRound() {
     const id = await api.createRound();
-    await loadAll();
     selectedRound = id;
+    jobs = [];
     navigate('rounds', id);
   }
 
