@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn test_calculate_priority_default() {
-        assert_eq!(Scheduler::calculate_priority(5, 3, 2, None), 50302);
+        assert_eq!(Scheduler::calculate_priority(5, 3, 2, None), -19695);
     }
 
     #[test]

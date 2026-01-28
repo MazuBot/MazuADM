@@ -81,7 +81,7 @@ pub struct Scheduler {
 
 Priority formula (when no override):
 ```
-priority = challenge_priority * 10000 + team_priority * 100 + sequence
+priority = challenge_priority + team_priority * 100 - sequence * 10000
 ```
 
 ### Executor (`executor.rs`)
