@@ -118,6 +118,9 @@ impl ContainerManager {
 
     /// Spawn a new persistent container for an exploit
     pub async fn spawn_container(&self, exploit: &Exploit) -> Result<ExploitContainer> {
+        if !self.can_spawn_container(exploit.id, exploit.max_containers).await? {
+            return Err(anyhow::anyhow!("Max containers reached for exploit {}", exploit.id));
+        }
         let _permit = self.spawn_gate.acquire().await?;
         let normalized: String = exploit.name.chars()
             .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
@@ -171,6 +174,9 @@ impl ContainerManager {
         }
 
         // No available container, spawn a new one and assign
+        if !self.can_spawn_container(exploit.id, exploit.max_containers).await? {
+            return Err(anyhow::anyhow!("Max containers reached for exploit {}", exploit.id));
+        }
         let container = self.spawn_container(&exploit).await?;
         let assigned = self.db.assign_new_container_for_run(container.id, run.id, run.team_id).await?;
         Ok(assigned)
@@ -389,7 +395,10 @@ impl ContainerManager {
             
             // Calculate needed containers: min(runs, concurrent_limit) / max_per_container
             let active_runs = runs.len().min(concurrent_limit);
-            let needed = needed_containers(active_runs, exploit.max_per_container);
+            let mut needed = needed_containers(active_runs, exploit.max_per_container);
+            if exploit.max_containers > 0 {
+                needed = needed.min(exploit.max_containers as usize);
+            }
             
             let existing = self.db.get_exploit_containers(exploit.id).await?;
             let healthy: Vec<_> = existing.iter().filter(|c| c.counter > 0).collect();
@@ -405,6 +414,14 @@ impl ContainerManager {
             }
         }
         Ok(())
+    }
+
+    async fn can_spawn_container(&self, exploit_id: i32, max_containers: i32) -> Result<bool> {
+        if max_containers <= 0 {
+            return Ok(true);
+        }
+        let containers = self.db.get_exploit_containers(exploit_id).await?;
+        Ok((containers.len() as i32) < max_containers)
     }
 }
 
