@@ -11,6 +11,20 @@ It uses `--rm --network host -it` so the pwntools images avoid terminfo warnings
 ./scripts/test_exps.sh
 ```
 
+### Options
+
+```sh
+CHALS=all TEAM_ID=1 HOST=127.0.0.1 \
+  CHAL1_PORT=18000 CHAL2_PORT=18001 CHAL3_PORT=18002 \
+  ./scripts/test_exps.sh
+```
+
+Run a single challenge's exploits:
+
+```sh
+CHALS=chal2 ./scripts/test_exps.sh
+```
+
 ## Start sample services
 
 Build and run all sample challenge services (skips containers that already exist).
@@ -24,14 +38,6 @@ Build and run all sample challenge services (skips containers that already exist
 ```sh
 FLAG_SECRET=sample-secret CHAL1_PORT=18000 CHAL2_PORT=18001 CHAL3_PORT=18002 \
   ./scripts/start_chals.sh
-```
-
-### Options
-
-```sh
-TEAM_ID=1 HOST=127.0.0.1 \
-  CHAL1_PORT=18000 CHAL2_PORT=18001 CHAL3_PORT=18002 \
-  ./scripts/test_exps.sh
 ```
 
 ## Manual testing examples
