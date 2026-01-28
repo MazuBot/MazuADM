@@ -12,6 +12,7 @@
       entrypoint: '',
       priority: 0,
       max_per_container: Math.max(teams.length, 1),
+      max_containers: 0,
       default_counter: 999,
       timeout_secs: 0,
       auto_add: 'end',
@@ -28,7 +29,7 @@
   let editFormInitial = $state(null);
 
   let editingExploit = $state(null);
-  let exploitForm = $state({ name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, timeout_secs: 0, enabled: true });
+  let exploitForm = $state({ name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, max_containers: 0, default_counter: 999, timeout_secs: 0, enabled: true });
   let exploitFormInitial = $state(null);
 
   let editingRelation = $state(null);
@@ -94,6 +95,7 @@
       challenge_id: challengeId,
       entrypoint: newExploit.entrypoint || null,
       max_per_container: newExploit.max_per_container,
+      max_containers: newExploit.max_containers,
       default_counter: newExploit.default_counter,
       timeout_secs: newExploit.timeout_secs || 0,
       auto_add: newExploit.auto_add,
@@ -115,7 +117,7 @@
 
   function openEditExploit(e) {
     editingExploit = e;
-    exploitForm = { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint || '', priority: e.priority, max_per_container: e.max_per_container, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, enabled: e.enabled };
+    exploitForm = { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint || '', priority: e.priority, max_per_container: e.max_per_container, max_containers: e.max_containers, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, enabled: e.enabled };
     exploitFormInitial = { ...exploitForm };
   }
 
@@ -324,6 +326,9 @@
       <label class:field-changed={isNewExploitChanged('max_per_container')}>
         Max per container <input bind:value={newExploit.max_per_container} type="number" placeholder={`Default: ${Math.max(teams.length, 1)}`} />
       </label>
+      <label class:field-changed={isNewExploitChanged('max_containers')}>
+        Max containers <input bind:value={newExploit.max_containers} type="number" placeholder="0 = unlimited" />
+      </label>
       <label class:field-changed={isNewExploitChanged('default_counter')}>
         Default counter <input bind:value={newExploit.default_counter} type="number" placeholder="Default: 999" />
       </label>
@@ -401,6 +406,9 @@
       </label>
       <label class:field-changed={isExploitFieldChanged('max_per_container')}>
         Max per container <input bind:value={exploitForm.max_per_container} type="number" />
+      </label>
+      <label class:field-changed={isExploitFieldChanged('max_containers')}>
+        Max containers <input bind:value={exploitForm.max_containers} type="number" placeholder="0 = unlimited" />
       </label>
       <label class:field-changed={isExploitFieldChanged('default_counter')}>
         Default counter <input bind:value={exploitForm.default_counter} type="number" />
