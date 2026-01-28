@@ -196,12 +196,10 @@ impl Executor {
                     }
                 }
 
-                let relations = match db.list_relations(challenge.id).await {
+                let rel = match db.get_relation(challenge.id, team.id).await {
                     Ok(r) => r,
                     Err(e) => { tracing::error!("Job {} failed: {}", job.id, e); return; }
                 };
-                
-                let rel = relations.iter().find(|r| r.team_id == team.id);
                 
                 let conn = match rel.and_then(|r| r.connection_info(&challenge, &team)) {
                     Some(c) => c,

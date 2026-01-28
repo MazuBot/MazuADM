@@ -44,8 +44,7 @@ fn spawn_job_runner(db: Database, tx: tokio::sync::broadcast::Sender<WsMessage>,
         let exploit = match db.get_exploit(run.exploit_id).await { Ok(e) => e, Err(e) => fail!(&e.to_string()) };
         let challenge = match db.get_challenge(run.challenge_id).await { Ok(c) => c, Err(e) => fail!(&e.to_string()) };
         let team = match db.get_team(team_id).await { Ok(t) => t, Err(e) => fail!(&e.to_string()) };
-        let relations = match db.list_relations(challenge.id).await { Ok(r) => r, Err(e) => fail!(&e.to_string()) };
-        let rel = relations.iter().find(|r| r.team_id == team.id);
+        let rel = match db.get_relation(challenge.id, team.id).await { Ok(r) => r, Err(e) => fail!(&e.to_string()) };
         let conn = match rel.and_then(|r| r.connection_info(&challenge, &team)) { Some(c) => c, None => fail!("No connection info") };
         let job = match db.get_job(job_id).await { Ok(j) => j, Err(e) => fail!(&e.to_string()) };
         let round_id = job.round_id;
