@@ -1,8 +1,8 @@
 <script>
   let { rounds, flags, teams, challenges, selectedFlagRoundId, onSelectFlagRound } = $props();
 
-  let challengeFilterId = $state(null);
-  let teamFilterId = $state(null);
+  let challengeFilterId = $state('');
+  let teamFilterId = $state('');
 
   function getTeamName(teamId) {
     const t = teams.find((t) => t.id === teamId);
@@ -14,13 +14,17 @@
     return c ? c.name : challengeId;
   }
 
-  let filteredFlags = $derived(() => {
+  function filterFlags() {
+    const teamId = teamFilterId ? Number(teamFilterId) : null;
+    const challengeId = challengeFilterId ? Number(challengeFilterId) : null;
     return flags.filter((flag) => {
-      if (teamFilterId && flag.team_id !== teamFilterId) return false;
-      if (challengeFilterId && flag.challenge_id !== challengeFilterId) return false;
+      if (teamId && Number(flag.team_id) !== teamId) return false;
+      if (challengeId && Number(flag.challenge_id) !== challengeId) return false;
       return true;
     });
-  });
+  }
+
+  let filteredFlags = $derived(filterFlags());
 </script>
 
 <div class="controls">
@@ -33,24 +37,29 @@
       <option value={r.id}>Round {r.id}</option>
     {/each}
   </select>
-  <select
-    value={challengeFilterId ?? ''}
-    onchange={(e) => (challengeFilterId = e.target.value ? Number(e.target.value) : null)}
-  >
+  <select bind:value={challengeFilterId}>
     <option value="">All challenges</option>
     {#each challenges as c}
       <option value={c.id}>{c.name}</option>
     {/each}
   </select>
-  <select
-    value={teamFilterId ?? ''}
-    onchange={(e) => (teamFilterId = e.target.value ? Number(e.target.value) : null)}
-  >
+  <select bind:value={teamFilterId}>
     <option value="">All teams</option>
     {#each teams as t}
       <option value={t.id}>{t.team_name}</option>
     {/each}
   </select>
+  <button
+    class="small"
+    type="button"
+    onclick={() => {
+      challengeFilterId = '';
+      teamFilterId = '';
+    }}
+    disabled={!challengeFilterId && !teamFilterId}
+  >
+    Reset Filters
+  </button>
 </div>
 
 <table>

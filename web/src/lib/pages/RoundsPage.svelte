@@ -11,8 +11,8 @@
 
   let selectedJob = $state(null);
   let draggingJob = $state(null);
-  let challengeFilterId = $state(null);
-  let teamFilterId = $state(null);
+  let challengeFilterId = $state('');
+  let teamFilterId = $state('');
 
   function getSelectedRound() {
     return rounds.find(r => r.id === selectedRoundId);
@@ -65,16 +65,20 @@
     return [...list].sort((a, b) => b.priority - a.priority || a.id - b.id);
   }
 
-  let filteredJobs = $derived(() => {
+  function filterJobs() {
+    const teamId = teamFilterId ? Number(teamFilterId) : null;
+    const challengeId = challengeFilterId ? Number(challengeFilterId) : null;
     return jobs.filter((job) => {
-      if (teamFilterId && job.team_id !== teamFilterId) return false;
-      if (challengeFilterId) {
+      if (teamId && Number(job.team_id) !== teamId) return false;
+      if (challengeId) {
         const run = getExploitRunInfo(job.exploit_run_id);
-        if (!run || run.challenge_id !== challengeFilterId) return false;
+        if (!run || Number(run.challenge_id) !== challengeId) return false;
       }
       return true;
     });
-  });
+  }
+
+  let filteredJobs = $derived(filterJobs());
 
   function onDragStart(e, job) {
     if (job.status !== 'pending') { e.preventDefault(); return; }
@@ -120,24 +124,29 @@
       {/each}
     </select>
     <button onclick={handleRunClick} disabled={!selectedRoundId}>Run</button>
-    <select
-      value={challengeFilterId ?? ''}
-      onchange={(e) => (challengeFilterId = e.target.value ? Number(e.target.value) : null)}
-    >
+    <select bind:value={challengeFilterId}>
       <option value="">All challenges</option>
       {#each challenges as c}
         <option value={c.id}>{c.name}</option>
       {/each}
     </select>
-    <select
-      value={teamFilterId ?? ''}
-      onchange={(e) => (teamFilterId = e.target.value ? Number(e.target.value) : null)}
-    >
+    <select bind:value={teamFilterId}>
       <option value="">All teams</option>
       {#each teams as t}
         <option value={t.id}>{t.team_name}</option>
       {/each}
     </select>
+    <button
+      class="small"
+      type="button"
+      onclick={() => {
+        challengeFilterId = '';
+        teamFilterId = '';
+      }}
+      disabled={!challengeFilterId && !teamFilterId}
+    >
+      Reset Filters
+    </button>
   </div>
 
   {#if filteredJobs.length}
