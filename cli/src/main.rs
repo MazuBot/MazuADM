@@ -47,13 +47,13 @@ enum ChallengeCmd {
     /// List all challenges
     List,
     /// Update a challenge
-    Update { id: i32, #[arg(long)] name: Option<String>, #[arg(long)] port: Option<i32>, #[arg(long)] priority: Option<i32>, #[arg(long)] flag_regex: Option<String> },
+    Update { #[arg(value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String, #[arg(long)] name: Option<String>, #[arg(long)] port: Option<i32>, #[arg(long)] priority: Option<i32>, #[arg(long)] flag_regex: Option<String> },
     /// Delete a challenge
-    Delete { id: i32 },
+    Delete { #[arg(value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String },
     /// Enable a challenge
-    Enable { id: i32 },
+    Enable { #[arg(value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String },
     /// Disable a challenge
-    Disable { id: i32 },
+    Disable { #[arg(value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String },
 }
 
 #[derive(Subcommand)]
@@ -110,17 +110,17 @@ enum ExploitCmd {
 #[derive(Subcommand)]
 enum RunCmd {
     /// Add a new exploit run
-    Add { #[arg(long, value_name = "EXPLOIT", help = "Exploit name")] exploit: String, #[arg(long)] challenge: i32, #[arg(long, value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String, #[arg(long)] priority: Option<i32>, #[arg(long)] sequence: Option<i32> },
+    Add { #[arg(long, value_name = "EXPLOIT", help = "Exploit name")] exploit: String, #[arg(long, value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String, #[arg(long, value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String, #[arg(long)] priority: Option<i32>, #[arg(long)] sequence: Option<i32> },
     /// List exploit runs
-    List { #[arg(long)] challenge: Option<i32>, #[arg(long, value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: Option<String> },
+    List { #[arg(long, value_name = "CHALLENGE", help = "Challenge name or id")] challenge: Option<String>, #[arg(long, value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: Option<String> },
     /// Update an exploit run
     Update { id: i32, #[arg(long)] priority: Option<i32>, #[arg(long)] sequence: Option<i32> },
     /// Delete an exploit run
     Delete { id: i32 },
     /// Append exploit run to all teams for an exploit/challenge pair
-    AppendAll { #[arg(long, value_name = "EXPLOIT", help = "Exploit name")] exploit: String, #[arg(long)] challenge: i32, #[arg(long)] priority: Option<i32> },
+    AppendAll { #[arg(long, value_name = "EXPLOIT", help = "Exploit name")] exploit: String, #[arg(long, value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String, #[arg(long)] priority: Option<i32> },
     /// Prepend exploit run to all teams for an exploit/challenge pair
-    PrependAll { #[arg(long, value_name = "EXPLOIT", help = "Exploit name")] exploit: String, #[arg(long)] challenge: i32, #[arg(long)] priority: Option<i32> },
+    PrependAll { #[arg(long, value_name = "EXPLOIT", help = "Exploit name")] exploit: String, #[arg(long, value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String, #[arg(long)] priority: Option<i32> },
 }
 
 #[derive(Subcommand)]
@@ -174,11 +174,11 @@ enum ContainerCmd {
 #[derive(Subcommand)]
 enum RelationCmd {
     /// List relations for a challenge
-    List { challenge: i32 },
+    List { #[arg(value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String },
     /// Get a specific relation
-    Get { challenge: i32, #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String },
+    Get { #[arg(value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String, #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String },
     /// Update a relation
-    Update { challenge: i32, #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String, #[arg(long)] ip: Option<String>, #[arg(long)] port: Option<i32> },
+    Update { #[arg(value_name = "CHALLENGE", help = "Challenge name or id")] challenge: String, #[arg(value_name = "TEAM", help = "Team identifier (team_id or numeric id)")] team: String, #[arg(long)] ip: Option<String>, #[arg(long)] port: Option<i32> },
 }
 
 #[derive(Tabled)] struct ChallengeRow { id: i32, name: String, enabled: bool, port: String, priority: i32 }
@@ -236,6 +236,24 @@ where
     Err(anyhow::anyhow!("team not found: {}", team_ref))
 }
 
+#[cfg(test)]
+fn resolve_challenge_ref_sync<F, G>(challenge_ref: &str, mut by_name: F, mut by_id: G) -> Result<Challenge>
+where
+    F: FnMut(&str) -> Option<Challenge>,
+    G: FnMut(i32) -> Option<Challenge>,
+{
+    let trimmed = challenge_ref.trim();
+    if let Some(challenge) = by_name(trimmed) {
+        return Ok(challenge);
+    }
+    if let Ok(id) = trimmed.parse::<i32>() {
+        if let Some(challenge) = by_id(id) {
+            return Ok(challenge);
+        }
+    }
+    Err(anyhow::anyhow!("challenge not found: {}", challenge_ref))
+}
+
 async fn resolve_team_ref(db: &Database, team_ref: &str) -> Result<Team> {
     let parts = parse_team_ref(team_ref);
     if let Some(team) = db.get_team_by_team_id(&parts.team_id).await? {
@@ -245,6 +263,17 @@ async fn resolve_team_ref(db: &Database, team_ref: &str) -> Result<Team> {
         return db.get_team(id).await;
     }
     Err(anyhow::anyhow!("team not found: {}", team_ref))
+}
+
+async fn resolve_challenge_ref(db: &Database, challenge_ref: &str) -> Result<Challenge> {
+    let trimmed = challenge_ref.trim();
+    if let Some(challenge) = db.get_challenge_by_name_optional(trimmed).await? {
+        return Ok(challenge);
+    }
+    if let Ok(id) = trimmed.parse::<i32>() {
+        return db.get_challenge(id).await;
+    }
+    Err(anyhow::anyhow!("challenge not found: {}", challenge_ref))
 }
 
 #[derive(Clone)]
@@ -372,6 +401,45 @@ mod tests {
         assert!(err.to_string().contains("team not found"));
     }
 
+    fn make_challenge(id: i32, name: &str) -> Challenge {
+        Challenge {
+            id,
+            name: name.to_string(),
+            enabled: true,
+            default_port: None,
+            priority: 0,
+            flag_regex: None,
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn test_resolve_challenge_ref_prefers_name() {
+        let by_name = make_challenge(1, "1");
+        let by_id = make_challenge(99, "num");
+        let found = resolve_challenge_ref_sync(
+            "1",
+            |value| if value == "1" { Some(by_name.clone()) } else { None },
+            |id| if id == 1 { Some(by_id.clone()) } else { None },
+        )
+        .unwrap();
+        assert_eq!(found.id, 1);
+        assert_eq!(found.name, "1");
+    }
+
+    #[test]
+    fn test_resolve_challenge_ref_fallback_id() {
+        let by_id = make_challenge(42, "chal");
+        let found = resolve_challenge_ref_sync("42", |_| None, |id| if id == 42 { Some(by_id.clone()) } else { None }).unwrap();
+        assert_eq!(found.id, 42);
+    }
+
+    #[test]
+    fn test_resolve_challenge_ref_missing() {
+        let err = resolve_challenge_ref_sync("missing", |_| None, |_| None).unwrap_err();
+        assert!(err.to_string().contains("challenge not found"));
+    }
+
     fn make_run(sequence: i32, exploit_id: i32) -> ExploitRun {
         ExploitRun {
             id: 1,
@@ -443,14 +511,14 @@ async fn prompt_challenge(db: &Database) -> Result<Challenge> {
 
 async fn resolve_challenge(db: &Database, name: Option<String>, cfg: Option<&exploit_config::ChallengeRef>) -> Result<Challenge> {
     if let Some(name) = normalize_name(name) {
-        return db.get_challenge_by_name(&name).await;
+        return resolve_challenge_ref(db, &name).await;
     }
     if let Some(cfg) = cfg {
         if let Some(id) = cfg.as_id() {
             return db.get_challenge(id).await;
         }
         if let Some(name) = cfg.as_name() {
-            return db.get_challenge_by_name(name).await;
+            return resolve_challenge_ref(db, name).await;
         }
     }
     prompt_challenge(db).await
@@ -485,14 +553,26 @@ async fn main() -> Result<()> {
                 let rows: Vec<_> = db.list_challenges().await?.into_iter().map(|c| ChallengeRow { id: c.id, name: c.name, enabled: c.enabled, port: c.default_port.map(|p| p.to_string()).unwrap_or_default(), priority: c.priority }).collect();
                 println!("{}", Table::new(rows));
             }
-            ChallengeCmd::Update { id, name, port, priority, flag_regex } => {
-                let c = db.get_challenge(id).await?;
-                db.update_challenge(id, CreateChallenge { name: name.unwrap_or(c.name), enabled: Some(c.enabled), default_port: port.or(c.default_port), priority: priority.or(Some(c.priority)), flag_regex: flag_regex.or(c.flag_regex) }).await?;
-                println!("Updated challenge {}", id);
+            ChallengeCmd::Update { challenge, name, port, priority, flag_regex } => {
+                let c = resolve_challenge_ref(&db, &challenge).await?;
+                db.update_challenge(c.id, CreateChallenge { name: name.unwrap_or(c.name), enabled: Some(c.enabled), default_port: port.or(c.default_port), priority: priority.or(Some(c.priority)), flag_regex: flag_regex.or(c.flag_regex) }).await?;
+                println!("Updated challenge {}", c.id);
             }
-            ChallengeCmd::Delete { id } => { db.delete_challenge(id).await?; println!("Deleted challenge {}", id); }
-            ChallengeCmd::Enable { id } => { db.set_challenge_enabled(id, true).await?; println!("Enabled"); }
-            ChallengeCmd::Disable { id } => { db.set_challenge_enabled(id, false).await?; println!("Disabled"); }
+            ChallengeCmd::Delete { challenge } => {
+                let c = resolve_challenge_ref(&db, &challenge).await?;
+                db.delete_challenge(c.id).await?;
+                println!("Deleted challenge {}", c.id);
+            }
+            ChallengeCmd::Enable { challenge } => {
+                let c = resolve_challenge_ref(&db, &challenge).await?;
+                db.set_challenge_enabled(c.id, true).await?;
+                println!("Enabled");
+            }
+            ChallengeCmd::Disable { challenge } => {
+                let c = resolve_challenge_ref(&db, &challenge).await?;
+                db.set_challenge_enabled(c.id, false).await?;
+                println!("Disabled");
+            }
         },
         Cmd::Team { cmd } => match cmd {
             TeamCmd::Add { id, name, ip, priority } => {
@@ -662,12 +742,13 @@ async fn main() -> Result<()> {
         },
         Cmd::Run { cmd } => match cmd {
             RunCmd::Add { exploit, challenge, team, priority, sequence } => {
-                let exploit = resolve_exploit(&db, challenge, &exploit).await?;
+                let challenge = resolve_challenge_ref(&db, &challenge).await?;
+                let exploit = resolve_exploit(&db, challenge.id, &exploit).await?;
                 let team = resolve_team_ref(&db, &team).await?;
                 let r = db
                     .create_exploit_run(CreateExploitRun {
                         exploit_id: exploit.id,
-                        challenge_id: challenge,
+                        challenge_id: challenge.id,
                         team_id: team.id,
                         priority,
                         sequence,
@@ -676,6 +757,10 @@ async fn main() -> Result<()> {
                 println!("Created run {}", r.id);
             }
             RunCmd::List { challenge, team } => {
+                let challenge = match challenge {
+                    Some(challenge_ref) => Some(resolve_challenge_ref(&db, &challenge_ref).await?.id),
+                    None => None,
+                };
                 let team = match team {
                     Some(team_ref) => Some(resolve_team_ref(&db, &team_ref).await?.id),
                     None => None,
@@ -706,18 +791,19 @@ async fn main() -> Result<()> {
             }
             RunCmd::Delete { id } => { db.delete_exploit_run(id).await?; println!("Deleted run {}", id); }
             RunCmd::AppendAll { exploit, challenge, priority } => {
-                let exploit = resolve_exploit(&db, challenge, &exploit).await?;
+                let challenge = resolve_challenge_ref(&db, &challenge).await?;
+                let exploit = resolve_exploit(&db, challenge.id, &exploit).await?;
                 let teams = db.list_teams().await?;
                 let mut created = 0usize;
                 let mut updated = 0usize;
                 for team in teams.iter() {
-                    let runs = db.list_exploit_runs(Some(challenge), Some(team.id)).await?;
+                    let runs = db.list_exploit_runs(Some(challenge.id), Some(team.id)).await?;
                     let sequence = next_sequence(RunInsertPosition::Append, &runs)?;
                     let existed = has_exploit_run(&runs, exploit.id);
                     let run = db
                         .create_exploit_run(CreateExploitRun {
                             exploit_id: exploit.id,
-                            challenge_id: challenge,
+                            challenge_id: challenge.id,
                             team_id: team.id,
                             priority,
                             sequence: Some(sequence),
@@ -742,18 +828,19 @@ async fn main() -> Result<()> {
                 );
             }
             RunCmd::PrependAll { exploit, challenge, priority } => {
-                let exploit = resolve_exploit(&db, challenge, &exploit).await?;
+                let challenge = resolve_challenge_ref(&db, &challenge).await?;
+                let exploit = resolve_exploit(&db, challenge.id, &exploit).await?;
                 let teams = db.list_teams().await?;
                 let mut created = 0usize;
                 let mut updated = 0usize;
                 for team in teams.iter() {
-                    let runs = db.list_exploit_runs(Some(challenge), Some(team.id)).await?;
+                    let runs = db.list_exploit_runs(Some(challenge.id), Some(team.id)).await?;
                     let sequence = next_sequence(RunInsertPosition::Prepend, &runs)?;
                     let existed = has_exploit_run(&runs, exploit.id);
                     let run = db
                         .create_exploit_run(CreateExploitRun {
                             exploit_id: exploit.id,
-                            challenge_id: challenge,
+                            challenge_id: challenge.id,
                             team_id: team.id,
                             priority,
                             sequence: Some(sequence),
@@ -912,9 +999,10 @@ async fn main() -> Result<()> {
         },
         Cmd::Relation { cmd } => match cmd {
             RelationCmd::List { challenge } => {
+                let challenge = resolve_challenge_ref(&db, &challenge).await?;
                 let team_map = load_team_map(&db).await?;
                 let rows: Vec<_> = db
-                    .list_relations(challenge)
+                    .list_relations(challenge.id)
                     .await?
                     .into_iter()
                     .map(|r| {
@@ -932,7 +1020,8 @@ async fn main() -> Result<()> {
             }
             RelationCmd::Get { challenge, team } => {
                 let team = resolve_team_ref(&db, &team).await?;
-                if let Some(r) = db.get_relation(challenge, team.id).await? {
+                let challenge = resolve_challenge_ref(&db, &challenge).await?;
+                if let Some(r) = db.get_relation(challenge.id, team.id).await? {
                     println!(
                         "Challenge: {}, Team: {} ({}), Addr: {}, Port: {}",
                         r.challenge_id,
@@ -945,7 +1034,8 @@ async fn main() -> Result<()> {
             }
             RelationCmd::Update { challenge, team, ip, port } => {
                 let team = resolve_team_ref(&db, &team).await?;
-                db.update_relation(challenge, team.id, ip, port).await?;
+                let challenge = resolve_challenge_ref(&db, &challenge).await?;
+                db.update_relation(challenge.id, team.id, ip, port).await?;
                 println!("Updated relation");
             }
         },
