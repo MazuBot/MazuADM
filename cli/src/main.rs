@@ -214,6 +214,7 @@ fn parse_team_ref(value: &str) -> TeamRefParts {
     }
 }
 
+#[cfg(test)]
 fn resolve_team_ref_sync<F, G>(team_ref: &str, mut by_team_id: F, mut by_id: G) -> Result<Team>
 where
     F: FnMut(&str) -> Option<Team>,
