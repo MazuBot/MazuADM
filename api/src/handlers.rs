@@ -280,6 +280,10 @@ pub async fn rerun_round(State(s): S, Path(id): Path<i32>) -> R<String> {
 }
 
 pub async fn schedule_unflagged_round(State(s): S, Path(id): Path<i32>) -> R<String> {
+    let round = s.db.get_round(id).await.map_err(err)?;
+    if round.status != "running" {
+        return Err(format!("Round {} is not running", id));
+    }
     s.scheduler.send(SchedulerCommand::ScheduleUnflagged(id)).map_err(err)?;
     Ok(Json("scheduled".to_string()))
 }

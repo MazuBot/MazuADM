@@ -38,8 +38,8 @@
   async function handleScheduleUnflaggedClick() {
     if (!selectedRoundId) return;
     const round = getSelectedRound();
-    const status = round ? ` (current status: ${round.status})` : '';
-    if (!confirm(`Schedule all non-flag jobs for round ${selectedRoundId}?${status}`)) return;
+    if (!round || round.status !== 'running') return;
+    if (!confirm(`Schedule all non-flag jobs for running round ${selectedRoundId}?`)) return;
     await onScheduleUnflagged?.(selectedRoundId);
     onRefresh?.();
   }
@@ -125,7 +125,12 @@
       {/each}
     </select>
     <button onclick={handleRunClick} disabled={!selectedRoundId}>Run</button>
-    <button onclick={handleScheduleUnflaggedClick} disabled={!selectedRoundId}>Schedule Unflagged</button>
+    <button
+      onclick={handleScheduleUnflaggedClick}
+      disabled={!selectedRoundId || getSelectedRound()?.status !== 'running'}
+    >
+      Schedule Unflagged
+    </button>
   </div>
   <FilterBar
     bind:challengeId={challengeFilterId}

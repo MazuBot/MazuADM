@@ -212,7 +212,7 @@ Start executing a round.
 Rerun a round (resets this round and all subsequent rounds, then executes).
 
 ### `POST /api/rounds/{id}/schedule-unflagged`
-Reset and execute all non-flag jobs for a round (flagged jobs are preserved).
+Reset and execute all non-flag jobs for the **running** round (flagged jobs are preserved).
 
 ---
 
