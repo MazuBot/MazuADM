@@ -1,9 +1,9 @@
 <script>
   import * as api from '$lib/data/api';
   import Modal from '$lib/ui/Modal.svelte';
-  import { getExploitName, getTeamName } from '$lib/utils/lookup.js';
+  import { getChallengeName, getExploitName, getTeamName } from '$lib/utils/lookup.js';
 
-  let { teams, exploits, exploitRuns, challengeId, onRefresh } = $props();
+  let { challenges, teams, exploits, exploitRuns, challengeId, onRefresh } = $props();
 
   const emptyExploit = { name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, default_counter: 999, timeout_secs: 0, auto_add: 'none', insert_into_rounds: false };
   let showAddExploit = $state(false);
@@ -285,7 +285,10 @@
 {#if showAddExploit}
   <Modal onClose={() => showAddExploit = false}>
     <form onsubmit={(e) => { e.preventDefault(); addExploit(); }}>
-      <h3>Add Exploit</h3>
+      <h3 class="modal-title">
+        <span>Add Exploit</span>
+        <code>{getChallengeName(challenges, challengeId)}</code>
+      </h3>
       <label class:field-changed={isNewExploitChanged('name')}>
         Name <input type="text" bind:value={newExploit.name} />
       </label>
@@ -329,7 +332,10 @@
 {#if editingRun}
   <Modal onClose={() => editingRun = null}>
     <form onsubmit={(e) => { e.preventDefault(); saveRun(); }}>
-      <h3>Edit Exploit Run</h3>
+      <h3 class="modal-title">
+        <span>Edit Exploit Run</span>
+        <code>{getChallengeName(challenges, challengeId)}</code>
+      </h3>
       <div class="info">
         <p><strong>Exploit:</strong> {getExploitName(exploits, editingRun.exploit_id)}</p>
         <p><strong>Team:</strong> {getTeamName(teams, editingRun.team_id)}</p>
@@ -357,7 +363,10 @@
 {#if editingExploit}
   <Modal onClose={() => editingExploit = null}>
     <form onsubmit={(e) => { e.preventDefault(); saveExploit(); }}>
-      <h3>Edit Exploit</h3>
+      <h3 class="modal-title">
+        <span>Edit Exploit</span>
+        <code>{getChallengeName(challenges, challengeId)}</code>
+      </h3>
       <label class:field-changed={isExploitFieldChanged('name')}>
         Name <input type="text" bind:value={exploitForm.name} />
       </label>
@@ -394,7 +403,10 @@
 {#if editingRelation}
   <Modal onClose={() => editingRelation = null}>
     <form onsubmit={(e) => { e.preventDefault(); saveRelation(); }}>
-      <h3>Connection for {editingRelation.team_name}</h3>
+      <h3 class="modal-title">
+        <span>Connection for {editingRelation.team_name}</span>
+        <code>{getChallengeName(challenges, challengeId)}</code>
+      </h3>
       <p class="hint">Leave empty to use team default IP + challenge default port</p>
       <label class:field-changed={isRelationFieldChanged('addr')}>
         IP/Host <input type="text" bind:value={relationForm.addr} placeholder="Team default" />
@@ -438,4 +450,6 @@
   .card-play { cursor: pointer; opacity: 0.5; font-size: 0.7rem; margin-left: auto; background: transparent; border: none; padding: 0; color: inherit; }
   .card-play:hover { opacity: 1; }
   .danger { background: #d9534f; }
+  .modal-title { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .modal-title code { margin-left: auto; text-align: right; }
 </style>

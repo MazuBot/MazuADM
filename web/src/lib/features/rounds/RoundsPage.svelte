@@ -39,6 +39,10 @@
     return exploitRuns.find((r) => r.id === runId);
   }
 
+  function formatStatus(status) {
+    return status === 'flag' ? '🚩 FLAG' : status;
+  }
+
   function closeModal() {
     selectedJob = null;
   }
@@ -158,7 +162,7 @@
             <td>{getTeamName(teams, j.team_id)}</td>
             <td>{j.container_id ? j.container_id.slice(0, 12) : '-'}</td>
             <td>{j.priority}</td>
-            <td>{j.status === 'flag' ? '🚩 FLAG' : j.status}</td>
+            <td>{formatStatus(j.status)}</td>
             <td>{j.duration_ms ? `${j.duration_ms}ms` : '-'}</td>
             <td><button class="play-btn" onclick={(e) => runJob(j, e)} title="Run now">▶</button></td>
           </tr>
@@ -170,7 +174,11 @@
 
 {#if selectedJob}
   <Modal wide onClose={closeModal}>
-    <h3>Job #{selectedJob.id} - {selectedJob.status}</h3>
+    <h3 class="job-modal-header">
+      <span>Job #{selectedJob.id}</span>
+      <span><code>{getChallengeName(challenges, getExploitRunInfo(selectedJob.exploit_run_id)?.challenge_id)}</code></span>
+      <span>{formatStatus(selectedJob.status)}</span>
+    </h3>
     <div class="job-info">
       <p><strong>Exploit:</strong> {getExploitName(exploits, getExploitRunInfo(selectedJob.exploit_run_id)?.exploit_id)}</p>
       <p><strong>Team:</strong> {getTeamName(teams, selectedJob.team_id)}</p>
@@ -197,4 +205,5 @@
   .dragging { opacity: 0.4; background: #333; }
   .play-btn { background: transparent; border: none; cursor: pointer; font-size: 0.9rem; padding: 0.2rem 0.4rem; opacity: 0.6; color: white; }
   .play-btn:hover { opacity: 1; }
+  .job-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 </style>

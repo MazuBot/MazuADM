@@ -14,4 +14,4 @@
   </div>
 {/if}
 
-<Board {teams} {exploits} {exploitRuns} challengeId={selectedChallengeId} onRefresh={onRefresh} />
+<Board {challenges} {teams} {exploits} {exploitRuns} challengeId={selectedChallengeId} onRefresh={onRefresh} />
