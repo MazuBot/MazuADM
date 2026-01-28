@@ -26,6 +26,31 @@
 
   let filteredExploits = $derived(exploits.filter(e => e.challenge_id === challengeId));
 
+  function normalizeField(value) {
+    if (typeof value === 'boolean') return value;
+    return value ?? '';
+  }
+
+  function isNewExploitChanged(field) {
+    if (!newExploitInitial) return false;
+    return String(normalizeField(newExploit[field])) !== String(normalizeField(newExploitInitial[field]));
+  }
+
+  function isEditRunChanged(field) {
+    if (!editFormInitial) return false;
+    return String(normalizeField(editForm[field])) !== String(normalizeField(editFormInitial[field]));
+  }
+
+  function isExploitFieldChanged(field) {
+    if (!exploitFormInitial) return false;
+    return String(normalizeField(exploitForm[field])) !== String(normalizeField(exploitFormInitial[field]));
+  }
+
+  function isRelationFieldChanged(field) {
+    if (!relationFormInitial) return false;
+    return String(normalizeField(relationForm[field])) !== String(normalizeField(relationFormInitial[field]));
+  }
+
   function onCardKeydown(e, run) {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -259,7 +284,7 @@
 
 {#if showAddExploit}
   <Modal onClose={() => showAddExploit = false}>
-    <div onkeydown={(e) => onFormKeydown(e, addExploit)}>
+    <form onsubmit={(e) => { e.preventDefault(); addExploit(); }}>
       <h3>Add Exploit</h3>
       <label class:field-changed={isNewExploitChanged('name')}>
         Name <input type="text" bind:value={newExploit.name} />
@@ -294,16 +319,16 @@
         <input type="checkbox" bind:checked={newExploit.insert_into_rounds} /> Insert jobs into active rounds
       </label>
       <div class="modal-actions">
-        <button onclick={() => showAddExploit = false}>Cancel</button>
-        <button onclick={addExploit}>Add</button>
+        <button type="button" onclick={() => showAddExploit = false}>Cancel</button>
+        <button type="submit">Add</button>
       </div>
-    </div>
+    </form>
   </Modal>
 {/if}
 
 {#if editingRun}
   <Modal onClose={() => editingRun = null}>
-    <div onkeydown={(e) => onFormKeydown(e, saveRun)}>
+    <form onsubmit={(e) => { e.preventDefault(); saveRun(); }}>
       <h3>Edit Exploit Run</h3>
       <div class="info">
         <p><strong>Exploit:</strong> {getExploitName(exploits, editingRun.exploit_id)}</p>
@@ -321,17 +346,17 @@
         <input type="checkbox" bind:checked={editForm.enabled} /> Enabled
       </label>
       <div class="modal-actions">
-        <button class="danger" onclick={deleteRun}>Delete</button>
-        <button onclick={() => editingRun = null}>Cancel</button>
-        <button onclick={saveRun}>Save</button>
+        <button type="button" class="danger" onclick={deleteRun}>Delete</button>
+        <button type="button" onclick={() => editingRun = null}>Cancel</button>
+        <button type="submit">Save</button>
       </div>
-    </div>
+    </form>
   </Modal>
 {/if}
 
 {#if editingExploit}
   <Modal onClose={() => editingExploit = null}>
-    <div onkeydown={(e) => onFormKeydown(e, saveExploit)}>
+    <form onsubmit={(e) => { e.preventDefault(); saveExploit(); }}>
       <h3>Edit Exploit</h3>
       <label class:field-changed={isExploitFieldChanged('name')}>
         Name <input type="text" bind:value={exploitForm.name} />
@@ -358,17 +383,17 @@
         <input type="checkbox" bind:checked={exploitForm.enabled} /> Enabled
       </label>
       <div class="modal-actions">
-        <button class="danger" onclick={deleteExploit}>Delete</button>
-        <button onclick={() => editingExploit = null}>Cancel</button>
-        <button onclick={saveExploit}>Save</button>
+        <button type="button" class="danger" onclick={deleteExploit}>Delete</button>
+        <button type="button" onclick={() => editingExploit = null}>Cancel</button>
+        <button type="submit">Save</button>
       </div>
-    </div>
+    </form>
   </Modal>
 {/if}
 
 {#if editingRelation}
   <Modal onClose={() => editingRelation = null}>
-    <div onkeydown={(e) => onFormKeydown(e, saveRelation)}>
+    <form onsubmit={(e) => { e.preventDefault(); saveRelation(); }}>
       <h3>Connection for {editingRelation.team_name}</h3>
       <p class="hint">Leave empty to use team default IP + challenge default port</p>
       <label class:field-changed={isRelationFieldChanged('addr')}>
@@ -378,10 +403,10 @@
         Port <input bind:value={relationForm.port} type="number" placeholder="Challenge default" />
       </label>
       <div class="modal-actions">
-        <button onclick={() => editingRelation = null}>Cancel</button>
-        <button onclick={saveRelation}>Save</button>
+        <button type="button" onclick={() => editingRelation = null}>Cancel</button>
+        <button type="submit">Save</button>
       </div>
-    </div>
+    </form>
   </Modal>
 {/if}
 
@@ -414,36 +439,3 @@
   .card-play:hover { opacity: 1; }
   .danger { background: #d9534f; }
 </style>
-  function normalizeField(value) {
-    if (typeof value === 'boolean') return value;
-    return value ?? '';
-  }
-
-  function isNewExploitChanged(field) {
-    if (!newExploitInitial) return false;
-    return String(normalizeField(newExploit[field])) !== String(normalizeField(newExploitInitial[field]));
-  }
-
-  function isEditRunChanged(field) {
-    if (!editFormInitial) return false;
-    return String(normalizeField(editForm[field])) !== String(normalizeField(editFormInitial[field]));
-  }
-
-  function isExploitFieldChanged(field) {
-    if (!exploitFormInitial) return false;
-    return String(normalizeField(exploitForm[field])) !== String(normalizeField(exploitFormInitial[field]));
-  }
-
-  function isRelationFieldChanged(field) {
-    if (!relationFormInitial) return false;
-    return String(normalizeField(relationForm[field])) !== String(normalizeField(relationFormInitial[field]));
-  }
-
-  function onFormKeydown(e, onSave) {
-    if (e.key !== 'Enter') return;
-    const target = e.target;
-    if (!target || (target.tagName !== 'INPUT' && target.tagName !== 'SELECT')) return;
-    if (target.type === 'checkbox') return;
-    e.preventDefault();
-    onSave();
-  }

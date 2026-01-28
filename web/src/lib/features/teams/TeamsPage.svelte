@@ -39,15 +39,6 @@
     showTeamModal = true;
   }
 
-  function onFormKeydown(e, onSave) {
-    if (e.key !== 'Enter') return;
-    const target = e.target;
-    if (!target || (target.tagName !== 'INPUT' && target.tagName !== 'SELECT')) return;
-    if (target.type === 'checkbox') return;
-    e.preventDefault();
-    onSave();
-  }
-
   async function saveTeam() {
     const data = {
       team_id: teamForm.team_id,
@@ -113,7 +104,7 @@
 
 {#if showTeamModal}
   <Modal onClose={closeModal}>
-    <div onkeydown={(e) => onFormKeydown(e, saveTeam)}>
+    <form onsubmit={(e) => { e.preventDefault(); saveTeam(); }}>
       <h3>{editingTeam ? 'Edit' : 'Add'} Team</h3>
       <label class:field-changed={isTeamFieldChanged('team_id')}>
         Team ID <input bind:value={teamForm.team_id} disabled={!!editingTeam} />
@@ -131,10 +122,10 @@
         <input type="checkbox" bind:checked={teamForm.enabled} /> Enabled
       </label>
       <div class="modal-actions">
-        {#if editingTeam}<button class="danger" onclick={deleteTeam}>Delete</button>{/if}
-        <button onclick={closeModal}>Cancel</button>
-        <button onclick={saveTeam}>Save</button>
+        {#if editingTeam}<button type="button" class="danger" onclick={deleteTeam}>Delete</button>{/if}
+        <button type="button" onclick={closeModal}>Cancel</button>
+        <button type="submit">Save</button>
       </div>
-    </div>
+    </form>
   </Modal>
 {/if}

@@ -45,15 +45,6 @@
     showChallengeModal = true;
   }
 
-  function onFormKeydown(e, onSave) {
-    if (e.key !== 'Enter') return;
-    const target = e.target;
-    if (!target || (target.tagName !== 'INPUT' && target.tagName !== 'SELECT')) return;
-    if (target.type === 'checkbox') return;
-    e.preventDefault();
-    onSave();
-  }
-
   async function saveChallenge() {
     const data = {
       name: challengeForm.name,
@@ -119,7 +110,7 @@
 
 {#if showChallengeModal}
   <Modal onClose={closeModal}>
-    <div onkeydown={(e) => onFormKeydown(e, saveChallenge)}>
+    <form onsubmit={(e) => { e.preventDefault(); saveChallenge(); }}>
       <h3>{editingChallenge ? 'Edit' : 'Add'} Challenge</h3>
       <label class:field-changed={isChallengeFieldChanged('name')}>
         Name <input bind:value={challengeForm.name} />
@@ -137,10 +128,10 @@
         <input type="checkbox" bind:checked={challengeForm.enabled} /> Enabled
       </label>
       <div class="modal-actions">
-        {#if editingChallenge}<button class="danger" onclick={deleteChallenge}>Delete</button>{/if}
-        <button onclick={closeModal}>Cancel</button>
-        <button onclick={saveChallenge}>Save</button>
+        {#if editingChallenge}<button type="button" class="danger" onclick={deleteChallenge}>Delete</button>{/if}
+        <button type="button" onclick={closeModal}>Cancel</button>
+        <button type="submit">Save</button>
       </div>
-    </div>
+    </form>
   </Modal>
 {/if}
