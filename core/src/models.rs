@@ -199,11 +199,27 @@ mod tests {
     use chrono::Utc;
 
     fn make_challenge(default_port: Option<i32>) -> Challenge {
-        Challenge { id: 1, name: "test".into(), enabled: true, default_port, priority: 0, created_at: Utc::now() }
+        Challenge {
+            id: 1,
+            name: "test".into(),
+            enabled: true,
+            default_port,
+            priority: 0,
+            flag_regex: None,
+            created_at: Utc::now(),
+        }
     }
 
     fn make_team(default_ip: Option<&str>) -> Team {
-        Team { id: 1, team_id: "t1".into(), team_name: "Team1".into(), default_ip: default_ip.map(String::from), priority: 0, created_at: Utc::now() }
+        Team {
+            id: 1,
+            team_id: "t1".into(),
+            team_name: "Team1".into(),
+            default_ip: default_ip.map(String::from),
+            priority: 0,
+            created_at: Utc::now(),
+            enabled: true,
+        }
     }
 
     fn make_relation(addr: Option<&str>, port: Option<i32>) -> ChallengeTeamRelation {
