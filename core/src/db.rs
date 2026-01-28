@@ -212,6 +212,11 @@ impl Database {
         Ok(sqlx::query_as!(Round, "SELECT * FROM rounds ORDER BY id DESC").fetch_all(&self.pool).await?)
     }
 
+    pub async fn clean_rounds(&self) -> Result<()> {
+        sqlx::query!("TRUNCATE flags, exploit_jobs, rounds RESTART IDENTITY CASCADE").execute(&self.pool).await?;
+        Ok(())
+    }
+
     // Jobs
     pub async fn create_job(&self, round_id: i32, exploit_run_id: i32, team_id: i32, priority: i32) -> Result<ExploitJob> {
         Ok(sqlx::query_as!(ExploitJob,

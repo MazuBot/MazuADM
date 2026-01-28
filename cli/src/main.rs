@@ -54,6 +54,7 @@ enum RoundCmd {
     List,
     Run { id: i32 },
     Jobs { id: i32 },
+    Clean,
 }
 
 #[derive(Subcommand)]
@@ -145,6 +146,10 @@ async fn main() -> Result<()> {
             RoundCmd::Jobs { id } => {
                 let rows: Vec<_> = db.list_jobs(id).await?.into_iter().map(|j| JobRow { id: j.id, run: j.exploit_run_id.unwrap_or(-1), team: j.team_id, priority: j.priority, status: j.status }).collect();
                 println!("{}", Table::new(rows));
+            }
+            RoundCmd::Clean => {
+                db.clean_rounds().await?;
+                println!("Cleaned all round data");
             }
         },
         Cmd::Flag { cmd } => match cmd {
