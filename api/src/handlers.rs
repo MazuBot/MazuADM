@@ -3,10 +3,8 @@ use crate::AppState;
 use axum::{extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade}}, Json, response::Response};
 use futures_util::StreamExt;
 use mazuadm_core::*;
-use mazuadm_core::settings::{load_executor_settings, load_job_settings};
-use mazuadm_core::scheduler::Scheduler;
+use mazuadm_core::scheduler::{select_running_round_id, Scheduler};
 use mazuadm_core::executor::Executor;
-use mazuadm_core::container_manager::ContainerManager;
 use std::sync::Arc;
 use serde::Deserialize;
 
@@ -23,10 +21,18 @@ fn should_continue_ws(err: tokio::sync::broadcast::error::RecvError) -> bool {
     matches!(err, tokio::sync::broadcast::error::RecvError::Lagged(_))
 }
 
-fn spawn_round_runner(executor: Executor, round_id: i32) {
+fn spawn_round_runner(scheduler: Scheduler, round_id: i32) {
     tokio::spawn(async move {
-        if let Err(e) = executor.run_round(round_id).await {
+        if let Err(e) = scheduler.run_round(round_id).await {
             tracing::error!("Round {} failed: {}", round_id, e);
+        }
+    });
+}
+
+fn spawn_round_rerunner(scheduler: Scheduler, round_id: i32) {
+    tokio::spawn(async move {
+        if let Err(e) = scheduler.rerun_round(round_id).await {
+            tracing::error!("Round {} rerun failed: {}", round_id, e);
         }
     });
 }
@@ -80,35 +86,7 @@ pub struct ListQuery {
     pub round_id: Option<i32>,
 }
 
-struct RoundFinalizePlan {
-    skip_pending_ids: Vec<i32>,
-    finish_running_ids: Vec<i32>,
-}
-
 // settings helpers live in mazuadm_core::settings
-
-fn rounds_to_finalize(rounds: &[Round], current_id: i32) -> RoundFinalizePlan {
-    let mut skip_pending_ids = Vec::new();
-    let mut finish_running_ids = Vec::new();
-    for round in rounds {
-        if round.id < current_id {
-            if round.status == "pending" {
-                skip_pending_ids.push(round.id);
-            } else {
-                finish_running_ids.push(round.id);
-            }
-        }
-    }
-    RoundFinalizePlan { skip_pending_ids, finish_running_ids }
-}
-
-fn rounds_to_reset_after(rounds: &[Round], id: i32) -> Vec<i32> {
-    rounds.iter().filter(|r| r.id > id).map(|r| r.id).collect()
-}
-
-fn select_running_round_id(rounds: &[Round]) -> Option<i32> {
-    rounds.iter().find(|r| r.status == "running").map(|r| r.id)
-}
 
 // Challenges
 pub async fn list_challenges(State(s): S) -> R<Vec<Challenge>> {
@@ -217,7 +195,7 @@ pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Expl
     
     // Pre-warm containers for enabled exploit
     if exploit.enabled {
-        let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
+        let cm = s.executor.container_manager.clone();
         let _ = cm.ensure_containers(exploit.id).await;
     }
     
@@ -229,7 +207,7 @@ pub async fn update_exploit(State(s): S, Path(id): Path<i32>, Json(e): Json<Upda
     let was_enabled = s.db.get_exploit(id).await.map(|e| e.enabled).unwrap_or(false);
     let exploit = s.db.update_exploit(id, e).await.map_err(err)?;
     
-    let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
+    let cm = s.executor.container_manager.clone();
     if exploit.enabled && !was_enabled {
         let _ = cm.ensure_containers(id).await;
     } else if !exploit.enabled && was_enabled {
@@ -241,7 +219,7 @@ pub async fn update_exploit(State(s): S, Path(id): Path<i32>, Json(e): Json<Upda
 }
 
 pub async fn delete_exploit(State(s): S, Path(id): Path<i32>) -> R<String> {
-    let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
+    let cm = s.executor.container_manager.clone();
     let _ = cm.destroy_exploit_containers(id).await;
     
     s.db.delete_exploit(id).await.map_err(err)?;
@@ -297,94 +275,20 @@ pub async fn list_rounds(State(s): S) -> R<Vec<Round>> {
 }
 
 pub async fn create_round(State(s): S) -> R<i32> {
-    let scheduler = Scheduler::new(s.db.clone());
-    let round_id = scheduler.generate_round().await.map_err(err)?;
-    let round = s.db.get_round(round_id).await.map_err(err)?;
-    broadcast(&s, "round_created", &round);
-    let settings = load_executor_settings(&s.db).await;
-    let cm = s.executor.container_manager.clone();
-    tokio::spawn(async move {
-        if let Err(e) = cm.prewarm_for_round(settings.concurrent_limit).await {
-            tracing::error!("Prewarm failed: {}", e);
-        }
-    });
+    let scheduler = Scheduler::new(s.db.clone(), s.executor.clone(), s.tx.clone());
+    let round_id = scheduler.create_round().await.map_err(err)?;
     Ok(Json(round_id))
 }
 
 pub async fn run_round(State(s): S, Path(id): Path<i32>) -> R<String> {
-    // Stop running jobs from older rounds and check for flags
-    stop_running_jobs_with_flag_check(&s).await;
-    
-    // Skip older pending rounds and finish older running rounds
-    if let Ok(rounds) = s.db.get_active_rounds().await {
-        let plan = rounds_to_finalize(&rounds, id);
-        for round_id in plan.skip_pending_ids {
-            let _ = s.db.skip_pending_jobs_for_round(round_id).await;
-            let _ = s.db.skip_round(round_id).await;
-            if let Ok(r) = s.db.get_round(round_id).await {
-                broadcast(&s, "round_updated", &r);
-            }
-        }
-        for round_id in plan.finish_running_ids {
-            let _ = s.db.skip_pending_jobs_for_round(round_id).await;
-            let _ = s.db.finish_round(round_id).await;
-            if let Ok(r) = s.db.get_round(round_id).await {
-                broadcast(&s, "round_updated", &r);
-            }
-        }
-    }
-    
-    let executor = s.executor.clone();
-    spawn_round_runner(executor, id);
+    let scheduler = Scheduler::new(s.db.clone(), s.executor.clone(), s.tx.clone());
+    spawn_round_runner(scheduler, id);
     Ok(Json("started".to_string()))
 }
 
-async fn stop_running_jobs_with_flag_check(s: &AppState) {
-    let settings = load_job_settings(&s.db).await;
-    let executor = s.executor.clone();
-    if let Ok(jobs) = s.db.kill_running_jobs().await {
-        for job in jobs {
-            let stdout = job.stdout.as_deref().unwrap_or("");
-            let stderr = job.stderr.as_deref().unwrap_or("");
-            let combined = if stderr.is_empty() {
-                stdout.to_string()
-            } else if stdout.is_empty() {
-                stderr.to_string()
-            } else {
-                format!("{}\n{}", stdout, stderr)
-            };
-            let flags = Executor::extract_flags(&combined, None, settings.max_flags);
-            let has_flag = !flags.is_empty();
-            let _ = executor.stop_job_with_flags(job.id, has_flag, "stopped by new round").await;
-        }
-    }
-}
-
 pub async fn rerun_round(State(s): S, Path(id): Path<i32>) -> R<String> {
-    // Stop running jobs and check for flags
-    stop_running_jobs_with_flag_check(&s).await;
-    
-    // Reset all rounds after this one to pending
-    if let Ok(rounds) = s.db.list_rounds().await {
-        for round_id in rounds_to_reset_after(&rounds, id) {
-            let _ = s.db.reset_jobs_for_round(round_id).await;
-            let _ = s.db.reset_round(round_id).await;
-            if let Ok(r) = s.db.get_round(round_id).await {
-                broadcast(&s, "round_updated", &r);
-            }
-        }
-    }
-    
-    // Reset this round
-    let _ = s.db.reset_jobs_for_round(id).await;
-    let _ = s.db.reset_round(id).await;
-    if let Ok(r) = s.db.get_round(id).await {
-        broadcast(&s, "round_updated", &r);
-    }
-    
-    // Run the round
-    let executor = s.executor.clone();
-    spawn_round_runner(executor, id);
+    let scheduler = Scheduler::new(s.db.clone(), s.executor.clone(), s.tx.clone());
+    spawn_round_rerunner(scheduler, id);
     Ok(Json("restarted".to_string()))
 }
 
@@ -478,33 +382,27 @@ pub async fn update_setting(State(s): S, Json(u): Json<UpdateSetting>) -> R<Stri
 }
 
 // Containers
-pub async fn list_containers(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<ExploitContainer>> {
-    match q.challenge_id {
-        Some(eid) => s.db.get_exploit_containers(eid).await.map(Json).map_err(err),
-        None => s.db.list_all_containers().await.map(Json).map_err(err),
+pub async fn list_containers(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<ContainerInfo>> {
+    let mut containers = s.executor.container_manager.list_containers().await.map_err(err)?;
+    if let Some(exploit_id) = q.challenge_id {
+        containers.retain(|c| c.exploit_id == exploit_id);
     }
+    Ok(Json(containers))
 }
 
-pub async fn get_container_runners(State(s): S, Path(id): Path<i32>) -> R<Vec<ExploitRunner>> {
-    s.db.get_runners_for_container(id).await.map(Json).map_err(err)
+pub async fn get_container_runners(State(s): S, Path(id): Path<String>) -> R<Vec<ExploitJob>> {
+    s.db.get_running_jobs_by_container(&id).await.map(Json).map_err(err)
 }
 
-pub async fn delete_container(State(s): S, Path(id): Path<i32>) -> R<String> {
-    let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
-    cm.destroy_container(id).await.map_err(err)?;
+pub async fn delete_container(State(s): S, Path(id): Path<String>) -> R<String> {
+    let cm = s.executor.container_manager.clone();
+    cm.destroy_container_by_id(&id).await.map_err(err)?;
     Ok(Json("ok".to_string()))
 }
 
-pub async fn restart_container(State(s): S, Path(id): Path<i32>) -> R<String> {
-    let cm = ContainerManager::new(s.db.clone()).map_err(err)?;
-    let container = s.db.get_container(id).await.map_err(err)?;
-    let exploit = s.db.get_exploit(container.exploit_id).await.map_err(err)?;
-    let runners = s.db.get_runners_for_container(id).await.map_err(err)?;
-    cm.destroy_container(id).await.map_err(err)?;
-    let new_container = cm.spawn_container(&exploit).await.map_err(err)?;
-    for r in runners {
-        let _ = s.db.create_exploit_runner(new_container.id, r.exploit_run_id, r.team_id).await;
-    }
+pub async fn restart_container(State(s): S, Path(id): Path<String>) -> R<String> {
+    let cm = s.executor.container_manager.clone();
+    cm.restart_container_by_id(&id).await.map_err(err)?;
     Ok(Json("ok".to_string()))
 }
 
@@ -531,68 +429,11 @@ pub async fn update_relation(State(s): S, Path((challenge_id, team_id)): Path<(i
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        rounds_to_finalize,
-        rounds_to_reset_after,
-        select_running_round_id,
-        should_continue_ws,
-    };
-    use mazuadm_core::settings::compute_timeout;
-    use mazuadm_core::Round;
-    use chrono::{TimeZone, Utc};
-
-    fn make_round(id: i32, status: &str) -> Round {
-        Round {
-            id,
-            started_at: Utc.timestamp_opt(0, 0).single().unwrap(),
-            finished_at: None,
-            status: status.to_string(),
-        }
-    }
-
-    #[test]
-    fn rounds_to_finalize_splits_pending_and_running() {
-        let rounds = vec![
-            make_round(1, "pending"),
-            make_round(2, "running"),
-            make_round(0, "finished"),
-            make_round(3, "pending"),
-        ];
-        let plan = rounds_to_finalize(&rounds, 3);
-        assert_eq!(plan.skip_pending_ids, vec![1]);
-        assert_eq!(plan.finish_running_ids, vec![2, 0]);
-    }
-
-    #[test]
-    fn rounds_to_reset_after_filters_ids() {
-        let rounds = vec![
-            make_round(1, "pending"),
-            make_round(2, "running"),
-            make_round(3, "finished"),
-        ];
-        let ids = rounds_to_reset_after(&rounds, 2);
-        assert_eq!(ids, vec![3]);
-    }
-
-    #[test]
-    fn select_running_round_id_picks_first_running() {
-        let rounds = vec![
-            make_round(1, "pending"),
-            make_round(2, "running"),
-            make_round(3, "running"),
-        ];
-        assert_eq!(select_running_round_id(&rounds), Some(2));
-    }
+    use super::should_continue_ws;
 
     #[test]
     fn should_continue_ws_only_on_lagged() {
         assert!(should_continue_ws(tokio::sync::broadcast::error::RecvError::Lagged(1)));
         assert!(!should_continue_ws(tokio::sync::broadcast::error::RecvError::Closed));
-    }
-
-    #[test]
-    fn compute_timeout_uses_exploit_or_worker() {
-        assert_eq!(compute_timeout(10, 60), 10);
-        assert_eq!(compute_timeout(0, 60), 60);
     }
 }

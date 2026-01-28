@@ -4,10 +4,9 @@ use anyhow::Result;
 use std::time::{Instant, Duration};
 use std::sync::Arc;
 use std::collections::HashMap;
-use tokio::sync::{broadcast, oneshot, Semaphore, Mutex};
-use tokio::task::JoinSet;
+use tokio::sync::{broadcast, oneshot, Mutex};
 use regex::Regex;
-use crate::settings::{compute_timeout, load_executor_settings, load_job_settings};
+use crate::settings::{compute_timeout, load_job_settings};
 
 #[derive(Clone)]
 pub struct Executor {
@@ -15,15 +14,16 @@ pub struct Executor {
     pub container_manager: ContainerManager,
     pub tx: broadcast::Sender<WsMessage>,
     pid_map: Arc<Mutex<HashMap<i32, JobPidState>>>,
+    exploit_executors: Arc<Mutex<HashMap<i32, ExploitExecutor>>>,
 }
 
-struct JobContext {
-    job: ExploitJob,
-    run: ExploitRun,
-    exploit: Exploit,
-    challenge: Challenge,
-    team: Team,
-    conn: ConnectionInfo,
+pub(crate) struct JobContext {
+    pub(crate) job: ExploitJob,
+    pub(crate) run: ExploitRun,
+    pub(crate) exploit: Exploit,
+    pub(crate) challenge: Challenge,
+    pub(crate) team: Team,
+    pub(crate) conn: ConnectionInfo,
 }
 
 #[derive(Debug, Clone)]
@@ -33,7 +33,15 @@ struct JobPidState {
     stop_requested: bool,
 }
 
-enum JobContextError {
+#[derive(Clone)]
+struct ExploitExecutor {
+    max_containers: i32,
+    max_per_container: i32,
+    default_counter: i32,
+    gate: Arc<Mutex<()>>,
+}
+
+pub(crate) enum JobContextError {
     NotPending,
     MissingExploitRunId,
     MissingConnectionInfo,
@@ -52,7 +60,28 @@ impl Executor {
             container_manager,
             tx,
             pid_map: Arc::new(Mutex::new(HashMap::new())),
+            exploit_executors: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+
+    async fn get_exploit_executor(&self, exploit: &Exploit) -> ExploitExecutor {
+        let mut map = self.exploit_executors.lock().await;
+        let entry = map.entry(exploit.id).or_insert_with(|| ExploitExecutor {
+            max_containers: exploit.max_containers,
+            max_per_container: exploit.max_per_container,
+            default_counter: exploit.default_counter,
+            gate: Arc::new(Mutex::new(())),
+        });
+        if entry.max_containers != exploit.max_containers {
+            entry.max_containers = exploit.max_containers;
+        }
+        if entry.max_per_container != exploit.max_per_container {
+            entry.max_per_container = exploit.max_per_container;
+        }
+        if entry.default_counter != exploit.default_counter {
+            entry.default_counter = exploit.default_counter;
+        }
+        entry.clone()
     }
 
     async fn register_container(&self, job_id: i32, container_id: String) {
@@ -95,7 +124,7 @@ impl Executor {
         map.remove(&job_id);
     }
 
-    pub async fn execute_job(&self, job: &ExploitJob, run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64, max_flags: usize) -> Result<JobResult> {
+    pub async fn execute_job(&self, job: &ExploitJob, _run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64, max_flags: usize) -> Result<JobResult> {
         let start = Instant::now();
         self.db.update_job_status(job.id, "running", true).await?;
         
@@ -106,10 +135,12 @@ impl Executor {
 
         let team = self.db.get_team(job.team_id).await?;
         
-        // Get or assign persistent container
-        let container = self.container_manager.get_or_assign_container(run).await?;
-        self.db.set_job_container(job.id, &container.container_id).await?;
-        self.register_container(job.id, container.container_id.clone()).await;
+        let exploit_exec = self.get_exploit_executor(exploit).await;
+        let _guard = exploit_exec.gate.lock().await;
+        let lease = self.container_manager.lease_container(exploit).await?;
+        drop(_guard);
+        self.db.set_job_container(job.id, lease.container_id()).await?;
+        self.register_container(job.id, lease.container_id().to_string()).await;
 
         // Build command - use entrypoint or docker image default cmd
         let args = vec![conn.addr.clone(), conn.port.to_string(), team.team_id.clone()];
@@ -130,7 +161,8 @@ impl Executor {
         let (pid_tx, pid_rx) = oneshot::channel::<i64>();
         let pid_map = self.pid_map.clone();
         let db = self.db.clone();
-        let container_id = container.container_id.clone();
+        let container_id = lease.container_id().to_string();
+        let container_id_for_task = container_id.clone();
         let cm = self.container_manager.clone();
         let job_id = job.id;
 
@@ -146,12 +178,12 @@ impl Executor {
             {
                 let mut map = pid_map.lock().await;
                 let entry = map.entry(job_id).or_insert(JobPidState {
-                    container_id: container_id.clone(),
+                    container_id: container_id_for_task.clone(),
                     pid: None,
                     stop_requested: false,
                 });
                 if entry.container_id.is_empty() {
-                    entry.container_id = container_id.clone();
+                    entry.container_id = container_id_for_task.clone();
                 }
                 entry.pid = Some(pid);
                 if entry.stop_requested {
@@ -167,12 +199,13 @@ impl Executor {
 
         // Execute with timeout and PID tracking
         let exec_result = self.container_manager.execute_in_container_with_timeout(
-            &container, cmd, env, Duration::from_secs(timeout_secs), Some(pid_tx)
+            &container_id, cmd, env, Duration::from_secs(timeout_secs), Some(pid_tx)
         ).await;
         let result = match exec_result {
             Ok(result) => result,
             Err(e) => {
                 self.clear_pid(job.id).await;
+                lease.finish().await;
                 return Err(e);
             }
         };
@@ -180,7 +213,7 @@ impl Executor {
         // Kill process on timeout or OLE
         if result.timed_out || result.ole {
             if let Some(p) = result.pid {
-                let _ = self.container_manager.kill_process_in_container(&container.container_id, p).await;
+                let _ = self.container_manager.kill_process_in_container(&container_id, p).await;
             }
         }
 
@@ -221,15 +254,8 @@ impl Executor {
         if let Ok(updated_job) = self.db.get_job(job.id).await {
             broadcast(&self.tx, "job_updated", &updated_job);
         }
-        if let Ok(container_state) = self.db.get_container(container.id).await {
-            if container_state.counter <= 0 {
-                let active = self.db.count_running_jobs_for_container(&container.container_id).await.unwrap_or(1);
-                if active == 0 {
-                    let _ = self.container_manager.destroy_container(container.id).await;
-                }
-            }
-        }
         self.clear_pid(job.id).await;
+        lease.finish().await;
 
         Ok(JobResult { stdout, stderr, duration_ms, exit_code, flags })
     }
@@ -321,110 +347,6 @@ impl Executor {
             .collect()
     }
 
-    pub async fn run_round(&self, round_id: i32) -> Result<()> {
-        // Mark round as running
-        self.db.start_round(round_id).await?;
-        if let Ok(round) = self.db.get_round(round_id).await {
-            broadcast(&self.tx, "round_updated", &round);
-        }
-
-        // Health check containers before round
-        self.container_manager.health_check().await?;
-
-        let settings = load_executor_settings(&self.db).await;
-        let concurrent_limit = settings.concurrent_limit;
-        let worker_timeout = settings.worker_timeout;
-        let max_flags = settings.max_flags;
-        let skip_on_flag = settings.skip_on_flag;
-        let sequential_per_target = settings.sequential_per_target;
-
-        let jobs = self.db.get_pending_jobs(round_id).await?;
-        let semaphore = Arc::new(Semaphore::new(concurrent_limit));
-        
-        // Per-target locks for sequential execution
-        let target_locks: Arc<Mutex<HashMap<(i32, i32), Arc<Mutex<()>>>>> = Arc::new(Mutex::new(HashMap::new()));
-        
-        let mut join_set = JoinSet::new();
-
-        let base_executor = self.clone();
-
-        for job in jobs {
-            let permit = semaphore.clone().acquire_owned().await?;
-            let db = self.db.clone();
-            let tx = self.tx.clone();
-            let executor = base_executor.clone();
-            let target_locks = target_locks.clone();
-
-            join_set.spawn(async move {
-                let _permit = permit;
-
-                let ctx = match build_job_context(&db, job.id).await {
-                    Ok(ctx) => ctx,
-                    Err(JobContextError::NotPending) => return,
-                    Err(JobContextError::MissingExploitRunId) => {
-                        finish_job_and_broadcast(&db, &tx, job.id, "error", None, Some("Job missing exploit_run_id"), 0).await;
-                        return;
-                    }
-                    Err(JobContextError::MissingConnectionInfo) => {
-                        finish_job_and_broadcast(&db, &tx, job.id, "error", None, Some("No connection info (missing IP or port)"), 0).await;
-                        return;
-                    }
-                    Err(JobContextError::Db(e)) => {
-                        log_job_error(job.id, &e);
-                        return;
-                    }
-                };
-
-                if should_skip_job(&db, &tx, &ctx, skip_on_flag, round_id).await {
-                    return;
-                }
-
-                // Get or create per-target lock
-                let target_lock = get_target_lock(&target_locks, sequential_per_target, (ctx.challenge.id, ctx.team.id)).await;
-
-                // Acquire target lock if sequential mode
-                let _target_guard = match &target_lock {
-                    Some(lock) => Some(lock.lock().await),
-                    None => None,
-                };
-
-                // Re-check skip_on_flag after acquiring lock
-                if should_skip_job(&db, &tx, &ctx, skip_on_flag, round_id).await {
-                    return;
-                }
-
-                // Random delay 0-500ms to spread container reuse
-                let delay = stagger_delay_ms(ctx.job.id);
-                tokio::time::sleep(Duration::from_millis(delay)).await;
-
-                // Use exploit timeout if set, otherwise global worker_timeout
-                let timeout = compute_timeout(ctx.exploit.timeout_secs, worker_timeout);
-
-                match executor.execute_job(&ctx.job, &ctx.run, &ctx.exploit, &ctx.conn, ctx.challenge.flag_regex.as_deref(), timeout, max_flags).await {
-                    Ok(result) => {
-                        for flag in result.flags {
-                            if let Ok(f) = db.create_flag(ctx.job.id, round_id, ctx.challenge.id, ctx.team.id, &flag).await {
-                                broadcast(&tx, "flag_created", &f);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log_job_error(ctx.job.id, &e);
-                        finish_job_and_broadcast(&db, &tx, ctx.job.id, "error", None, Some(&e.to_string()), 0).await;
-                    }
-                }
-            });
-        }
-
-        while let Some(result) = join_set.join_next().await {
-            if let Err(e) = result {
-                tracing::error!("Job task failed: {}", e);
-            }
-        }
-        
-        // Don't finish round here - keep it running until next round starts
-        Ok(())
-    }
 }
 
 // settings helpers live in crate::settings
@@ -441,7 +363,7 @@ fn skip_reason(exploit_enabled: bool, team_enabled: bool, skip_on_flag: bool, ha
     }
 }
 
-async fn should_skip_job(
+pub(crate) async fn should_skip_job(
     db: &Database,
     tx: &broadcast::Sender<WsMessage>,
     ctx: &JobContext,
@@ -461,7 +383,7 @@ async fn should_skip_job(
     false
 }
 
-async fn build_job_context(db: &Database, job_id: i32) -> std::result::Result<JobContext, JobContextError> {
+pub(crate) async fn build_job_context(db: &Database, job_id: i32) -> std::result::Result<JobContext, JobContextError> {
     let job = db.get_job(job_id).await.map_err(JobContextError::Db)?;
     ensure_pending(&job)?;
     let exploit_run_id = require_exploit_run_id(&job)?;
@@ -489,7 +411,7 @@ fn require_exploit_run_id(job: &ExploitJob) -> std::result::Result<i32, JobConte
     job.exploit_run_id.ok_or(JobContextError::MissingExploitRunId)
 }
 
-async fn get_target_lock(
+pub(crate) async fn get_target_lock(
     target_locks: &Arc<Mutex<HashMap<(i32, i32), Arc<Mutex<()>>>>>,
     sequential_per_target: bool,
     key: (i32, i32),
@@ -501,7 +423,7 @@ async fn get_target_lock(
     Some(locks.entry(key).or_insert_with(|| Arc::new(Mutex::new(()))).clone())
 }
 
-async fn finish_job_and_broadcast(
+pub(crate) async fn finish_job_and_broadcast(
     db: &Database,
     tx: &broadcast::Sender<WsMessage>,
     job_id: i32,
@@ -516,7 +438,7 @@ async fn finish_job_and_broadcast(
     }
 }
 
-fn log_job_error<E: std::fmt::Display>(job_id: i32, err: &E) {
+pub(crate) fn log_job_error<E: std::fmt::Display>(job_id: i32, err: &E) {
     tracing::error!("Job {} failed: {}", job_id, err);
 }
 
@@ -534,7 +456,7 @@ fn derive_job_status(flags_found: bool, timed_out: bool, ole: bool, exit_code: i
     }
 }
 
-fn stagger_delay_ms(job_id: i32) -> u64 {
+pub(crate) fn stagger_delay_ms(job_id: i32) -> u64 {
     (job_id.unsigned_abs() as u64) % 500
 }
 

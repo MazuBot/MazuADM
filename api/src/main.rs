@@ -5,6 +5,8 @@ mod routes;
 use crate::events::WsMessage;
 use anyhow::Result;
 use mazuadm_core::executor::Executor;
+use mazuadm_core::scheduler::Scheduler;
+use mazuadm_core::settings::load_executor_settings;
 use mazuadm_core::Database;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -28,9 +30,9 @@ async fn resume_running_round_if_needed(state: &AppState) -> Result<()> {
     if let Some(round_id) = running_round_id {
         let pending = state.db.get_pending_jobs(round_id).await?;
         if should_resume_running_round(pending.len()) {
-            let executor = state.executor.clone();
+            let scheduler = Scheduler::new(state.db.clone(), state.executor.clone(), state.tx.clone());
             tokio::spawn(async move {
-                if let Err(e) = executor.run_round(round_id).await {
+                if let Err(e) = scheduler.run_round(round_id).await {
                     tracing::error!("Round {} resume failed: {}", round_id, e);
                 }
             });
@@ -55,9 +57,12 @@ async fn main() -> Result<()> {
         .or_else(|| config.database_url.clone())
         .unwrap_or_else(|| "postgres://localhost/mazuadm".to_string());
     let db = Database::connect(&db_url).await?;
-    
+
+    let settings = load_executor_settings(&db).await;
     let (tx, _) = broadcast::channel::<WsMessage>(256);
     let executor = Executor::new(db.clone(), tx.clone())?;
+    executor.container_manager.set_concurrent_create_limit(settings.concurrent_create_limit);
+    executor.container_manager.restore_from_docker().await?;
     // Reset any jobs stuck in "running" state from previous run
     let reset = db.reset_stale_jobs().await?;
     if reset > 0 {
