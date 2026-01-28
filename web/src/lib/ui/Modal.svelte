@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from 'svelte';
   import { fade, scale } from 'svelte/transition';
 
   export let onClose = () => {};
@@ -15,6 +16,17 @@
       onClose();
     }
   }
+
+  function onWindowKeydown(e) {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    onClose();
+  }
+
+  onMount(() => {
+    window.addEventListener('keydown', onWindowKeydown);
+    return () => window.removeEventListener('keydown', onWindowKeydown);
+  });
 </script>
 
 <div
