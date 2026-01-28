@@ -151,8 +151,13 @@
   }
 
   async function saveRun() {
+    const rawPriority = editForm.priority;
+    const priority =
+      rawPriority === '' || rawPriority === null || rawPriority === undefined
+        ? null
+        : Number(rawPriority);
     await api.updateExploitRun(editingRun.id, {
-      priority: editForm.priority === '' ? null : Number(editForm.priority),
+      priority: Number.isNaN(priority) ? null : priority,
       sequence: editForm.sequence,
       enabled: editForm.enabled
     });
