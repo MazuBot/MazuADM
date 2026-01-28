@@ -80,7 +80,14 @@
               <td class="runners-cell">
                 {#if c.affinity_runs?.length}
                   {#each c.affinity_runs as runId}
-                    <div>{getExploitRunName(exploitRuns, exploits, runId)}</div>
+                    {@const run = exploitRuns.find((r) => r.id === runId)}
+                    <div>
+                      {#if run}
+                        {getTeamDisplay(teams, run.team_id)}
+                      {:else}
+                        {runId}
+                      {/if}
+                    </div>
                   {/each}
                 {:else}
                   <span class="muted">-</span>
