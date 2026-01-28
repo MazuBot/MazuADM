@@ -206,6 +206,9 @@ Create a new round (generates jobs from exploit runs).
 ### `POST /api/rounds/{id}/run`
 Start executing a round.
 
+### `POST /api/rounds/{id}/rerun`
+Rerun a round (resets this round and all subsequent rounds, then executes).
+
 ---
 
 ## Jobs
@@ -240,6 +243,11 @@ Run a single job (creates and executes).
 
 ### `POST /api/jobs/{id}/run`
 Re-run an existing job.
+
+**Response:** `ExploitJob`
+
+### `POST /api/jobs/{id}/stop`
+Stop a running job.
 
 **Response:** `ExploitJob`
 
