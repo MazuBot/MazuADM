@@ -1,6 +1,6 @@
 <script>
   import { AnsiUp } from 'ansi_up';
-  import { api } from '../api.js';
+  import { api } from '$lib/api.js';
 
   let { rounds, jobs, teams, challenges, exploits, exploitRuns, selectedRoundId, onSelectRound, onNewRound, onRunRound, onRefresh } = $props();
 

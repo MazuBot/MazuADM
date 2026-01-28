@@ -1,5 +1,5 @@
 <script>
-  import { api } from '../api.js';
+  import { api } from '$lib/api.js';
 
   let { teams, onRefresh } = $props();
 

@@ -1,8 +1,12 @@
 import { defineConfig } from 'vite'
-import { svelte } from '@sveltejs/vite-plugin-svelte'
+import { sveltekit } from '@sveltejs/kit/vite'
 
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [sveltekit()],
+  test: {
+    environment: 'node',
+    include: ['src/lib/stores/**/*.test.js']
+  },
   server: {
     proxy: {
       '/api': 'http://127.0.0.1:3000',

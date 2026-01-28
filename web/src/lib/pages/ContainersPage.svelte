@@ -1,5 +1,5 @@
 <script>
-  import { api } from '../api.js';
+  import { api } from '$lib/api.js';
 
   let { exploits, exploitRuns, teams, containers, containerRunners, onLoadContainers, onLoadRunners } = $props();
 
@@ -75,4 +75,3 @@
     {/if}
   {/each}
 </div>
-
