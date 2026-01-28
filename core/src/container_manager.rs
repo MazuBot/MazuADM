@@ -6,13 +6,14 @@ use bollard::exec::{CreateExecOptions, StartExecOptions};
 use bollard::secret::{ContainerCreateBody, HostConfig};
 use futures::{Stream, StreamExt};
 use std::time::Duration;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Semaphore};
 use tracing::{info, warn, error};
 
 #[derive(Clone)]
 pub struct ContainerManager {
     pub db: Database,
     pub docker: Docker,
+    spawn_gate: std::sync::Arc<Semaphore>,
 }
 
 const MAX_OUTPUT: usize = 256 * 1024; // 256KB limit
@@ -88,7 +89,11 @@ where
 impl ContainerManager {
     pub fn new(db: Database) -> Result<Self> {
         let docker = Docker::connect_with_local_defaults()?;
-        Ok(Self { db, docker })
+        Ok(Self {
+            db,
+            docker,
+            spawn_gate: std::sync::Arc::new(Semaphore::new(1)),
+        })
     }
 
     /// Get the default CMD from a Docker image
@@ -113,6 +118,7 @@ impl ContainerManager {
 
     /// Spawn a new persistent container for an exploit
     pub async fn spawn_container(&self, exploit: &Exploit) -> Result<ExploitContainer> {
+        let _permit = self.spawn_gate.acquire().await?;
         let normalized: String = exploit.name.chars()
             .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
             .take(20)
@@ -380,7 +386,7 @@ impl ContainerManager {
             
             // Calculate needed containers: min(runs, concurrent_limit) / max_per_container
             let active_runs = runs.len().min(concurrent_limit);
-            let needed = (active_runs + exploit.max_per_container as usize - 1) / exploit.max_per_container as usize;
+            let needed = needed_containers(active_runs, exploit.max_per_container);
             
             let existing = self.db.get_exploit_containers(exploit.id).await?;
             let healthy: Vec<_> = existing.iter().filter(|c| c.counter > 0).collect();
@@ -397,6 +403,11 @@ impl ContainerManager {
         }
         Ok(())
     }
+}
+
+fn needed_containers(active_runs: usize, max_per_container: i32) -> usize {
+    let per_container = max_per_container.max(1) as usize;
+    (active_runs + per_container - 1) / per_container
 }
 
 pub struct ExecResult {

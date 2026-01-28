@@ -340,9 +340,6 @@ impl Executor {
         let skip_on_flag = settings.skip_on_flag;
         let sequential_per_target = settings.sequential_per_target;
 
-        // Pre-warm containers
-        self.container_manager.prewarm_for_round(concurrent_limit).await?;
-
         let jobs = self.db.get_pending_jobs(round_id).await?;
         let semaphore = Arc::new(Semaphore::new(concurrent_limit));
         
