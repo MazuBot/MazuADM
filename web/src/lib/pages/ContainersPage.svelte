@@ -1,7 +1,7 @@
 <script>
   import { api } from '$lib/api.js';
 
-  let { exploits, exploitRuns, teams, containers, containerRunners, onLoadContainers, onLoadRunners } = $props();
+  let { exploits, exploitRuns, challenges, teams, containers, containerRunners, onLoadContainers, onLoadRunners } = $props();
 
   let hasContainers = $derived((containers ?? []).length > 0);
 
@@ -13,6 +13,11 @@
   function getExploitName(exploitId) {
     const e = exploits.find((e) => e.id === exploitId);
     return e ? e.name : exploitId;
+  }
+
+  function getChallengeName(challengeId) {
+    const c = challenges.find((c) => c.id === challengeId);
+    return c ? c.name : (challengeId ?? '-');
   }
 
   function getExploitRunName(runId) {
@@ -62,7 +67,7 @@
   {#each exploits as exploit}
     {@const expContainers = containers.filter((c) => c.exploit_id === exploit.id)}
     {#if expContainers.length}
-      <h3>{exploit.name}</h3>
+      <h3>{getChallengeName(exploit.challenge_id)} / {exploit.name}</h3>
       <table>
         <thead>
           <tr>

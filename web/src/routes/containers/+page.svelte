@@ -6,6 +6,7 @@
   const {
     exploits,
     exploitRuns,
+    challenges,
     teams,
     containers,
     containerRunners,
@@ -23,6 +24,7 @@
 <ContainersPage
   exploits={$exploits}
   exploitRuns={$exploitRuns}
+  challenges={$challenges}
   teams={$teams}
   containers={$containers}
   containerRunners={$containerRunners}
