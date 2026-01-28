@@ -21,6 +21,7 @@
   }
 
   let showAddExploit = $state(false);
+  let selectedExploitId = $state(null);
   let newExploit = $state(getNewExploitDefaults());
   let newExploitInitial = $state(getNewExploitDefaults());
 
@@ -70,6 +71,17 @@
       e.preventDefault();
       openEditModal(run, e);
     }
+  }
+
+  function onExploitKeydown(e, exploitId) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      toggleExploitSelection(exploitId);
+    }
+  }
+
+  function toggleExploitSelection(exploitId) {
+    selectedExploitId = selectedExploitId === exploitId ? null : exploitId;
   }
 
   async function runNow(run, e) {
@@ -136,6 +148,40 @@
       editingExploit = null;
       onRefresh();
     }
+  }
+
+  async function deleteExploitFromList(exploit, e) {
+    e.stopPropagation();
+    if (confirm('Delete this exploit and all its runs?')) {
+      await api.deleteExploit(exploit.id);
+      if (editingExploit?.id === exploit.id) {
+        editingExploit = null;
+      }
+      if (selectedExploitId === exploit.id) {
+        selectedExploitId = null;
+      }
+      onRefresh();
+    }
+  }
+
+  function editExploitFromList(exploit, e) {
+    e.stopPropagation();
+    openEditExploit(exploit);
+  }
+
+  async function appendExploitToAllTeams(exploitId, e) {
+    e.stopPropagation();
+    if (!confirm('Append this exploit to all teams?')) {
+      return;
+    }
+    for (const team of teams) {
+      const hasRun = exploitRuns.some((r) => r.challenge_id === challengeId && r.team_id === team.id && r.exploit_id === exploitId);
+      if (hasRun) continue;
+      const runs = getRunsForTeam(team.id);
+      const maxSeq = runs.length > 0 ? Math.max(...runs.map(r => r.sequence)) : -1;
+      await api.createExploitRun({ exploit_id: exploitId, challenge_id: challengeId, team_id: team.id, sequence: maxSeq + 1 });
+    }
+    onRefresh();
   }
 
   async function openRelationModal(team) {
@@ -240,16 +286,49 @@
   <div class="sidebar">
     <h3>Exploits</h3>
     {#each filteredExploits as e}
-      <button
-        type="button"
+      <div
         class="exploit-item"
         class:disabled={!e.enabled}
+        class:selected={selectedExploitId === e.id}
+        role="button"
+        tabindex="0"
+        aria-pressed={selectedExploitId === e.id}
         draggable="true"
         ondragstart={(ev) => ev.dataTransfer.setData('exploitId', e.id)}
-        onclick={() => openEditExploit(e)}
+        onclick={() => toggleExploitSelection(e.id)}
+        onkeydown={(ev) => onExploitKeydown(ev, e.id)}
       >
-        {e.name}
-      </button>
+        <span class="exploit-name">{e.name}</span>
+        <div class="exploit-actions">
+          <button
+            type="button"
+            class="exploit-action"
+            title="Append to all teams"
+            aria-label="Append to all teams"
+            onclick={(ev) => appendExploitToAllTeams(e.id, ev)}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            class="exploit-action"
+            title="Edit exploit"
+            aria-label="Edit exploit"
+            onclick={(ev) => editExploitFromList(e, ev)}
+          >
+            ✎
+          </button>
+          <button
+            type="button"
+            class="exploit-action"
+            title="Delete exploit"
+            aria-label="Delete exploit"
+            onclick={(ev) => deleteExploitFromList(e, ev)}
+          >
+            ✕
+          </button>
+        </div>
+      </div>
     {/each}
     <button class="add-btn" onclick={openAddExploit}>+ Add Exploit</button>
   </div>
@@ -281,6 +360,7 @@
               class="card" 
               class:disabled={!run.enabled || !getExploit(run.exploit_id)?.enabled}
               class:dragging={draggingCard?.id === run.id}
+              class:highlighted={selectedExploitId && run.exploit_id === selectedExploitId}
               role="button"
               tabindex="0"
               aria-disabled={!run.enabled || !getExploit(run.exploit_id)?.enabled}
@@ -471,10 +551,16 @@
   .board { display: flex; gap: 1rem; height: calc(100vh - 150px); }
   .sidebar { width: 200px; background: #252540; padding: 1rem; border-radius: 8px; }
   .sidebar h3 { margin-top: 0; color: #00d9ff; }
-  .exploit-item { background: #1a1a2e; padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 4px; cursor: grab; border: 1px solid #444; width: 100%; text-align: left; color: inherit; }
+  .exploit-item { background: #1a1a2e; padding: 0.5rem 3.6rem 0.5rem 0.5rem; margin-bottom: 0.5rem; border-radius: 4px; cursor: grab; border: 1px solid #444; width: 100%; text-align: left; color: inherit; position: relative; overflow: hidden; box-sizing: border-box; }
   .exploit-item { appearance: none; background-color: #1a1a2e; }
   .exploit-item:hover { border-color: #00d9ff; }
   .exploit-item.disabled { opacity: 0.5; text-decoration: line-through; }
+  .exploit-item.selected { border-color: #00d9ff; box-shadow: 0 0 0 1px #00d9ff inset; }
+  .exploit-name { display: block; padding-right: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .exploit-actions { position: absolute; top: 0; right: 0; display: flex; gap: 0.2rem; opacity: 0; pointer-events: none; z-index: 1; }
+  .exploit-item:hover .exploit-actions, .exploit-item:focus-within .exploit-actions { opacity: 1; pointer-events: auto; }
+  .exploit-action { background: #fff; border: none; color: #333; font-size: 0.7rem; line-height: 1; width: 1rem; height: 1rem; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; aspect-ratio: 1; box-sizing: border-box; appearance: none; cursor: pointer; }
+  .exploit-action:hover { color: #111; }
   .add-btn { width: 100%; margin-top: 0.5rem; }
   .columns { display: flex; gap: 1rem; flex: 1; overflow-x: auto; }
   .column { min-width: 200px; background: #252540; padding: 1rem; border-radius: 8px; }
@@ -489,6 +575,7 @@
   .card.disabled { background: #0d0d15; opacity: 0.6; border-left-color: #444; }
   .card.disabled .card-name { text-decoration: line-through; color: #666; }
   .card.dragging { opacity: 0.4; border: 2px dashed #00d9ff; }
+  .card.highlighted { box-shadow: 0 0 0 1px #00d9ff inset; background: #202044; }
   .card-seq { background: #333; color: #888; font-size: 0.75rem; padding: 0.1rem 0.4rem; border-radius: 3px; }
   .card-name { font-weight: 500; flex: 1; }
   .card-priority { color: #888; font-size: 0.8rem; }
