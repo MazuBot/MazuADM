@@ -5,6 +5,7 @@ use std::time::{Instant, Duration};
 use std::sync::Arc;
 use std::collections::HashMap;
 use tokio::sync::{broadcast, Semaphore, Mutex};
+use tokio::task::JoinSet;
 use regex::Regex;
 
 pub struct Executor {
@@ -82,17 +83,7 @@ impl Executor {
         let duration_ms = start.elapsed().as_millis() as i32;
         let flags = Self::extract_flags(&stdout, flag_regex, max_flags);
         
-        let status = if !flags.is_empty() {
-            "flag"
-        } else if timed_out { 
-            "timeout" 
-        } else if ole {
-            "ole"
-        } else if exit_code == 0 { 
-            "success" 
-        } else { 
-            "failed" 
-        };
+        let status = derive_job_status(!flags.is_empty(), timed_out, ole, exit_code);
         
         self.db.finish_job(job.id, status, Some(&stdout), Some(&stderr), duration_ms).await?;
         
@@ -147,7 +138,7 @@ impl Executor {
         // Per-target locks for sequential execution
         let target_locks: Arc<Mutex<HashMap<(i32, i32), Arc<Mutex<()>>>>> = Arc::new(Mutex::new(HashMap::new()));
         
-        let mut handles = Vec::new();
+        let mut join_set = JoinSet::new();
 
         for job in jobs {
             let permit = semaphore.clone().acquire_owned().await?;
@@ -156,7 +147,7 @@ impl Executor {
             let executor = Executor::new(db.clone(), tx.clone())?;
             let target_locks = target_locks.clone();
 
-            let handle = tokio::spawn(async move {
+            join_set.spawn(async move {
                 let _permit = permit;
                 
                 // Re-check job status before running (may have been skipped/stopped)
@@ -249,11 +240,11 @@ impl Executor {
                 }
 
                 // Random delay 0-500ms to spread container reuse
-                let delay = rand::random::<u64>() % 500;
+                let delay = stagger_delay_ms(job.id);
                 tokio::time::sleep(Duration::from_millis(delay)).await;
 
                 // Use exploit timeout if set, otherwise global worker_timeout
-                let timeout = if exploit.timeout_secs > 0 { exploit.timeout_secs as u64 } else { worker_timeout };
+                let timeout = compute_timeout(exploit.timeout_secs, worker_timeout);
 
                 match executor.execute_job(&job, &run, &exploit, &conn, challenge.flag_regex.as_deref(), timeout, max_flags).await {
                     Ok(result) => {
@@ -270,17 +261,43 @@ impl Executor {
                     }
                 }
             });
-            
-            handles.push(handle);
         }
 
-        for handle in handles {
-            let _ = handle.await;
+        while let Some(result) = join_set.join_next().await {
+            if let Err(e) = result {
+                tracing::error!("Job task failed: {}", e);
+            }
         }
         
         // Don't finish round here - keep it running until next round starts
         Ok(())
     }
+}
+
+fn compute_timeout(exploit_timeout_secs: i32, worker_timeout: u64) -> u64 {
+    if exploit_timeout_secs > 0 {
+        exploit_timeout_secs as u64
+    } else {
+        worker_timeout
+    }
+}
+
+fn derive_job_status(flags_found: bool, timed_out: bool, ole: bool, exit_code: i64) -> &'static str {
+    if flags_found {
+        "flag"
+    } else if timed_out {
+        "timeout"
+    } else if ole {
+        "ole"
+    } else if exit_code == 0 {
+        "success"
+    } else {
+        "failed"
+    }
+}
+
+fn stagger_delay_ms(job_id: i32) -> u64 {
+    (job_id.unsigned_abs() as u64) % 500
 }
 
 pub struct JobResult {
@@ -289,4 +306,49 @@ pub struct JobResult {
     pub duration_ms: i32,
     pub exit_code: i64,
     pub flags: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{compute_timeout, derive_job_status, stagger_delay_ms};
+
+    #[test]
+    fn compute_timeout_prefers_exploit() {
+        assert_eq!(compute_timeout(10, 60), 10);
+    }
+
+    #[test]
+    fn compute_timeout_falls_back_to_worker() {
+        assert_eq!(compute_timeout(0, 60), 60);
+    }
+
+    #[test]
+    fn derive_job_status_flag() {
+        assert_eq!(derive_job_status(true, false, false, 1), "flag");
+    }
+
+    #[test]
+    fn derive_job_status_timeout() {
+        assert_eq!(derive_job_status(false, true, false, 0), "timeout");
+    }
+
+    #[test]
+    fn derive_job_status_ole() {
+        assert_eq!(derive_job_status(false, false, true, 0), "ole");
+    }
+
+    #[test]
+    fn derive_job_status_success() {
+        assert_eq!(derive_job_status(false, false, false, 0), "success");
+    }
+
+    #[test]
+    fn derive_job_status_failed() {
+        assert_eq!(derive_job_status(false, false, false, 1), "failed");
+    }
+
+    #[test]
+    fn stagger_delay_is_deterministic() {
+        assert_eq!(stagger_delay_ms(123), (123_u64 % 500));
+    }
 }
