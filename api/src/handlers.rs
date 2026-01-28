@@ -18,6 +18,10 @@ fn broadcast<T: serde::Serialize>(s: &AppState, msg_type: &str, data: &T) {
     let _ = s.tx.send(WsMessage::new(msg_type, data));
 }
 
+fn should_continue_ws(err: tokio::sync::broadcast::error::RecvError) -> bool {
+    matches!(err, tokio::sync::broadcast::error::RecvError::Lagged(_))
+}
+
 fn spawn_round_runner(executor: Executor, round_id: i32) {
     tokio::spawn(async move {
         if let Err(e) = executor.run_round(round_id).await {
@@ -83,7 +87,11 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>) {
                             break;
                         }
                     }
-                    Err(_) => break,
+                    Err(err) => {
+                        if !should_continue_ws(err) {
+                            break;
+                        }
+                    }
                 }
             }
             msg = socket.next() => {
@@ -535,7 +543,7 @@ pub async fn update_relation(State(s): S, Path((challenge_id, team_id)): Path<(i
 
 #[cfg(test)]
 mod tests {
-    use super::{rounds_to_finalize, rounds_to_reset_after, select_running_round_id};
+    use super::{rounds_to_finalize, rounds_to_reset_after, select_running_round_id, should_continue_ws};
     use mazuadm_core::Round;
     use chrono::{TimeZone, Utc};
 
@@ -580,5 +588,11 @@ mod tests {
             make_round(3, "running"),
         ];
         assert_eq!(select_running_round_id(&rounds), Some(2));
+    }
+
+    #[test]
+    fn should_continue_ws_only_on_lagged() {
+        assert!(should_continue_ws(tokio::sync::broadcast::error::RecvError::Lagged(1)));
+        assert!(!should_continue_ws(tokio::sync::broadcast::error::RecvError::Closed));
     }
 }
