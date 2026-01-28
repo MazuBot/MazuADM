@@ -40,27 +40,7 @@ cd web && npm install && npm run dev
 
 ## CLI Usage
 
-```bash
-# Add challenges
-mazuadm-cli challenge add --name "pwn1" --port 9001 --priority 100
-
-# Add teams
-mazuadm-cli team add --id "team1" --name "Team 1" --ip "10.0.1.1" --priority 50
-
-# Add exploits
-mazuadm-cli exploit add --name "pwn1-exp" --challenge 1 --image "myexploit:latest"
-
-# Add exploit runs (cards)
-mazuadm-cli run add --exploit 1 --challenge 1 --team 1
-
-# Create and run a round
-mazuadm-cli round new
-mazuadm-cli round run 1
-mazuadm-cli round jobs 1
-
-# View flags
-mazuadm-cli flag list --round 1
-```
+See [CLI.md](CLI.md) for detailed CLI documentation.
 
 ## Exploit Container Interface
 
