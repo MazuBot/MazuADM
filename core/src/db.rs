@@ -68,6 +68,12 @@ impl Database {
         Ok(sqlx::query_as!(Team, "SELECT * FROM teams WHERE id = $1", id).fetch_one(&self.pool).await?)
     }
 
+    pub async fn get_team_by_team_id(&self, team_id: &str) -> Result<Option<Team>> {
+        Ok(sqlx::query_as!(Team, "SELECT * FROM teams WHERE team_id = $1", team_id)
+            .fetch_optional(&self.pool)
+            .await?)
+    }
+
     pub async fn update_team(&self, id: i32, t: CreateTeam) -> Result<Team> {
         Ok(sqlx::query_as!(Team,
             "UPDATE teams SET team_id = $2, team_name = $3, default_ip = $4, priority = COALESCE($5, priority), enabled = COALESCE($6, enabled) WHERE id = $1 RETURNING *",
