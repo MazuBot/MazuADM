@@ -432,7 +432,7 @@
       >
         <h3>
           <a class="team-link" href={`#${team.team_id}`} onclick={(e) => jumpToTeam(team, e)}>
-            <span class="truncate">{getTeamDisplay(teams, team.id)}</span> {!team.enabled ? '(disabled)' : ''}
+            <span class="truncate">{getTeamDisplay(teams, team.id)}{!team.enabled ? ' (disabled)' : ''}</span>
           </a>
           <button
             type="button"
@@ -660,8 +660,9 @@
   .column { min-width: 200px; background: #252540; padding: 1rem; border-radius: 8px; }
   .column.highlighted { box-shadow: 0 0 0 2px #00d9ff inset; }
   .column.disabled { background: #1a1a25; opacity: 0.6; }
-  .column h3 { margin-top: 0; font-size: 0.9rem; color: #aaa; display: flex; justify-content: space-between; align-items: center; }
-  .team-link { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem; }
+  .column h3 { margin-top: 0; font-size: 0.9rem; color: #aaa; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; min-width: 0; }
+  .team-link { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem; flex: 1 1 auto; min-width: 0; }
+  .team-link .truncate { max-width: 100%; }
   .team-link:hover { color: #00d9ff; }
   .gear { cursor: pointer; opacity: 0.5; font-size: 0.8rem; background: transparent; border: none; padding: 0; color: inherit; }
   .gear:hover { opacity: 1; }
