@@ -9,6 +9,7 @@ import { selectedChallengeId, ensureSelections } from './selections.js'
 
 export const ready = writable(false)
 export const settings = writable([])
+export const wsConnections = writable([])
 
 async function loadSettings() {
   settings.set(await api.settings())
@@ -130,6 +131,9 @@ function handleWsMessage(msg) {
       break
     case 'connection_info_updated':
       break
+    case 'ws_connections':
+      wsConnections.set(data)
+      break
   }
 }
 
@@ -159,6 +163,7 @@ export const app = {
   settings,
   containers,
   containerRunners,
+  wsConnections,
   selectedChallengeId,
   selectedRoundId,
   selectedFlagRoundId,

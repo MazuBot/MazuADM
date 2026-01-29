@@ -36,4 +36,5 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/containers/{id}/restart", post(restart_container))
         .route("/api/relations/{challenge_id}", get(list_relations))
         .route("/api/relations/{challenge_id}/{team_id}", get(get_relation).put(update_connection_info))
+        .route("/api/ws-connections", get(list_ws_connections))
 }

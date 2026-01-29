@@ -21,8 +21,7 @@
 
   function shortHash(hash) {
     if (!hash) return ''
-    const short = hash.substring(0, 7)
-    return hash.includes('(Changed)') ? `${short} (Changed)` : short
+    return hash.substring(0, 7) + (hash.endsWith('-c') ? '-c' : '')
   }
 
   function navHref(section) {
@@ -56,6 +55,7 @@
       <a class:active={pathname.startsWith('/jobs')} href={navHref('jobs')}>Jobs</a>
       <a class:active={pathname.startsWith('/flags')} href={navHref('flags')}>Flags</a>
       <a class:active={pathname.startsWith('/containers')} href={navHref('containers')}>Containers</a>
+      <a class:active={pathname.startsWith('/websockets')} href={navHref('websockets')}>WebSockets</a>
       <a class:active={pathname.startsWith('/settings')} href={navHref('settings')}>Settings</a>
     </nav>
   </header>

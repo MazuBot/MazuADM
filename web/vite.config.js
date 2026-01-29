@@ -5,7 +5,7 @@ import { execSync } from 'child_process'
 const cmd = (c) => { try { return execSync(c, { encoding: 'utf8' }).trim() } catch { return '' } }
 const hash = cmd('git rev-parse --short HEAD')
 const dirty = cmd('git status --porcelain') !== ''
-const gitHash = hash ? (dirty ? `${hash} (Changed)` : hash) : 'unknown'
+const gitHash = hash ? (dirty ? `${hash}-c` : hash) : 'unknown'
 
 export default defineConfig({
   plugins: [sveltekit()],

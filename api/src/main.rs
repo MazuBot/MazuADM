@@ -4,12 +4,16 @@ mod routes;
 
 use crate::events::WsMessage;
 use anyhow::{bail, Context, Result};
+use chrono::{DateTime, Utc};
+use dashmap::DashMap;
 use mazuadm_core::executor::Executor;
 use mazuadm_core::scheduler::{Scheduler, SchedulerCommand, SchedulerHandle, SchedulerRunner};
 use mazuadm_core::settings::load_executor_settings;
 use mazuadm_core::Database;
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs::OpenOptions;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -17,6 +21,14 @@ use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing_appender::non_blocking::WorkerGuard;
+use uuid::Uuid;
+
+pub struct WsConnection {
+    pub client_ip: SocketAddr,
+    pub client_name: String,
+    pub subscribed_events: HashSet<String>,
+    pub connected_at: DateTime<Utc>,
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -24,6 +36,7 @@ pub struct AppState {
     pub tx: broadcast::Sender<WsMessage>,
     pub executor: Arc<Executor>,
     pub scheduler: SchedulerHandle,
+    pub ws_connections: Arc<DashMap<Uuid, WsConnection>>,
 }
 
 fn should_resume_running_round(pending_count: usize) -> bool {
@@ -135,7 +148,7 @@ async fn main() -> Result<()> {
     let (runner, scheduler_handle) = SchedulerRunner::new(scheduler);
     tokio::spawn(runner.run());
 
-    let state = Arc::new(AppState { db, tx, executor, scheduler: scheduler_handle });
+    let state = Arc::new(AppState { db, tx, executor, scheduler: scheduler_handle, ws_connections: Arc::new(DashMap::new()) });
     resume_running_round_if_needed(state.as_ref()).await?;
 
     let app = routes::routes()
@@ -150,7 +163,7 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|| "0.0.0.0:3000".to_string());
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("Listening on {}", addr);
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
     Ok(())
 }
 

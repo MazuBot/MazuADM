@@ -1,12 +1,15 @@
 use crate::events::WsMessage;
-use crate::AppState;
-use axum::{extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade}}, Json, response::Response};
+use crate::{AppState, WsConnection};
+use axum::{extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade}, ConnectInfo}, Json, response::Response};
+use chrono::Utc;
 use futures_util::{stream, StreamExt};
 use mazuadm_core::*;
 use mazuadm_core::scheduler::{select_running_round_id, SchedulerCommand};
 use std::collections::HashSet;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use serde::Deserialize;
+use uuid::Uuid;
 
 type S = State<Arc<AppState>>;
 type R<T> = Result<Json<T>, String>;
@@ -33,6 +36,7 @@ fn should_refresh_scheduler(round_status: &str) -> bool {
 #[derive(Deserialize)]
 pub struct WsQuery {
     pub events: Option<String>,
+    pub client: Option<String>,
 }
 
 fn parse_events(events: Option<String>) -> Option<HashSet<String>> {
@@ -52,12 +56,38 @@ struct WsClientMsg {
     events: Vec<String>,
 }
 
-pub async fn ws_handler(ws: WebSocketUpgrade, Query(q): Query<WsQuery>, State(s): S) -> Response {
+pub async fn ws_handler(ws: WebSocketUpgrade, Query(q): Query<WsQuery>, ConnectInfo(addr): ConnectInfo<SocketAddr>, State(s): S) -> Response {
     let subs = parse_events(q.events);
-    ws.on_upgrade(move |socket| handle_ws(socket, s, subs))
+    let client_name = q.client.unwrap_or_else(|| "unknown".to_string());
+    ws.on_upgrade(move |socket| handle_ws(socket, s, subs, addr, client_name))
 }
 
-async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, mut subs: Option<HashSet<String>>) {
+fn broadcast_ws_connections(state: &AppState) {
+    let now = Utc::now();
+    let conns: Vec<_> = state.ws_connections.iter().map(|entry| {
+        let conn = entry.value();
+        WsConnectionInfo {
+            id: entry.key().to_string(),
+            client_ip: conn.client_ip.to_string(),
+            client_name: conn.client_name.clone(),
+            subscribed_events: conn.subscribed_events.iter().cloned().collect(),
+            connected_at: conn.connected_at,
+            duration_secs: (now - conn.connected_at).num_seconds(),
+        }
+    }).collect();
+    broadcast(state, "ws_connections", &conns);
+}
+
+async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, mut subs: Option<HashSet<String>>, addr: SocketAddr, client_name: String) {
+    let conn_id = Uuid::new_v4();
+    state.ws_connections.insert(conn_id, WsConnection {
+        client_ip: addr,
+        client_name,
+        subscribed_events: subs.clone().unwrap_or_default(),
+        connected_at: Utc::now(),
+    });
+    broadcast_ws_connections(&state);
+
     let mut rx = state.tx.subscribe();
     loop {
         tokio::select! {
@@ -84,9 +114,12 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, mut subs: Option
                         if let Ok(cmd) = serde_json::from_str::<WsClientMsg>(&text) {
                             let set = subs.get_or_insert_with(HashSet::new);
                             match cmd.action.as_str() {
-                                "subscribe" => set.extend(cmd.events),
-                                "unsubscribe" => { for e in cmd.events { set.remove(&e); } }
+                                "subscribe" => set.extend(cmd.events.clone()),
+                                "unsubscribe" => { for e in &cmd.events { set.remove(e); } }
                                 _ => {}
+                            }
+                            if let Some(mut conn) = state.ws_connections.get_mut(&conn_id) {
+                                conn.subscribed_events = set.clone();
                             }
                         }
                     }
@@ -96,6 +129,8 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, mut subs: Option
             }
         }
     }
+    state.ws_connections.remove(&conn_id);
+    broadcast_ws_connections(&state);
 }
 
 // Version
@@ -551,6 +586,33 @@ pub async fn update_connection_info(State(s): S, Path((challenge_id, team_id)): 
     let rel = s.db.update_connection_info(challenge_id, team_id, u.addr, u.port).await.map_err(err)?;
     broadcast(&s, "connection_info_updated", &rel);
     Ok(Json(rel))
+}
+
+// WebSocket connections list
+#[derive(serde::Serialize)]
+pub struct WsConnectionInfo {
+    pub id: String,
+    pub client_ip: String,
+    pub client_name: String,
+    pub subscribed_events: Vec<String>,
+    pub connected_at: chrono::DateTime<Utc>,
+    pub duration_secs: i64,
+}
+
+pub async fn list_ws_connections(State(s): S) -> Json<Vec<WsConnectionInfo>> {
+    let now = Utc::now();
+    let conns: Vec<_> = s.ws_connections.iter().map(|entry| {
+        let conn = entry.value();
+        WsConnectionInfo {
+            id: entry.key().to_string(),
+            client_ip: conn.client_ip.to_string(),
+            client_name: conn.client_name.clone(),
+            subscribed_events: conn.subscribed_events.iter().cloned().collect(),
+            connected_at: conn.connected_at,
+            duration_secs: (now - conn.connected_at).num_seconds(),
+        }
+    }).collect();
+    Json(conns)
 }
 
 #[cfg(test)]
