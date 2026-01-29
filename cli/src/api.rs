@@ -118,6 +118,10 @@ impl ApiClient {
         self.get(&path).await
     }
 
+    pub async fn submit_flag(&self, req: SubmitFlagRequest) -> Result<Flag> {
+        self.post("/api/flags", &req).await
+    }
+
     // Settings
     pub async fn list_settings(&self) -> Result<Vec<Setting>> { self.get("/api/settings").await }
     pub async fn update_setting(&self, s: UpdateSetting) -> Result<()> { let _: String = self.post("/api/settings", &s).await?; Ok(()) }

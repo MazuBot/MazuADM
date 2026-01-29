@@ -178,6 +178,15 @@ pub struct Flag {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubmitFlagRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub round_id: Option<i32>,
+    pub challenge_id: i32,
+    pub team_id: i32,
+    pub flag_value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Setting {
     pub key: String,
     pub value: String,

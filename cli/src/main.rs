@@ -89,7 +89,15 @@ enum RoundCmd {
 enum JobCmd { List { #[arg(long)] round: i32 }, Run { id: i32 }, Stop { id: i32 }, SetPriority { id: i32, priority: i32 } }
 
 #[derive(Subcommand)]
-enum FlagCmd { List { #[arg(long)] round: Option<i32> } }
+enum FlagCmd {
+    List { #[arg(long)] round: Option<i32> },
+    Submit {
+        #[arg(long)] round: Option<i32>,
+        #[arg(long)] challenge: String,
+        #[arg(long)] team: String,
+        flag: String,
+    },
+}
 
 #[derive(Subcommand)]
 enum SettingCmd { List, Set { key: String, value: String } }
@@ -345,6 +353,12 @@ async fn main() -> Result<()> {
                 ctx.teams().await?;
                 let rows: Vec<_> = ctx.api.list_flags(round).await?.into_iter().map(|f| { let (tid, tn) = ctx.team_label(f.team_id); FlagRow { id: f.id, round: f.round_id.to_string(), challenge: f.challenge_id, team_id: tid, team_name: tn, flag: f.flag_value, status: f.status } }).collect();
                 println!("{}", Table::new(rows));
+            }
+            FlagCmd::Submit { round, challenge, team, flag } => {
+                let c = ctx.find_challenge(&challenge).await?;
+                let t = ctx.find_team(&team).await?;
+                let f = ctx.api.submit_flag(SubmitFlagRequest { round_id: round, challenge_id: c.id, team_id: t.id, flag_value: flag }).await?;
+                println!("Submitted flag {} for round {}", f.id, f.round_id);
             }
         },
         Cmd::Setting { cmd } => match cmd {
