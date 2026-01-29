@@ -7,6 +7,8 @@
   import { getUser, setUser, setOnAuthError } from '$lib/websocket.js'
   import ToastHost from '$lib/ui/ToastHost.svelte'
 
+  let { children } = $props();
+
   const {
     selectedChallengeId,
     selectedRoundId,
@@ -19,7 +21,7 @@
 
   let pathname = $derived($page.url.pathname)
 
-  let beVersion = ''
+  let beVersion = $state('')
   let feVersion = import.meta.env.DEV ? 'dev' : __BUILD_GIT_HASH__
   let showUserModal = $state(false)
   let userInput = $state('')
@@ -107,7 +109,7 @@
     </nav>
   </header>
 
-  <slot />
+  {@render children?.()}
 </main>
 
 <ToastHost />
