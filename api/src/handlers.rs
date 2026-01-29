@@ -337,10 +337,15 @@ pub async fn enqueue_existing_job(State(s): S, Path(job_id): Path<i32>) -> R<Exp
     let max_priority = s.db.get_max_priority_for_round(round_id).await.map_err(err)?;
 
     if job.status == "pending" && job.round_id == round_id {
-        s.db.update_job_priority(job_id, max_priority + 1).await.map_err(err)?;
-        let job = s.db.get_job(job_id).await.map_err(err)?;
-        broadcast_job(&s, "job_updated", &job);
-        s.scheduler.send(SchedulerCommand::RefreshJob(job.id)).map_err(err)?;
+        if let Err(e) = s.db.mark_job_scheduled(job_id).await {
+            tracing::error!("Failed to mark job {} scheduled: {}", job_id, e);
+        }
+        let executor = s.executor.clone();
+        tokio::spawn(async move {
+            if let Err(e) = executor.run_job_immediately(job_id).await {
+                tracing::error!("Immediate job {} failed: {}", job_id, e);
+            }
+        });
         return Ok(Json(job));
     }
 
