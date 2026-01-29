@@ -13,7 +13,7 @@ pub struct Executor {
     pub container_manager: Arc<ContainerManager>,
     pub tx: broadcast::Sender<WsMessage>,
     pid_map: Arc<DashMap<i32, JobPidState>>,
-    exploit_executors: Arc<DashMap<i32, ExploitExecutor>>,
+    exploit_executors: DashMap<i32, ExploitExecutor>,
 }
 
 pub(crate) struct JobContext {
@@ -59,7 +59,7 @@ impl Executor {
             container_manager,
             tx,
             pid_map: Arc::new(DashMap::new()),
-            exploit_executors: Arc::new(DashMap::new()),
+            exploit_executors: DashMap::new(),
         })
     }
 
