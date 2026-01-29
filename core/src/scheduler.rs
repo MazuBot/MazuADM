@@ -15,7 +15,7 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 use dashmap::DashMap;
-use tokio::sync::{broadcast, mpsc, Mutex, Notify, Semaphore};
+use tokio::sync::{broadcast, mpsc, Mutex, Notify, OwnedMutexGuard, Semaphore};
 use tokio::task::JoinSet;
 use std::time::Duration;
 
@@ -112,6 +112,33 @@ impl PendingQueue {
 
     fn is_empty(&self) -> bool {
         self.jobs.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.jobs.len()
+    }
+}
+
+enum TargetLockOutcome {
+    NoLock,
+    Acquired(OwnedMutexGuard<()>),
+    Busy,
+}
+
+fn try_acquire_target_guard(
+    target_locks: &DashMap<(i32, i32), Arc<Mutex<()>>>,
+    sequential_per_target: bool,
+    key: (i32, i32),
+) -> TargetLockOutcome {
+    if !sequential_per_target {
+        return TargetLockOutcome::NoLock;
+    }
+    let Some(lock) = get_target_lock(target_locks, sequential_per_target, key) else {
+        return TargetLockOutcome::NoLock;
+    };
+    match lock.try_lock_owned() {
+        Ok(guard) => TargetLockOutcome::Acquired(guard),
+        Err(_) => TargetLockOutcome::Busy,
     }
 }
 
@@ -269,34 +296,67 @@ impl SchedulerRunner {
         self.sync_semaphore();
         let Some(settings) = self.settings.clone() else { return; };
         let Some(round_id) = self.round_id else { return; };
+        let mut deferred = Vec::new();
 
         while self.semaphore.available_permits() > 0 {
-            let Some(job) = self.queue.pop_next() else { break; };
+            let mut scanned = 0;
+            let max_scan = self.queue.len();
+            let mut selected: Option<(JobContext, Option<OwnedMutexGuard<()>>)> = None;
 
-            if let Err(e) = self.scheduler.db.mark_job_scheduled(job.id).await {
-                tracing::error!("Failed to mark job {} scheduled: {}", job.id, e);
+            while scanned < max_scan {
+                let Some(job) = self.queue.pop_next() else { break; };
+                scanned += 1;
+
+                let db = self.scheduler.db.clone();
+                let tx = self.scheduler.tx.clone();
+                let ctx = match build_job_context_or_finish(&db, &tx, job.id).await {
+                    Some(ctx) => ctx,
+                    None => continue,
+                };
+
+                let target_guard = match try_acquire_target_guard(
+                    &self.target_locks,
+                    settings.sequential_per_target,
+                    (ctx.challenge.id, ctx.team.id),
+                ) {
+                    TargetLockOutcome::NoLock => None,
+                    TargetLockOutcome::Acquired(guard) => Some(guard),
+                    TargetLockOutcome::Busy => {
+                        deferred.push(ctx.job);
+                        continue;
+                    }
+                };
+
+                selected = Some((ctx, target_guard));
+                break;
             }
 
-            let db = self.scheduler.db.clone();
-            let tx = self.scheduler.tx.clone();
-            let ctx = match build_job_context_or_finish(&db, &tx, job.id).await {
-                Some(ctx) => ctx,
-                None => continue,
-            };
-            let target_lock = get_target_lock(&self.target_locks, settings.sequential_per_target, (ctx.challenge.id, ctx.team.id));
+            let Some((ctx, target_guard)) = selected else { break; };
+
+            if let Err(e) = self.scheduler.db.mark_job_scheduled(ctx.job.id).await {
+                tracing::error!("Failed to mark job {} scheduled: {}", ctx.job.id, e);
+            }
+
             let permit = match self.semaphore.clone().acquire_owned().await {
                 Ok(permit) => permit,
                 Err(_) => break,
             };
 
             self.running_jobs += 1;
+            let db = self.scheduler.db.clone();
+            let tx = self.scheduler.tx.clone();
             let executor = self.scheduler.executor.clone();
             let settings = settings.clone();
 
             self.join_set.spawn(async move {
                 let _permit = permit;
-                execute_one_job(db, tx, executor, target_lock, ctx, round_id, settings).await;
+                let _target_guard = target_guard;
+                execute_one_job(db, tx, executor, _target_guard, ctx, round_id, settings).await;
             });
+        }
+
+        for job in deferred {
+            self.queue.upsert(job);
         }
 
         if self.running_jobs == 0 && self.queue.is_empty() {
@@ -480,7 +540,7 @@ async fn execute_one_job(
     db: Database,
     tx: broadcast::Sender<WsMessage>,
     executor: Arc<Executor>,
-    target_lock: Option<Arc<Mutex<()>>>,
+    _target_guard: Option<OwnedMutexGuard<()>>,
     ctx: JobContext,
     round_id: i32,
     settings: ScheduleSettings,
@@ -488,11 +548,6 @@ async fn execute_one_job(
     if should_skip_job(&db, &tx, &ctx, settings.skip_on_flag, round_id).await {
         return;
     }
-
-    let _target_guard = match &target_lock {
-        Some(lock) => Some(lock.lock().await),
-        None => None,
-    };
 
     if should_skip_job(&db, &tx, &ctx, settings.skip_on_flag, round_id).await {
         return;
@@ -515,6 +570,32 @@ async fn execute_one_job(
             log_job_error(ctx.job.id, &e);
             finish_job_and_broadcast(&db, &tx, ctx.job.id, "error", None, Some(&e.to_string()), 0).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod target_lock_tests {
+    use super::{get_target_lock, try_acquire_target_guard, TargetLockOutcome};
+    use dashmap::DashMap;
+
+    #[test]
+    fn try_acquire_target_guard_skips_locked_targets() {
+        let locks = DashMap::new();
+        let lock = get_target_lock(&locks, true, (1, 1)).expect("lock");
+        let _held = lock.try_lock_owned().expect("lock guard");
+
+        assert!(matches!(
+            try_acquire_target_guard(&locks, true, (1, 1)),
+            TargetLockOutcome::Busy
+        ));
+        assert!(matches!(
+            try_acquire_target_guard(&locks, true, (1, 2)),
+            TargetLockOutcome::Acquired(_)
+        ));
+        assert!(matches!(
+            try_acquire_target_guard(&locks, false, (1, 1)),
+            TargetLockOutcome::NoLock
+        ));
     }
 }
 
