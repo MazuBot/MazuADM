@@ -137,7 +137,7 @@ async fn main() -> Result<()> {
     let (tx, _) = broadcast::channel::<WsMessage>(256);
     let executor = Executor::new(db.clone(), tx.clone())?;
     executor.container_manager.set_concurrent_create_limit(settings.concurrent_create_limit);
-    executor.container_manager.restore_from_docker().await?;
+    executor.restore_from_docker().await?;
     // Reset any jobs stuck in "running" state from previous run
     let reset = db.reset_stale_jobs().await?;
     if reset > 0 {

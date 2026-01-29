@@ -257,7 +257,20 @@ impl SchedulerRunner {
                 self.refresh_job(id, executor).await?;
             }
             SchedulerCommand::CreateRound { resp } => {
-                let res = self.scheduler.create_round(executor).await;
+                let res = self.scheduler.create_round().await;
+                if let Ok(_round_id) = res {
+                    let settings = load_executor_settings(&self.scheduler.db).await;
+                    executor
+                        .container_manager
+                        .set_concurrent_create_limit(settings.concurrent_create_limit);
+                    let cm = &executor.container_manager;
+                    let registry = &executor.container_registry;
+                    immediate.push(Box::pin(async move {
+                        if let Err(e) = cm.prewarm_for_round(registry, settings.concurrent_limit).await {
+                            tracing::error!("Prewarm failed: {}", e);
+                        }
+                    }));
+                }
                 let _ = resp.send(res);
             }
             SchedulerCommand::RunJobImmediately(job_id) => {
@@ -273,21 +286,23 @@ impl SchedulerRunner {
                 let _ = resp.send(res);
             }
             SchedulerCommand::EnsureContainers { exploit_id, resp } => {
-                let cm = executor.container_manager.clone();
-                tokio::spawn(async move {
-                    let res = cm.ensure_containers(exploit_id).await;
+                let cm = &executor.container_manager;
+                let registry = &executor.container_registry;
+                immediate.push(Box::pin(async move {
+                    let res = cm.ensure_containers(registry, exploit_id).await;
                     let _ = resp.send(res);
-                });
+                }));
             }
             SchedulerCommand::DestroyExploitContainers { exploit_id, resp } => {
-                let cm = executor.container_manager.clone();
-                tokio::spawn(async move {
-                    let res = cm.destroy_exploit_containers(exploit_id).await;
+                let cm = &executor.container_manager;
+                let registry = &executor.container_registry;
+                immediate.push(Box::pin(async move {
+                    let res = cm.destroy_exploit_containers(registry, exploit_id).await;
                     let _ = resp.send(res);
-                });
+                }));
             }
             SchedulerCommand::ListContainers { exploit_id, resp } => {
-                let res = executor.container_manager.list_containers().await
+                let res = executor.container_manager.list_containers(&executor.container_registry).await
                     .map(|mut containers| {
                         if let Some(id) = exploit_id {
                             containers.retain(|c| c.exploit_id == id);
@@ -297,18 +312,20 @@ impl SchedulerRunner {
                 let _ = resp.send(res);
             }
             SchedulerCommand::RestartContainer { id, resp } => {
-                let cm = executor.container_manager.clone();
-                tokio::spawn(async move {
-                    let res = cm.restart_container_by_id(&id).await;
+                let cm = &executor.container_manager;
+                let registry = &executor.container_registry;
+                immediate.push(Box::pin(async move {
+                    let res = cm.restart_container_by_id(registry, &id).await;
                     let _ = resp.send(res);
-                });
+                }));
             }
             SchedulerCommand::DestroyContainer { id, resp } => {
-                let cm = executor.container_manager.clone();
-                tokio::spawn(async move {
-                    let res = cm.destroy_container_by_id(&id).await;
+                let cm = &executor.container_manager;
+                let registry = &executor.container_registry;
+                immediate.push(Box::pin(async move {
+                    let res = cm.destroy_container_by_id(registry, &id).await;
                     let _ = resp.send(res);
-                });
+                }));
             }
         }
         self.schedule_more(executor, in_flight).await;
@@ -318,7 +335,10 @@ impl SchedulerRunner {
     async fn reset_queue(&mut self, round_id: i32, executor: &Executor) -> Result<()> {
         let settings = load_executor_settings(&self.scheduler.db).await;
         executor.container_manager.set_concurrent_create_limit(settings.concurrent_create_limit);
-        executor.container_manager.health_check().await?;
+        executor
+            .container_manager
+            .health_check(&executor.container_registry)
+            .await?;
         let jobs = self.scheduler.db.get_pending_jobs(round_id).await?;
         self.queue.reset(round_id, jobs);
         self.round_id = Some(round_id);
@@ -553,19 +573,11 @@ impl Scheduler {
         Ok(round.id)
     }
 
-    pub async fn create_round(&self, executor: &Executor) -> Result<i32> {
+    pub async fn create_round(&self) -> Result<i32> {
         let round_id = self.generate_round().await?;
         if let Ok(round) = self.db.get_round(round_id).await {
             broadcast(&self.tx, "round_created", &round);
         }
-        let settings = load_executor_settings(&self.db).await;
-        let cm = executor.container_manager.clone();
-        cm.set_concurrent_create_limit(settings.concurrent_create_limit);
-        tokio::spawn(async move {
-            if let Err(e) = cm.prewarm_for_round(settings.concurrent_limit).await {
-                tracing::error!("Prewarm failed: {}", e);
-            }
-        });
         Ok(round_id)
     }
 

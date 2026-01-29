@@ -27,7 +27,6 @@ pub struct ContainerManager {
     tx: broadcast::Sender<WsMessage>,
     spawn_gate: Arc<Semaphore>,
     spawn_limit: Arc<AtomicUsize>,
-    registry: Arc<Mutex<ContainerRegistry>>,
     restart_in_flight: DashSet<String>,
 }
 
@@ -66,19 +65,22 @@ fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &
 }
 
 #[derive(Default)]
-struct ContainerRegistry {
+pub(crate) struct ContainerRegistry {
     by_id: HashMap<String, Arc<ManagedContainer>>,
     pools: HashMap<i32, Vec<Arc<ManagedContainer>>>,
     affinity: HashMap<i32, String>,
     reverse_affinity: HashMap<String, HashSet<i32>>,
 }
 
-pub struct ContainerLease {
-    manager: Arc<ContainerManager>,
+pub(crate) type ContainerRegistryHandle = Arc<Mutex<ContainerRegistry>>;
+
+pub struct ContainerLease<'a> {
+    manager: &'a ContainerManager,
+    registry: &'a ContainerRegistryHandle,
     container: Arc<ManagedContainer>,
 }
 
-impl ContainerLease {
+impl<'a> ContainerLease<'a> {
     pub fn container_id(&self) -> &str {
         &self.container.container_id
     }
@@ -92,12 +94,12 @@ impl ContainerLease {
     }
 
     pub async fn finish(self) {
-        self.manager.release_container(self.container).await;
+        self.manager.release_container(self.registry, self.container).await;
     }
 }
 
-enum AffinityAcquire {
-    Lease(ContainerLease),
+enum AffinityAcquire<'a> {
+    Lease(ContainerLease<'a>),
     Exhausted,
     None,
 }
@@ -172,7 +174,6 @@ impl ContainerManager {
             tx,
             spawn_gate: Arc::new(Semaphore::new(1)),
             spawn_limit: Arc::new(AtomicUsize::new(1)),
-            registry: Arc::new(Mutex::new(ContainerRegistry::default())),
             restart_in_flight: DashSet::new(),
         })
     }
@@ -186,8 +187,8 @@ impl ContainerManager {
         self.spawn_limit.store(limit, Ordering::SeqCst);
     }
 
-    pub async fn restore_from_docker(&self) -> Result<()> {
-        let mut registry = ContainerRegistry::default();
+    pub(crate) async fn restore_from_docker(&self, registry: &ContainerRegistryHandle) -> Result<()> {
+        let mut rebuilt = ContainerRegistry::default();
         let containers = self.list_managed_containers().await?;
 
         for container in containers {
@@ -212,32 +213,32 @@ impl ContainerManager {
                 affinity_limit,
                 created_at,
             });
-            registry.by_id.insert(container_id.clone(), managed.clone());
-            registry.pools.entry(exploit_id).or_default().push(managed);
+            rebuilt.by_id.insert(container_id.clone(), managed.clone());
+            rebuilt.pools.entry(exploit_id).or_default().push(managed);
 
             if let Some(list) = labels.get(LABEL_AFFINITY_LIST) {
                 let runs = parse_affinity_list(list);
                 if !runs.is_empty() {
                     let mut set = HashSet::new();
                     for run_id in runs {
-                        if registry.affinity.insert(run_id, container_id.clone()).is_some() {
+                        if rebuilt.affinity.insert(run_id, container_id.clone()).is_some() {
                             warn!("Affinity run {} assigned to multiple containers; latest wins", run_id);
                         }
                         set.insert(run_id);
                     }
-                    registry.reverse_affinity.insert(container_id.clone(), set);
+                    rebuilt.reverse_affinity.insert(container_id.clone(), set);
                 }
             }
         }
 
-        let mut guard = self.registry.lock().await;
-        *guard = registry;
+        let mut guard = registry.lock().await;
+        *guard = rebuilt;
         Ok(())
     }
 
-    pub async fn list_containers(&self) -> Result<Vec<ContainerInfo>> {
+    pub(crate) async fn list_containers(&self, registry: &ContainerRegistryHandle) -> Result<Vec<ContainerInfo>> {
         let (containers, affinity_map) = {
-            let guard = self.registry.lock().await;
+            let guard = registry.lock().await;
             (
                 guard.by_id.values().cloned().collect::<Vec<_>>(),
                 guard.reverse_affinity.clone(),
@@ -269,7 +270,7 @@ impl ContainerManager {
         Ok(infos)
     }
 
-    async fn container_info(&self, container: &Arc<ManagedContainer>) -> ContainerInfo {
+    async fn container_info(&self, registry: &ContainerRegistryHandle, container: &Arc<ManagedContainer>) -> ContainerInfo {
         let status = match self
             .docker
             .inspect_container(&container.container_id, None::<InspectContainerOptions>)
@@ -284,7 +285,7 @@ impl ContainerManager {
         };
         let running_execs = container.running_execs.load(Ordering::SeqCst);
         let affinity_runs = {
-            let guard = self.registry.lock().await;
+            let guard = registry.lock().await;
             guard
                 .reverse_affinity
                 .get(&container.container_id)
@@ -303,21 +304,21 @@ impl ContainerManager {
         }
     }
 
-    async fn container_info_by_id(&self, container_id: &str) -> Option<ContainerInfo> {
+    async fn container_info_by_id(&self, registry: &ContainerRegistryHandle, container_id: &str) -> Option<ContainerInfo> {
         let container = {
-            let guard = self.registry.lock().await;
+            let guard = registry.lock().await;
             guard.by_id.get(container_id).cloned()
         }?;
-        Some(self.container_info(&container).await)
+        Some(self.container_info(registry, &container).await)
     }
 
-    async fn broadcast_container_created(&self, container: &Arc<ManagedContainer>) {
-        let info = self.container_info(container).await;
+    async fn broadcast_container_created(&self, registry: &ContainerRegistryHandle, container: &Arc<ManagedContainer>) {
+        let info = self.container_info(registry, container).await;
         broadcast(&self.tx, "container_created", &info);
     }
 
-    async fn broadcast_container_updated(&self, container_id: &str) {
-        if let Some(info) = self.container_info_by_id(container_id).await {
+    async fn broadcast_container_updated(&self, registry: &ContainerRegistryHandle, container_id: &str) {
+        if let Some(info) = self.container_info_by_id(registry, container_id).await {
             broadcast(&self.tx, "container_updated", &info);
         }
     }
@@ -335,24 +336,34 @@ impl ContainerManager {
         broadcast(&self.tx, "container_execs_updated", &payload);
     }
 
-    pub async fn lease_container(self: &Arc<Self>, exploit: &Exploit, exploit_run_id: i32) -> Result<ContainerLease> {
+    pub(crate) async fn lease_container<'a>(
+        &'a self,
+        registry: &'a ContainerRegistryHandle,
+        exploit: &Exploit,
+        exploit_run_id: i32,
+    ) -> Result<ContainerLease<'a>> {
         let affinity_limit = exploit.max_per_container.max(1) as usize;
         let exploit_id = exploit.id;
         let max_containers = exploit.max_containers;
 
-        let affinity_result = self.try_acquire_affinity(exploit_id, exploit_run_id).await?;
+        let affinity_result = self
+            .try_acquire_affinity(registry, exploit_id, exploit_run_id)
+            .await?;
         match affinity_result {
             AffinityAcquire::Lease(lease) => return Ok(lease),
             AffinityAcquire::Exhausted => {}
             AffinityAcquire::None => {
-                if let Some(lease) = self.try_acquire_best_available(exploit_id, exploit_run_id).await? {
+                if let Some(lease) = self
+                    .try_acquire_best_available(registry, exploit_id, exploit_run_id)
+                    .await?
+                {
                     return Ok(lease);
                 }
             }
         }
 
         let pool_len = {
-            let guard = self.registry.lock().await;
+            let guard = registry.lock().await;
             guard
                 .pools
                 .get(&exploit_id)
@@ -367,40 +378,42 @@ impl ContainerManager {
             .into_iter()
             .map(|r| r.id)
             .collect::<Vec<_>>();
-        let assigned = self.select_affinity_for_new_container(exploit_run_id, &run_ids, affinity_limit).await;
+        let assigned = self
+            .select_affinity_for_new_container(registry, exploit_run_id, &run_ids, affinity_limit)
+            .await;
         let affinity_runs = if assigned.is_empty() { None } else { Some(assigned.clone()) };
-        let container = self.spawn_container(exploit, affinity_limit, affinity_runs).await?;
+        let container = self.spawn_container(registry, exploit, affinity_limit, affinity_runs).await?;
         if !try_decrement_counter(&container) {
-            self.handle_exhausted_container(&container).await;
+            self.handle_exhausted_container(registry, &container).await;
             return Err(anyhow::anyhow!("Container counter exhausted for exploit {}", exploit_id));
         }
         let running_execs = container.running_execs.fetch_add(1, Ordering::SeqCst) + 1;
         self.broadcast_container_execs(&container, running_execs);
-        Ok(ContainerLease { manager: self.clone(), container })
+        Ok(ContainerLease { manager: self, registry, container })
     }
 
-    async fn release_container(&self, container: Arc<ManagedContainer>) {
+    async fn release_container(&self, registry: &ContainerRegistryHandle, container: Arc<ManagedContainer>) {
         let running_execs = decrement_running_execs(&container);
         self.broadcast_container_execs(&container, running_execs);
         if container.counter.load(Ordering::SeqCst) <= 0
             && container.running_execs.load(Ordering::SeqCst) == 0
         {
-            let _ = self.destroy_container_by_id(&container.container_id).await;
+            let _ = self.destroy_container_by_id(registry, &container.container_id).await;
         }
     }
 
-    async fn register_container(&self, container: Arc<ManagedContainer>) {
-        let mut guard = self.registry.lock().await;
+    async fn register_container(&self, registry: &ContainerRegistryHandle, container: Arc<ManagedContainer>) {
+        let mut guard = registry.lock().await;
         guard.by_id.insert(container.container_id.clone(), container.clone());
         guard.pools.entry(container.exploit_id).or_default().push(container);
     }
 
-    async fn register_affinity(&self, container: &Arc<ManagedContainer>, runs: &[i32]) {
+    async fn register_affinity(&self, registry: &ContainerRegistryHandle, container: &Arc<ManagedContainer>, runs: &[i32]) {
         if runs.is_empty() {
             return;
         }
         let container_id = container.container_id.clone();
-        let mut guard = self.registry.lock().await;
+        let mut guard = registry.lock().await;
         let current_len = guard
             .reverse_affinity
             .get(&container_id)
@@ -422,9 +435,14 @@ impl ContainerManager {
         }
     }
 
-    async fn try_acquire_affinity(self: &Arc<Self>, exploit_id: i32, run_id: i32) -> Result<AffinityAcquire> {
+    async fn try_acquire_affinity<'a>(
+        &'a self,
+        registry: &'a ContainerRegistryHandle,
+        exploit_id: i32,
+        run_id: i32,
+    ) -> Result<AffinityAcquire<'a>> {
         let container = {
-            let mut guard = self.registry.lock().await;
+            let mut guard = registry.lock().await;
             let Some(container_id) = guard.affinity.get(&run_id).cloned() else {
                 return Ok(AffinityAcquire::None);
             };
@@ -447,22 +465,27 @@ impl ContainerManager {
         };
 
         if container.counter.load(Ordering::SeqCst) <= 0 {
-            self.handle_exhausted_container(&container).await;
+            self.handle_exhausted_container(registry, &container).await;
             return Ok(AffinityAcquire::Exhausted);
         }
 
         if !try_decrement_counter(&container) {
-            self.handle_exhausted_container(&container).await;
+            self.handle_exhausted_container(registry, &container).await;
             return Ok(AffinityAcquire::Exhausted);
         }
         let running_execs = container.running_execs.fetch_add(1, Ordering::SeqCst) + 1;
         self.broadcast_container_execs(&container, running_execs);
-        Ok(AffinityAcquire::Lease(ContainerLease { manager: self.clone(), container }))
+        Ok(AffinityAcquire::Lease(ContainerLease { manager: self, registry, container }))
     }
 
-    async fn try_acquire_best_available(self: &Arc<Self>, exploit_id: i32, run_id: i32) -> Result<Option<ContainerLease>> {
+    async fn try_acquire_best_available<'a>(
+        &'a self,
+        registry: &'a ContainerRegistryHandle,
+        exploit_id: i32,
+        run_id: i32,
+    ) -> Result<Option<ContainerLease<'a>>> {
         let (containers, reverse_affinity) = {
-            let guard = self.registry.lock().await;
+            let guard = registry.lock().await;
             (
                 guard.pools.get(&exploit_id).cloned().unwrap_or_default(),
                 guard.reverse_affinity.clone(),
@@ -474,17 +497,23 @@ impl ContainerManager {
         };
 
         if !try_decrement_counter(&container) {
-            self.handle_exhausted_container(&container).await;
+            self.handle_exhausted_container(registry, &container).await;
             return Ok(None);
         }
 
         let running_execs = container.running_execs.fetch_add(1, Ordering::SeqCst) + 1;
         self.broadcast_container_execs(&container, running_execs);
-        self.register_affinity(&container, &[run_id]).await;
-        Ok(Some(ContainerLease { manager: self.clone(), container }))
+        self.register_affinity(registry, &container, &[run_id]).await;
+        Ok(Some(ContainerLease { manager: self, registry, container }))
     }
 
-    async fn select_affinity_for_new_container(&self, run_id: i32, run_ids: &[i32], affinity_limit: usize) -> Vec<i32> {
+    async fn select_affinity_for_new_container(
+        &self,
+        registry: &ContainerRegistryHandle,
+        run_id: i32,
+        run_ids: &[i32],
+        affinity_limit: usize,
+    ) -> Vec<i32> {
         if affinity_limit == 0 {
             return Vec::new();
         }
@@ -493,7 +522,7 @@ impl ContainerManager {
         ids.sort_unstable();
         ids.dedup();
 
-        let mut guard = self.registry.lock().await;
+        let mut guard = registry.lock().await;
         let mut mapped = HashSet::new();
         let mut to_unmap = Vec::new();
         for id in &ids {
@@ -517,25 +546,25 @@ impl ContainerManager {
         build_affinity_for_new_container(run_id, &ids, &mapped, affinity_limit)
     }
 
-    async fn handle_exhausted_container(&self, container: &Arc<ManagedContainer>) {
+    async fn handle_exhausted_container(&self, registry: &ContainerRegistryHandle, container: &Arc<ManagedContainer>) {
         if container.counter.load(Ordering::SeqCst) > 0 {
             return;
         }
-        self.unmap_exhausted_container(&container.container_id).await;
+        self.unmap_exhausted_container(registry, &container.container_id).await;
         if container.running_execs.load(Ordering::SeqCst) == 0 {
-            let _ = self.destroy_container_by_id(&container.container_id).await;
+            let _ = self.destroy_container_by_id(registry, &container.container_id).await;
         }
     }
 
-    async fn unmap_exhausted_container(&self, container_id: &str) {
-        let mut guard = self.registry.lock().await;
+    async fn unmap_exhausted_container(&self, registry: &ContainerRegistryHandle, container_id: &str) {
+        let mut guard = registry.lock().await;
         let mut reverse = std::mem::take(&mut guard.reverse_affinity);
         drop_affinity_for_container(&mut guard.affinity, &mut reverse, container_id);
         guard.reverse_affinity = reverse;
     }
 
-    async fn detach_container(&self, container_id: &str) -> Option<Arc<ManagedContainer>> {
-        let mut guard = self.registry.lock().await;
+    async fn detach_container(&self, registry: &ContainerRegistryHandle, container_id: &str) -> Option<Arc<ManagedContainer>> {
+        let mut guard = registry.lock().await;
         let mut reverse = std::mem::take(&mut guard.reverse_affinity);
         drop_affinity_for_container(&mut guard.affinity, &mut reverse, container_id);
         guard.reverse_affinity = reverse;
@@ -579,14 +608,14 @@ impl ContainerManager {
     }
 
     /// Ensure at least one container exists for an exploit
-    pub async fn ensure_containers(&self, exploit_id: i32) -> Result<()> {
+    pub(crate) async fn ensure_containers(&self, registry: &ContainerRegistryHandle, exploit_id: i32) -> Result<()> {
         let exploit = self.db.get_exploit(exploit_id).await?;
         if !exploit.enabled {
             return Ok(());
         }
 
         let existing = {
-            let guard = self.registry.lock().await;
+            let guard = registry.lock().await;
             guard.pools.get(&exploit_id).map(|p| p.len()).unwrap_or(0)
         };
         if existing == 0 {
@@ -602,16 +631,26 @@ impl ContainerManager {
                 None
             } else {
                 let primary = *run_ids.iter().min().unwrap();
-                let assigned = self.select_affinity_for_new_container(primary, &run_ids, affinity_limit).await;
+                let assigned = self
+                    .select_affinity_for_new_container(registry, primary, &run_ids, affinity_limit)
+                    .await;
                 if assigned.is_empty() { None } else { Some(assigned) }
             };
-            let _ = self.spawn_container(&exploit, affinity_limit, affinity).await?;
+            let _ = self
+                .spawn_container(registry, &exploit, affinity_limit, affinity)
+                .await?;
         }
         Ok(())
     }
 
     /// Spawn a new persistent container for an exploit
-    async fn spawn_container(&self, exploit: &Exploit, affinity_limit: usize, affinity_runs: Option<Vec<i32>>) -> Result<Arc<ManagedContainer>> {
+    async fn spawn_container(
+        &self,
+        registry: &ContainerRegistryHandle,
+        exploit: &Exploit,
+        affinity_limit: usize,
+        affinity_runs: Option<Vec<i32>>,
+    ) -> Result<Arc<ManagedContainer>> {
         let _permit = self.spawn_gate.acquire().await?;
         let normalized: String = exploit.name.chars()
             .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
@@ -655,12 +694,12 @@ impl ContainerManager {
             affinity_limit,
             created_at: Utc::now(),
         });
-        self.register_container(managed.clone()).await;
+        self.register_container(registry, managed.clone()).await;
         if let Some(runs) = affinity_runs {
-            self.register_affinity(&managed, &runs).await;
+            self.register_affinity(registry, &managed, &runs).await;
         }
 
-        self.broadcast_container_created(&managed).await;
+        self.broadcast_container_created(registry, &managed).await;
         info!("Spawned container {} for exploit {}", resp.id, exploit.id);
         Ok(managed)
     }
@@ -791,9 +830,9 @@ impl ContainerManager {
     }
 
     /// Health check all containers, remove dead ones
-    pub async fn health_check(&self) -> Result<()> {
+    pub(crate) async fn health_check(&self, registry: &ContainerRegistryHandle) -> Result<()> {
         let containers: Vec<Arc<ManagedContainer>> = {
-            let guard = self.registry.lock().await;
+            let guard = registry.lock().await;
             guard.by_id.values().cloned().collect()
         };
 
@@ -805,15 +844,15 @@ impl ContainerManager {
 
             if !alive {
                 warn!("Container {} is dead, removing", container.container_id);
-                let _ = self.destroy_container_by_id(&container.container_id).await;
+                let _ = self.destroy_container_by_id(registry, &container.container_id).await;
             }
         }
         Ok(())
     }
 
     /// Destroy a container and clean up
-    pub async fn destroy_container_by_id(&self, container_id: &str) -> Result<()> {
-        let _ = self.detach_container(container_id).await;
+    pub(crate) async fn destroy_container_by_id(&self, registry: &ContainerRegistryHandle, container_id: &str) -> Result<()> {
+        let _ = self.detach_container(registry, container_id).await;
         let _ = self.docker.remove_container(container_id, Some(RemoveContainerOptions { force: true, ..Default::default() })).await;
         info!("Destroyed container {}", container_id);
         self.broadcast_container_deleted(container_id);
@@ -821,7 +860,7 @@ impl ContainerManager {
     }
 
     /// Restart a container by ID
-    pub async fn restart_container_by_id(&self, container_id: &str) -> Result<()> {
+    pub(crate) async fn restart_container_by_id(&self, registry: &ContainerRegistryHandle, container_id: &str) -> Result<()> {
         if !self.begin_restart(container_id).await {
             return Ok(());
         }
@@ -834,28 +873,29 @@ impl ContainerManager {
 
         self.end_restart(container_id).await;
         if result.is_ok() {
-            self.broadcast_container_updated(container_id).await;
+            self.broadcast_container_updated(registry, container_id).await;
         }
         result
     }
 
     /// Destroy all containers for an exploit
-    pub async fn destroy_exploit_containers(&self, exploit_id: i32) -> Result<()> {
+    pub(crate) async fn destroy_exploit_containers(&self, registry: &ContainerRegistryHandle, exploit_id: i32) -> Result<()> {
         let containers: Vec<String> = {
-            let guard = self.registry.lock().await;
+            let guard = registry.lock().await;
             guard.pools.get(&exploit_id).map(|p| p.iter().map(|c| c.container_id.clone()).collect()).unwrap_or_default()
         };
         for cid in containers {
-            let _ = self.destroy_container_by_id(&cid).await;
+            let _ = self.destroy_container_by_id(registry, &cid).await;
         }
         Ok(())
     }
 
     /// Ensure containers for all enabled exploits
-    pub async fn ensure_all_containers(&self) -> Result<()> {
+    #[allow(dead_code)]
+    pub(crate) async fn ensure_all_containers(&self, registry: &ContainerRegistryHandle) -> Result<()> {
         let exploits = self.db.list_enabled_exploits().await?;
         for exploit in exploits {
-            if let Err(e) = self.ensure_containers(exploit.id).await {
+            if let Err(e) = self.ensure_containers(registry, exploit.id).await {
                 error!("Failed to ensure containers for exploit {}: {}", exploit.id, e);
             }
         }
@@ -863,7 +903,7 @@ impl ContainerManager {
     }
 
     /// Pre-warm containers based on concurrent limit
-    pub async fn prewarm_for_round(&self, concurrent_limit: usize) -> Result<()> {
+    pub(crate) async fn prewarm_for_round(&self, registry: &ContainerRegistryHandle, concurrent_limit: usize) -> Result<()> {
         let exploits = self.db.list_enabled_exploits().await?;
 
         for exploit in exploits {
@@ -880,7 +920,7 @@ impl ContainerManager {
             }
 
             let existing = {
-                let guard = self.registry.lock().await;
+                let guard = registry.lock().await;
                 guard.pools.get(&exploit.id)
                     .map(|p| p.iter().filter(|c| c.counter.load(Ordering::SeqCst) > 0).count())
                     .unwrap_or(0)
@@ -893,7 +933,7 @@ impl ContainerManager {
                 ids.sort_unstable();
                 ids.dedup();
                 let unmapped = {
-                    let mut guard = self.registry.lock().await;
+                    let mut guard = registry.lock().await;
                     let mut unmapped = Vec::new();
                     let mut to_unmap = Vec::new();
                     for run_id in &ids {
@@ -925,7 +965,10 @@ impl ContainerManager {
                     if chunk.is_empty() {
                         continue;
                     }
-                    if let Err(e) = self.spawn_container(&exploit, affinity_limit, Some(chunk.to_vec())).await {
+                    if let Err(e) = self
+                        .spawn_container(registry, &exploit, affinity_limit, Some(chunk.to_vec()))
+                        .await
+                    {
                         error!("Failed to spawn container for {}: {}", exploit.name, e);
                     } else {
                         spawned += 1;

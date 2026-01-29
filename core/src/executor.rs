@@ -1,18 +1,20 @@
 use crate::{Database, Exploit, ExploitJob, ExploitRun, ConnectionInfo, WsMessage, Challenge, Team};
-use crate::container_manager::{ContainerManager, ExecResult};
+use crate::container_manager::{ContainerManager, ContainerRegistry, ContainerRegistryHandle, ExecResult};
 use anyhow::Result;
 use std::future::Future;
 use std::time::{Instant, Duration};
 use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot, Mutex};
 use tokio::time::Instant as TokioInstant;
+use futures::future::{AbortHandle, Abortable};
 use regex::Regex;
 use crate::settings::{compute_timeout, load_job_settings};
 use dashmap::DashMap;
 
 pub struct Executor {
     pub db: Database,
-    pub container_manager: Arc<ContainerManager>,
+    pub container_manager: ContainerManager,
+    pub(crate) container_registry: ContainerRegistryHandle,
     pub tx: broadcast::Sender<WsMessage>,
     stop_tx: broadcast::Sender<StopSignal>,
     exploit_executors: DashMap<i32, ExploitExecutor>,
@@ -53,15 +55,23 @@ fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &
 
 impl Executor {
     pub fn new(db: Database, tx: broadcast::Sender<WsMessage>) -> Result<Self> {
-        let container_manager = Arc::new(ContainerManager::new(db.clone(), tx.clone())?);
+        let container_manager = ContainerManager::new(db.clone(), tx.clone())?;
+        let container_registry = Arc::new(Mutex::new(ContainerRegistry::default()));
         let (stop_tx, _stop_rx) = broadcast::channel::<StopSignal>(128);
         Ok(Self {
             db,
             container_manager,
+            container_registry,
             tx,
             stop_tx,
             exploit_executors: DashMap::new(),
         })
+    }
+
+    pub async fn restore_from_docker(&self) -> Result<()> {
+        self.container_manager
+            .restore_from_docker(&self.container_registry)
+            .await
     }
 
     async fn get_exploit_executor(&self, exploit: &Exploit) -> ExploitExecutor {
@@ -107,7 +117,10 @@ impl Executor {
         
         let exploit_exec = self.get_exploit_executor(exploit).await;
         let _guard = exploit_exec.gate.lock().await;
-        let lease = self.container_manager.lease_container(exploit, run.id).await?;
+        let lease = self
+            .container_manager
+            .lease_container(&self.container_registry, exploit, run.id)
+            .await?;
         drop(_guard);
         self.db.set_job_container(job.id, lease.container_id()).await?;
 
@@ -131,28 +144,22 @@ impl Executor {
         let container_id = lease.container_id().to_string();
 
         // Execute with timeout and PID tracking
-        let kill_manager = self.container_manager.clone();
+        let manager = &self.container_manager;
         let kill_container_id = container_id.clone();
         let kill = move |pid: i64| {
-            let manager = kill_manager.clone();
             let container_id = kill_container_id.clone();
             async move {
                 let _ = manager.kill_process_in_container(&container_id, pid).await;
             }
         };
-        let exec_manager = self.container_manager.clone();
         let exec_container_id = container_id.clone();
-        let exec_future = async move {
-            exec_manager
-                .execute_in_container_with_timeout(
-                    &exec_container_id,
-                    cmd,
-                    env,
-                    Duration::from_secs(timeout_secs),
-                    Some(pid_tx),
-                )
-                .await
-        };
+        let exec_future = self.container_manager.execute_in_container_with_timeout(
+            &exec_container_id,
+            cmd,
+            env,
+            Duration::from_secs(timeout_secs),
+            Some(pid_tx),
+        );
         let exec_result = run_exec_with_stop(
             exec_future,
             pid_rx,
@@ -459,11 +466,13 @@ async fn run_exec_with_stop<F, K, Fut>(
     mut kill: K,
 ) -> Result<ExecResult>
 where
-    F: Future<Output = Result<ExecResult>> + Send + 'static,
+    F: Future<Output = Result<ExecResult>> + Send,
     K: FnMut(i64) -> Fut + Send,
     Fut: Future<Output = ()> + Send,
 {
-    let mut exec_task = tokio::spawn(exec_future);
+    let (abort_handle, abort_reg) = AbortHandle::new_pair();
+    let exec_future = Abortable::new(exec_future, abort_reg);
+    tokio::pin!(exec_future);
     let mut exec_done = false;
     let mut pid: Option<i64> = None;
     let mut pid_pending = true;
@@ -474,11 +483,11 @@ where
 
     loop {
         tokio::select! {
-            res = &mut exec_task, if !exec_done => {
+            res = &mut exec_future, if !exec_done => {
                 exec_done = true;
                 match res {
                     Ok(result) => return result,
-                    Err(err) if err.is_cancelled() && stop_requested => {
+                    Err(_) if stop_requested => {
                         exec_cancelled = true;
                         if !pid_pending {
                             return Ok(stopped_exec_result(pid));
@@ -510,8 +519,8 @@ where
                             if stop_deadline.is_none() {
                                 stop_deadline = Some(TokioInstant::now() + stop_grace);
                             }
-                            if !exec_done && !exec_task.is_finished() {
-                                exec_task.abort();
+                            if !exec_done {
+                                abort_handle.abort();
                             }
                         }
                     }
@@ -528,8 +537,8 @@ where
                     std::future::pending::<()>().await;
                 }
             } => {
-                if !exec_done && !exec_task.is_finished() {
-                    exec_task.abort();
+                if !exec_done {
+                    abort_handle.abort();
                 }
                 return Ok(stopped_exec_result(pid));
             }
@@ -562,7 +571,6 @@ mod tests {
         StopSignal,
         stagger_delay_ms,
     };
-    use crate::container_manager::ContainerManager;
     use crate::ExploitJob;
     use chrono::{TimeZone, Utc};
     use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
@@ -619,12 +627,6 @@ mod tests {
     #[test]
     fn stagger_delay_is_deterministic() {
         assert_eq!(stagger_delay_ms(123), (123_u64 % 500));
-    }
-
-    #[test]
-    fn container_manager_is_shared_via_arc() {
-        fn assert_clone<T: Clone>() {}
-        assert_clone::<Arc<ContainerManager>>();
     }
 
     #[test]
