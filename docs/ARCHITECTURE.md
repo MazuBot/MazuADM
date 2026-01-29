@@ -179,6 +179,7 @@ pub struct AppState {
 | `/api/jobs/{id}/enqueue` | POST | `enqueue_existing_job` |
 | `/api/jobs/{id}/stop` | POST | `stop_job` |
 | `/api/flags` | GET | `list_flags` |
+| `/api/flags` | POST | `submit_flag` |
 | `/api/settings` | GET | `list_settings` |
 | `/api/settings` | POST | `update_setting` |
 | `/api/containers` | GET | `list_containers` |
@@ -235,6 +236,7 @@ round rerun-unflagged <ID>
 round jobs <ID>
 
 flag list [--round <ID>]
+flag submit [--round <ID>] --challenge <ID|NAME> --team <ID|TEAM_ID> <FLAG>
 ```
 
 ---

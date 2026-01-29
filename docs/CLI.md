@@ -98,6 +98,8 @@ mazuadm-cli job set-priority 42 100
 ```bash
 mazuadm-cli flag list
 mazuadm-cli flag list --round 1
+mazuadm-cli flag submit --round 1 --challenge pwn1 --team team01 "FLAG{...}"
+mazuadm-cli flag submit --challenge pwn1 --team team01 "FLAG{...}" # uses running round
 ```
 
 ### Settings Management

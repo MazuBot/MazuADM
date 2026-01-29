@@ -274,6 +274,21 @@ List flags.
 
 **Response:** `Flag[]`
 
+### `POST /api/flags`
+Submit a flag manually (status = `submitted`, `submitted_at` = now). If `round_id` is omitted, the running round is used.
+
+**Body:**
+```json
+{
+  "round_id": 1,
+  "challenge_id": 2,
+  "team_id": 3,
+  "flag_value": "FLAG{...}"
+}
+```
+
+**Response:** `Flag`
+
 ---
 
 ## Settings

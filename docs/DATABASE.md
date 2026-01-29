@@ -110,7 +110,7 @@ Individual exploit executions within a round.
 | created_at | TIMESTAMPTZ | NO | Creation timestamp |
 
 ### flags
-Captured flags extracted from job output.
+Captured flags extracted from job output or submitted manually.
 
 | Column | Type | Nullable | Description |
 |--------|------|----------|-------------|
