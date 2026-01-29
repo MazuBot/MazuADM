@@ -14,6 +14,7 @@ use anyhow::Result;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
+use dashmap::DashMap;
 use tokio::sync::{broadcast, mpsc, Mutex, Notify, Semaphore};
 use tokio::task::JoinSet;
 use std::time::Duration;
@@ -125,7 +126,7 @@ pub struct SchedulerRunner {
     running_jobs: usize,
     settings: Option<ScheduleSettings>,
     round_id: Option<i32>,
-    target_locks: Arc<Mutex<HashMap<(i32, i32), Arc<Mutex<()>>>>>,
+    target_locks: Arc<DashMap<(i32, i32), Arc<Mutex<()>>>>,
 }
 
 #[derive(Clone)]
@@ -149,7 +150,7 @@ impl SchedulerRunner {
             running_jobs: 0,
             settings: None,
             round_id: None,
-            target_locks: Arc::new(Mutex::new(HashMap::new())),
+            target_locks: Arc::new(DashMap::new()),
         };
         let handle = SchedulerHandle { tx, notify };
         (runner, handle)
@@ -215,7 +216,7 @@ impl SchedulerRunner {
         let jobs = self.scheduler.db.get_pending_jobs(round_id).await?;
         self.queue.reset(round_id, jobs);
         self.round_id = Some(round_id);
-        self.target_locks = Arc::new(Mutex::new(HashMap::new()));
+        self.target_locks = Arc::new(DashMap::new());
         self.update_settings(settings);
         Ok(())
     }
@@ -461,7 +462,7 @@ async fn execute_one_job(
     db: Database,
     tx: broadcast::Sender<WsMessage>,
     executor: Arc<Executor>,
-    target_locks: Arc<Mutex<HashMap<(i32, i32), Arc<Mutex<()>>>>>,
+    target_locks: Arc<DashMap<(i32, i32), Arc<Mutex<()>>>>,
     job: ExploitJob,
     round_id: i32,
     settings: ScheduleSettings,

@@ -18,6 +18,7 @@ use std::sync::{Arc, atomic::{AtomicI32, AtomicUsize, Ordering}};
 use std::time::Duration;
 use tokio::sync::{oneshot, Semaphore, Mutex};
 use tracing::{info, warn, error};
+use dashmap::DashSet;
 
 pub struct ContainerManager {
     pub db: Database,
@@ -25,7 +26,7 @@ pub struct ContainerManager {
     spawn_gate: Arc<Semaphore>,
     spawn_limit: Arc<AtomicUsize>,
     registry: Arc<Mutex<ContainerRegistry>>,
-    restart_in_flight: Arc<Mutex<HashSet<String>>>,
+    restart_in_flight: DashSet<String>,
 }
 
 const MAX_OUTPUT: usize = 256 * 1024; // 256KB limit
@@ -153,7 +154,7 @@ impl ContainerManager {
             spawn_gate: Arc::new(Semaphore::new(1)),
             spawn_limit: Arc::new(AtomicUsize::new(1)),
             registry: Arc::new(Mutex::new(ContainerRegistry::default())),
-            restart_in_flight: Arc::new(Mutex::new(HashSet::new())),
+            restart_in_flight: DashSet::new(),
         })
     }
 
@@ -397,17 +398,15 @@ impl ContainerManager {
     }
 
     async fn begin_restart(&self, container_id: &str) -> bool {
-        let mut guard = self.restart_in_flight.lock().await;
-        if guard.contains(container_id) {
+        if self.restart_in_flight.contains(container_id) {
             return false;
         }
-        guard.insert(container_id.to_string());
+        self.restart_in_flight.insert(container_id.to_string());
         true
     }
 
     async fn end_restart(&self, container_id: &str) {
-        let mut guard = self.restart_in_flight.lock().await;
-        guard.remove(container_id);
+        self.restart_in_flight.remove(container_id);
     }
 
     async fn list_managed_containers(&self) -> Result<Vec<bollard::models::ContainerSummary>> {

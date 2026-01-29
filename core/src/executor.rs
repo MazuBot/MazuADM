@@ -3,17 +3,17 @@ use crate::container_manager::ContainerManager;
 use anyhow::Result;
 use std::time::{Instant, Duration};
 use std::sync::Arc;
-use std::collections::HashMap;
 use tokio::sync::{broadcast, oneshot, Mutex};
 use regex::Regex;
 use crate::settings::{compute_timeout, load_job_settings};
+use dashmap::DashMap;
 
 pub struct Executor {
     pub db: Database,
     pub container_manager: Arc<ContainerManager>,
     pub tx: broadcast::Sender<WsMessage>,
-    pid_map: Arc<Mutex<HashMap<i32, JobPidState>>>,
-    exploit_executors: Arc<Mutex<HashMap<i32, ExploitExecutor>>>,
+    pid_map: Arc<DashMap<i32, JobPidState>>,
+    exploit_executors: Arc<DashMap<i32, ExploitExecutor>>,
 }
 
 pub(crate) struct JobContext {
@@ -58,14 +58,13 @@ impl Executor {
             db,
             container_manager,
             tx,
-            pid_map: Arc::new(Mutex::new(HashMap::new())),
-            exploit_executors: Arc::new(Mutex::new(HashMap::new())),
+            pid_map: Arc::new(DashMap::new()),
+            exploit_executors: Arc::new(DashMap::new()),
         })
     }
 
     async fn get_exploit_executor(&self, exploit: &Exploit) -> ExploitExecutor {
-        let mut map = self.exploit_executors.lock().await;
-        let entry = map.entry(exploit.id).or_insert_with(|| ExploitExecutor {
+        let mut entry = self.exploit_executors.entry(exploit.id).or_insert_with(|| ExploitExecutor {
             max_containers: exploit.max_containers,
             max_per_container: exploit.max_per_container,
             default_counter: exploit.default_counter,
@@ -84,14 +83,13 @@ impl Executor {
     }
 
     async fn register_container(&self, job_id: i32, container_id: String) {
-        let mut map = self.pid_map.lock().await;
-        if let Some(entry) = map.get_mut(&job_id) {
+        if let Some(mut entry) = self.pid_map.get_mut(&job_id) {
             if entry.container_id.is_empty() {
                 entry.container_id = container_id;
             }
             return;
         }
-        map.insert(job_id, JobPidState {
+        self.pid_map.insert(job_id, JobPidState {
             container_id,
             pid: None,
             stop_requested: false,
@@ -99,18 +97,18 @@ impl Executor {
     }
 
     async fn request_stop(&self, job_id: i32, container_id: Option<String>) -> Option<(String, i64)> {
-        let mut map = self.pid_map.lock().await;
-        if let Some(entry) = map.get_mut(&job_id) {
+        if let Some(mut entry) = self.pid_map.get_mut(&job_id) {
             if let Some(pid) = entry.pid {
                 let cid = entry.container_id.clone();
-                map.remove(&job_id);
+                drop(entry);
+                self.pid_map.remove(&job_id);
                 return Some((cid, pid));
             }
             entry.stop_requested = true;
             return None;
         }
         let container_id = container_id.unwrap_or_default();
-        map.insert(job_id, JobPidState {
+        self.pid_map.insert(job_id, JobPidState {
             container_id,
             pid: None,
             stop_requested: true,
@@ -119,8 +117,7 @@ impl Executor {
     }
 
     async fn clear_pid(&self, job_id: i32) {
-        let mut map = self.pid_map.lock().await;
-        map.remove(&job_id);
+        self.pid_map.remove(&job_id);
     }
 
     pub async fn execute_job(&self, job: &ExploitJob, run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64, max_flags: usize) -> Result<JobResult> {
@@ -174,9 +171,9 @@ impl Executor {
             }
 
             let mut kill_target: Option<(String, i64)> = None;
+            let mut remove_entry = false;
             {
-                let mut map = pid_map.lock().await;
-                let entry = map.entry(job_id).or_insert(JobPidState {
+                let mut entry = pid_map.entry(job_id).or_insert(JobPidState {
                     container_id: container_id_for_task.clone(),
                     pid: None,
                     stop_requested: false,
@@ -187,8 +184,11 @@ impl Executor {
                 entry.pid = Some(pid);
                 if entry.stop_requested {
                     kill_target = Some((entry.container_id.clone(), pid));
-                    map.remove(&job_id);
+                    remove_entry = true;
                 }
+            }
+            if remove_entry {
+                pid_map.remove(&job_id);
             }
 
             if let Some((cid, target_pid)) = kill_target {
@@ -407,15 +407,15 @@ fn require_exploit_run_id(job: &ExploitJob) -> std::result::Result<i32, JobConte
 }
 
 pub(crate) async fn get_target_lock(
-    target_locks: &Arc<Mutex<HashMap<(i32, i32), Arc<Mutex<()>>>>>,
+    target_locks: &Arc<DashMap<(i32, i32), Arc<Mutex<()>>>>,
     sequential_per_target: bool,
     key: (i32, i32),
 ) -> Option<Arc<Mutex<()>>> {
     if !sequential_per_target {
         return None;
     }
-    let mut locks = target_locks.lock().await;
-    Some(locks.entry(key).or_insert_with(|| Arc::new(Mutex::new(()))).clone())
+    let entry = target_locks.entry(key).or_insert_with(|| Arc::new(Mutex::new(())));
+    Some(entry.clone())
 }
 
 pub(crate) async fn finish_job_and_broadcast(
@@ -476,9 +476,9 @@ mod tests {
     use crate::container_manager::ContainerManager;
     use crate::ExploitJob;
     use chrono::{TimeZone, Utc};
-    use std::collections::HashMap;
     use std::sync::Arc;
     use tokio::sync::Mutex;
+    use dashmap::DashMap;
 
     fn make_job(status: &str, exploit_run_id: Option<i32>) -> ExploitJob {
         ExploitJob {
@@ -556,14 +556,14 @@ mod tests {
 
     #[tokio::test]
     async fn get_target_lock_none_when_disabled() {
-        let locks: Arc<Mutex<HashMap<(i32, i32), Arc<Mutex<()>>>>> = Arc::new(Mutex::new(HashMap::new()));
+        let locks: Arc<DashMap<(i32, i32), Arc<Mutex<()>>>> = Arc::new(DashMap::new());
         let lock = get_target_lock(&locks, false, (1, 1)).await;
         assert!(lock.is_none());
     }
 
     #[tokio::test]
     async fn get_target_lock_reuses_arc() {
-        let locks: Arc<Mutex<HashMap<(i32, i32), Arc<Mutex<()>>>>> = Arc::new(Mutex::new(HashMap::new()));
+        let locks: Arc<DashMap<(i32, i32), Arc<Mutex<()>>>> = Arc::new(DashMap::new());
         let first = get_target_lock(&locks, true, (1, 1)).await.unwrap();
         let second = get_target_lock(&locks, true, (1, 1)).await.unwrap();
         assert!(Arc::ptr_eq(&first, &second));

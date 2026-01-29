@@ -14,6 +14,7 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 toml = { workspace = true }
+dashmap = { workspace = true }
 bollard = "0.20"
 regex = "1"
 futures = "0.3"
