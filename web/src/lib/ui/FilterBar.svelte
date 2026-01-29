@@ -3,14 +3,17 @@
     challengeId = $bindable(''),
     teamId = $bindable(''),
     status = $bindable(''),
+    reason = $bindable(''),
     challenges = [],
     teams = [],
     statuses = [],
+    reasons = [],
     onReset = () => {}
   } = $props();
 
   let showStatus = $derived((statuses ?? []).length > 0);
-  let canReset = $derived(Boolean(challengeId || teamId || status));
+  let showReason = $derived((reasons ?? []).length > 0);
+  let canReset = $derived(Boolean(challengeId || teamId || status || reason));
 </script>
 
 <div class="controls">
@@ -30,6 +33,14 @@
     <select bind:value={status}>
       <option value="">All statuses</option>
       {#each statuses as entry}
+        <option value={entry}>{entry}</option>
+      {/each}
+    </select>
+  {/if}
+  {#if showReason}
+    <select bind:value={reason}>
+      <option value="">All reasons</option>
+      {#each reasons as entry}
         <option value={entry}>{entry}</option>
       {/each}
     </select>

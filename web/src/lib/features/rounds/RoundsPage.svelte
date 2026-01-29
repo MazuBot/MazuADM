@@ -23,6 +23,7 @@
   let challengeFilterId = $state('');
   let teamFilterId = $state('');
   let statusFilter = $state('');
+  let reasonFilter = $state('');
 
   function getSelectedRound() {
     return rounds.find(r => r.id === selectedRoundId);
@@ -114,11 +115,18 @@
     });
   }
 
+  function getReasonBase(reason) {
+    if (!reason) return '';
+    const idx = reason.indexOf(':');
+    return idx >= 0 ? reason.substring(0, idx) : reason;
+  }
+
   function filterJobs() {
     const teamId = teamFilterId ? Number(teamFilterId) : null;
     const challengeId = challengeFilterId ? Number(challengeFilterId) : null;
     return jobs.filter((job) => {
       if (statusFilter && job.status !== statusFilter) return false;
+      if (reasonFilter && getReasonBase(job.create_reason) !== reasonFilter) return false;
       if (teamId && Number(job.team_id) !== teamId) return false;
       if (challengeId) {
         const run = getExploitRunInfo(job.exploit_run_id);
@@ -130,6 +138,7 @@
 
   let filteredJobs = $derived(filterJobs());
   let availableStatuses = $derived(buildStatusOptions(jobs));
+  let availableReasons = $derived([...new Set(jobs.map(j => getReasonBase(j.create_reason)))].filter(Boolean).sort());
   let selectedRound = $derived(getSelectedRound());
   let isPendingRound = $derived(selectedRound?.status === 'pending');
 
@@ -201,13 +210,16 @@
     bind:challengeId={challengeFilterId}
     bind:teamId={teamFilterId}
     bind:status={statusFilter}
+    bind:reason={reasonFilter}
     {challenges}
     {teams}
     statuses={availableStatuses}
+    reasons={availableReasons}
     onReset={() => {
       challengeFilterId = '';
       teamFilterId = '';
       statusFilter = '';
+      reasonFilter = '';
     }}
   />
 
