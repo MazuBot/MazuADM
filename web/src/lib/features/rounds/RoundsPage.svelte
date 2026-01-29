@@ -3,7 +3,6 @@
   import { AnsiUp } from 'ansi_up';
   import * as api from '$lib/data/api';
   import Modal from '$lib/ui/Modal.svelte';
-  import FilterBar from '$lib/ui/FilterBar.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import { buildStatusOptions } from '$lib/utils/filters.js';
   import { getChallengeName, getExploitName, getTeamDisplay } from '$lib/utils/lookup.js';
@@ -31,6 +30,7 @@
   let statusFilter = $state('');
   let reasonFilter = $state('');
   let searchQuery = $state('');
+  let canResetFilters = $derived(Boolean(challengeFilterId || teamFilterId || statusFilter || reasonFilter || searchQuery));
 
   function getSelectedRound() {
     return rounds.find(r => r.id === selectedRoundId);
@@ -377,24 +377,51 @@
       Rerun Unflagged
     </button>
   </div>
-  <FilterBar
-    bind:challengeId={challengeFilterId}
-    bind:teamId={teamFilterId}
-    bind:status={statusFilter}
-    bind:reason={reasonFilter}
-    bind:search={searchQuery}
-    {challenges}
-    {teams}
-    statuses={availableStatuses}
-    reasons={availableReasons}
-    onReset={() => {
-      challengeFilterId = '';
-      teamFilterId = '';
-      statusFilter = '';
-      reasonFilter = '';
-      searchQuery = '';
-    }}
-  />
+  <div class="controls">
+    <input type="text" bind:value={searchQuery} placeholder="Search..." class="search-input" />
+    <select bind:value={challengeFilterId}>
+      <option value="">All challenges</option>
+      {#each challenges as c}
+        <option value={c.id}>{c.name}</option>
+      {/each}
+    </select>
+    <select bind:value={teamFilterId}>
+      <option value="">All teams</option>
+      {#each teams as t}
+        <option value={t.id}>{t.team_name}</option>
+      {/each}
+    </select>
+    {#if availableStatuses.length}
+      <select bind:value={statusFilter}>
+        <option value="">All statuses</option>
+        {#each availableStatuses as entry}
+          <option value={entry}>{entry}</option>
+        {/each}
+      </select>
+    {/if}
+    {#if availableReasons.length}
+      <select bind:value={reasonFilter}>
+        <option value="">All reasons</option>
+        {#each availableReasons as entry}
+          <option value={entry}>{entry}</option>
+        {/each}
+      </select>
+    {/if}
+    <button
+      class="small"
+      type="button"
+      onclick={() => {
+        challengeFilterId = '';
+        teamFilterId = '';
+        statusFilter = '';
+        reasonFilter = '';
+        searchQuery = '';
+      }}
+      disabled={!canResetFilters}
+    >
+      Reset Filters
+    </button>
+  </div>
 
   {#if filteredJobs.length}
     <table>
@@ -505,4 +532,5 @@
   .job-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
   :global(.drag-preview) { pointer-events: none; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35); transform: rotate(-1deg); }
   :global(.drag-preview .play-btn) { display: none; }
+  .search-input { width: 150px; }
 </style>
