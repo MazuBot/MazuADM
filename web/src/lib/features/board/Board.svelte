@@ -40,6 +40,10 @@
   let relationFormInitial = $state(null);
 
   let draggingCard = $state(null);
+  let dragOverIndex = $state(null);
+  let dragOverTeamId = $state(null);
+  let dragPreviewEl = null;
+  let optimisticSequences = $state(new Map());
 
   let filteredExploits = $derived(exploits.filter(e => e.challenge_id === challengeId));
 
@@ -130,6 +134,17 @@
     return () => window.removeEventListener('hashchange', handleHash);
   });
 
+  onMount(() => {
+    const onKeydown = (e) => {
+      if (e.key === 'Escape' && draggingCard) {
+        e.preventDefault();
+        cancelDrag();
+      }
+    };
+    window.addEventListener('keydown', onKeydown);
+    return () => window.removeEventListener('keydown', onKeydown);
+  });
+
   $effect(() => {
     const hash = window.location.hash.slice(1);
     if (!hash) {
@@ -149,10 +164,15 @@
     await api.enqueueSingleJob(run.id, run.team_id);
   }
 
+  function getSequence(run) {
+    const override = optimisticSequences.get(run.id);
+    return override ?? run.sequence;
+  }
+
   function getRunsForTeam(teamId) {
     return exploitRuns
       .filter(r => r.challenge_id === challengeId && r.team_id === teamId)
-      .sort((a, b) => a.sequence - b.sequence);
+      .sort((a, b) => getSequence(a) - getSequence(b));
   }
 
   function getExploit(exploitId) {
@@ -320,41 +340,152 @@
     onRefresh();
   }
 
-  function onCardDragStart(e, run) {
-    draggingCard = run;
-    e.dataTransfer.effectAllowed = 'move';
+  function cleanupDragPreview() {
+    if (dragPreviewEl) {
+      dragPreviewEl.remove();
+      dragPreviewEl = null;
+    }
   }
 
-  async function onCardDrop(e, targetRun, teamId) {
+  function clearDragOver() {
+    dragOverIndex = null;
+    dragOverTeamId = null;
+  }
+
+  function setOptimisticOrder(runs) {
+    const next = new Map(optimisticSequences);
+    runs.forEach((run, i) => next.set(run.id, i));
+    optimisticSequences = next;
+  }
+
+  function clearOptimisticOrder(runIds) {
+    if (!optimisticSequences.size) return;
+    if (!runIds) {
+      optimisticSequences = new Map();
+      return;
+    }
+    const next = new Map(optimisticSequences);
+    runIds.forEach((id) => next.delete(id));
+    optimisticSequences = next;
+  }
+
+  function cancelDrag() {
+    cleanupDragPreview();
+    clearDragOver();
+    draggingCard = null;
+  }
+
+  function getDisplayedRuns(teamId, baseRuns) {
+    const runs = baseRuns ?? getRunsForTeam(teamId);
+    if (!draggingCard || draggingCard.team_id !== teamId) return runs;
+    const fromIdx = runs.findIndex(r => r.id === draggingCard.id);
+    if (fromIdx < 0) return runs;
+    let targetIdx = dragOverTeamId === teamId ? (dragOverIndex ?? fromIdx) : fromIdx;
+    if (targetIdx === fromIdx) return runs;
+    const reordered = [...runs];
+    reordered.splice(fromIdx, 1);
+    if (targetIdx > fromIdx) targetIdx -= 1;
+    const clampedIdx = Math.max(0, Math.min(reordered.length, targetIdx));
+    reordered.splice(clampedIdx, 0, draggingCard);
+    return reordered;
+  }
+
+  function onCardDragStart(e, run) {
+    draggingCard = run;
+    dragOverIndex = null;
+    dragOverTeamId = run.team_id;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      cleanupDragPreview();
+
+      const cardEl = e.currentTarget;
+      if (cardEl) {
+        const preview = cardEl.cloneNode(true);
+        preview.classList.add('drag-preview');
+        preview.style.width = `${cardEl.offsetWidth}px`;
+        preview.style.height = `${cardEl.offsetHeight}px`;
+        preview.style.position = 'absolute';
+        preview.style.top = '-1000px';
+        preview.style.left = '-1000px';
+        document.body.appendChild(preview);
+        dragPreviewEl = preview;
+        e.dataTransfer.setDragImage(preview, 16, 16);
+      }
+    }
+  }
+
+  async function onCardDrop(e, teamId) {
     e.preventDefault();
-    if (!draggingCard || draggingCard.id === targetRun.id) return;
-    if (draggingCard.team_id !== teamId) return;
+    cleanupDragPreview();
+    if (!draggingCard || draggingCard.team_id !== teamId) {
+      clearDragOver();
+      draggingCard = null;
+      return;
+    }
 
     const runs = getRunsForTeam(teamId);
     const fromIdx = runs.findIndex(r => r.id === draggingCard.id);
-    const toIdx = runs.findIndex(r => r.id === targetRun.id);
+    if (fromIdx < 0) {
+      clearDragOver();
+      draggingCard = null;
+      return;
+    }
+    let targetIdx = dragOverTeamId === teamId ? (dragOverIndex ?? fromIdx) : fromIdx;
+    if (targetIdx === fromIdx) {
+      clearDragOver();
+      draggingCard = null;
+      return;
+    }
 
     // Reorder
     const reordered = [...runs];
     reordered.splice(fromIdx, 1);
-    reordered.splice(toIdx, 0, draggingCard);
+    if (targetIdx > fromIdx) targetIdx -= 1;
+    const clampedIdx = Math.max(0, Math.min(reordered.length, targetIdx));
+    reordered.splice(clampedIdx, 0, draggingCard);
 
-    // Batch update sequences
-    const updates = reordered.map((r, i) => ({ id: r.id, sequence: i })).filter((u, i) => reordered[i].sequence !== u.sequence);
-    if (updates.length > 0) {
-      await api.reorderExploitRuns(updates);
-    }
+    const updates = reordered
+      .map((r, i) => ({ id: r.id, sequence: i }))
+      .filter((u, i) => reordered[i].sequence !== u.sequence);
+    const runIds = reordered.map((r) => r.id);
+    setOptimisticOrder(reordered);
+    clearDragOver();
     draggingCard = null;
-    onRefresh();
+    try {
+      if (updates.length > 0) {
+        await api.reorderExploitRuns(updates);
+      }
+      await onRefresh();
+    } finally {
+      clearOptimisticOrder(runIds);
+    }
   }
 
   function onColumnDrop(e, teamId) {
     e.preventDefault();
+    cleanupDragPreview();
     const exploitId = e.dataTransfer.getData('exploitId');
     if (exploitId) {
       addRun(+exploitId, teamId);
     }
+    clearDragOver();
     draggingCard = null;
+  }
+
+  function onCardDragEnd() {
+    cancelDrag();
+  }
+
+  function onCardDragOver(e, run, teamId, baseIndex) {
+    e.preventDefault();
+    if (!draggingCard || draggingCard.team_id !== teamId) return;
+    if (run.id === draggingCard.id) return;
+    const rect = e.currentTarget?.getBoundingClientRect?.();
+    const midpoint = rect ? rect.top + rect.height / 2 : e.clientY;
+    const targetIndex = e.clientY < midpoint ? baseIndex : baseIndex + 1;
+    if (dragOverIndex === targetIndex && dragOverTeamId === teamId) return;
+    dragOverIndex = targetIndex;
+    dragOverTeamId = teamId;
   }
 </script>
 
@@ -420,6 +551,8 @@
 
   <div class="columns">
     {#each teams as team}
+      {@const baseRuns = getRunsForTeam(team.id)}
+      {@const orderIndex = new Map(baseRuns.map((r, i) => [r.id, i]))}
       <div
         class="column"
         class:disabled={!team.enabled}
@@ -444,7 +577,7 @@
           </button>
         </h3>
         <div class="cards">
-          {#each getRunsForTeam(team.id) as run, idx}
+          {#each getDisplayedRuns(team.id, baseRuns) as run (run.id)}
             <div 
               class="card" 
               class:disabled={!run.enabled || !getExploit(run.exploit_id)?.enabled}
@@ -455,13 +588,13 @@
               aria-disabled={!run.enabled || !getExploit(run.exploit_id)?.enabled}
               draggable="true"
               ondragstart={(e) => onCardDragStart(e, run)}
-              ondragover={(e) => e.preventDefault()}
-              ondrop={(e) => onCardDrop(e, run, team.id)}
-              ondragend={() => draggingCard = null}
+              ondragover={(e) => onCardDragOver(e, run, team.id, orderIndex.get(run.id) ?? 0)}
+              ondrop={(e) => onCardDrop(e, team.id)}
+              ondragend={onCardDragEnd}
               onclick={(e) => openEditModal(run, e)}
               onkeydown={(e) => onCardKeydown(e, run)}
             >
-              <span class="card-seq">{idx + 1}</span>
+              <span class="card-seq">{(orderIndex.get(run.id) ?? 0) + 1}</span>
               <span class="card-name">{getExploitName(exploits, run.exploit_id)}</span>
               <span class="card-priority">{run.priority ?? 'auto'}</span>
               <div class="card-actions">
@@ -674,6 +807,9 @@
   .card.disabled .card-name { text-decoration: line-through; color: #666; }
   .card.dragging { opacity: 0.4; border: 2px dashed #00d9ff; }
   .card.highlighted { box-shadow: 0 0 0 1px #00d9ff inset; background: #202044; }
+  :global(.drag-preview) { pointer-events: none; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35); transform: rotate(-1deg); }
+  :global(.drag-preview .card-actions),
+  :global(.drag-preview .card-play) { display: none; }
   .card-seq { background: #333; color: #888; font-size: 0.75rem; padding: 0.1rem 0.4rem; border-radius: 3px; }
   .card-name { font-weight: 500; flex: 1; }
   .card-priority { color: #888; font-size: 0.8rem; }
