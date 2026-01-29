@@ -71,7 +71,17 @@
         <option value="true" selected={getSetting('sequential_per_target', 'false') === 'true'}>Yes</option>
       </select>
     </div>
+    <div class="setting-row">
+      <label for="setting_ip_headers">ip_headers</label>
+      <input
+        id="setting_ip_headers"
+        value={getSetting('ip_headers', '')}
+        placeholder="X-Forwarded-For,X-Real-IP"
+        onchange={(e) => updateSettingAndToast('ip_headers', e.target.value)}
+      />
+    </div>
   </div>
   <p class="hint">skip_on_flag: Skip remaining exploits for a chal/team once a flag is found in this round.</p>
   <p class="hint">sequential_per_target: Run exploits sequentially per chal/team (don't run multiple exploits for same target at once).</p>
+  <p class="hint">ip_headers: Comma-separated list of headers to check for client IP (e.g., X-Forwarded-For,X-Real-IP).</p>
 </div>
