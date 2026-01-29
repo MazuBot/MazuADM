@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
+        .route("/api/version", get(version))
         .route("/ws", get(ws_handler))
         .route("/api/challenges", get(list_challenges).post(create_challenge))
         .route("/api/challenges/{id}", put(update_challenge).delete(delete_challenge))

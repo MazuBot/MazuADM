@@ -3,6 +3,9 @@ name = "mazuadm-api"
 version = "0.1.0"
 edition = "2021"
 
+[build-dependencies]
+chrono = "0.4"
+
 [dependencies]
 mazuadm-core = { path = "../core" }
 tokio = { workspace = true }

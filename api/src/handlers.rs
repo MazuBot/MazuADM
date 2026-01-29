@@ -98,6 +98,26 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, mut subs: Option
     }
 }
 
+// Version
+#[derive(serde::Serialize)]
+pub struct VersionInfo {
+    pub version: &'static str,
+    pub git_hash: &'static str,
+    pub git_ref: &'static str,
+    pub build_time: &'static str,
+    pub rustc: &'static str,
+}
+
+pub async fn version() -> Json<VersionInfo> {
+    Json(VersionInfo {
+        version: env!("CARGO_PKG_VERSION"),
+        git_hash: env!("BUILD_GIT_HASH"),
+        git_ref: env!("BUILD_GIT_REF"),
+        build_time: env!("BUILD_TIME"),
+        rustc: env!("BUILD_RUSTC"),
+    })
+}
+
 #[derive(Deserialize)]
 pub struct ListQuery {
     pub challenge_id: Option<i32>,
