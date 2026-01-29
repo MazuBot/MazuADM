@@ -1,12 +1,12 @@
 use crate::{Database, ExploitJob, Round, WsMessage};
 use crate::executor::{
-    build_job_context,
+    build_job_context_or_finish,
     finish_job_and_broadcast,
     get_target_lock,
     log_job_error,
     should_skip_job,
     stagger_delay_ms,
-    JobContextError,
+    JobContext,
 };
 use crate::executor::Executor;
 use crate::settings::{compute_timeout, load_executor_settings, load_job_settings};
@@ -126,7 +126,7 @@ pub struct SchedulerRunner {
     running_jobs: usize,
     settings: Option<ScheduleSettings>,
     round_id: Option<i32>,
-    target_locks: Arc<DashMap<(i32, i32), Arc<Mutex<()>>>>,
+    target_locks: DashMap<(i32, i32), Arc<Mutex<()>>>,
 }
 
 #[derive(Clone)]
@@ -150,7 +150,7 @@ impl SchedulerRunner {
             running_jobs: 0,
             settings: None,
             round_id: None,
-            target_locks: Arc::new(DashMap::new()),
+            target_locks: DashMap::new(),
         };
         let handle = SchedulerHandle { tx, notify };
         (runner, handle)
@@ -216,7 +216,7 @@ impl SchedulerRunner {
         let jobs = self.scheduler.db.get_pending_jobs(round_id).await?;
         self.queue.reset(round_id, jobs);
         self.round_id = Some(round_id);
-        self.target_locks = Arc::new(DashMap::new());
+        self.target_locks = DashMap::new();
         self.update_settings(settings);
         Ok(())
     }
@@ -262,21 +262,26 @@ impl SchedulerRunner {
 
         while self.semaphore.available_permits() > 0 {
             let Some(job) = self.queue.pop_next() else { break; };
+
+            let db = self.scheduler.db.clone();
+            let tx = self.scheduler.tx.clone();
+            let ctx = match build_job_context_or_finish(&db, &tx, job.id).await {
+                Some(ctx) => ctx,
+                None => continue,
+            };
+            let target_lock = get_target_lock(&self.target_locks, settings.sequential_per_target, (ctx.challenge.id, ctx.team.id));
             let permit = match self.semaphore.clone().acquire_owned().await {
                 Ok(permit) => permit,
                 Err(_) => break,
             };
 
             self.running_jobs += 1;
-            let db = self.scheduler.db.clone();
-            let tx = self.scheduler.tx.clone();
             let executor = self.scheduler.executor.clone();
-            let target_locks = self.target_locks.clone();
             let settings = settings.clone();
 
             self.join_set.spawn(async move {
                 let _permit = permit;
-                execute_one_job(db, tx, executor, target_locks, job, round_id, settings).await;
+                execute_one_job(db, tx, executor, target_lock, ctx, round_id, settings).await;
             });
         }
 
@@ -462,33 +467,15 @@ async fn execute_one_job(
     db: Database,
     tx: broadcast::Sender<WsMessage>,
     executor: Arc<Executor>,
-    target_locks: Arc<DashMap<(i32, i32), Arc<Mutex<()>>>>,
-    job: ExploitJob,
+    target_lock: Option<Arc<Mutex<()>>>,
+    ctx: JobContext,
     round_id: i32,
     settings: ScheduleSettings,
 ) {
-    let ctx = match build_job_context(&db, job.id).await {
-        Ok(ctx) => ctx,
-        Err(JobContextError::NotPending) => return,
-        Err(JobContextError::MissingExploitRunId) => {
-            finish_job_and_broadcast(&db, &tx, job.id, "error", None, Some("Job missing exploit_run_id"), 0).await;
-            return;
-        }
-        Err(JobContextError::MissingConnectionInfo) => {
-            finish_job_and_broadcast(&db, &tx, job.id, "error", None, Some("No connection info (missing IP or port)"), 0).await;
-            return;
-        }
-        Err(JobContextError::Db(e)) => {
-            log_job_error(job.id, &e);
-            return;
-        }
-    };
-
     if should_skip_job(&db, &tx, &ctx, settings.skip_on_flag, round_id).await {
         return;
     }
 
-    let target_lock = get_target_lock(&target_locks, settings.sequential_per_target, (ctx.challenge.id, ctx.team.id)).await;
     let _target_guard = match &target_lock {
         Some(lock) => Some(lock.lock().await),
         None => None,

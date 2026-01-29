@@ -394,6 +394,29 @@ pub(crate) async fn build_job_context(db: &Database, job_id: i32) -> std::result
     Ok(JobContext { job, run, exploit, challenge, team, conn })
 }
 
+pub(crate) async fn build_job_context_or_finish(
+    db: &Database,
+    tx: &broadcast::Sender<WsMessage>,
+    job_id: i32,
+) -> Option<JobContext> {
+    match build_job_context(db, job_id).await {
+        Ok(ctx) => Some(ctx),
+        Err(JobContextError::NotPending) => None,
+        Err(JobContextError::MissingExploitRunId) => {
+            finish_job_and_broadcast(db, tx, job_id, "error", None, Some("Job missing exploit_run_id"), 0).await;
+            None
+        }
+        Err(JobContextError::MissingConnectionInfo) => {
+            finish_job_and_broadcast(db, tx, job_id, "error", None, Some("No connection info (missing IP or port)"), 0).await;
+            None
+        }
+        Err(JobContextError::Db(e)) => {
+            log_job_error(job_id, &e);
+            None
+        }
+    }
+}
+
 fn ensure_pending(job: &ExploitJob) -> std::result::Result<(), JobContextError> {
     if job.status == "pending" {
         Ok(())
@@ -406,8 +429,8 @@ fn require_exploit_run_id(job: &ExploitJob) -> std::result::Result<i32, JobConte
     job.exploit_run_id.ok_or(JobContextError::MissingExploitRunId)
 }
 
-pub(crate) async fn get_target_lock(
-    target_locks: &Arc<DashMap<(i32, i32), Arc<Mutex<()>>>>,
+pub(crate) fn get_target_lock(
+    target_locks: &DashMap<(i32, i32), Arc<Mutex<()>>>,
     sequential_per_target: bool,
     key: (i32, i32),
 ) -> Option<Arc<Mutex<()>>> {
@@ -554,18 +577,18 @@ mod tests {
         assert_eq!(skip_reason(true, true, true, false), None);
     }
 
-    #[tokio::test]
-    async fn get_target_lock_none_when_disabled() {
-        let locks: Arc<DashMap<(i32, i32), Arc<Mutex<()>>>> = Arc::new(DashMap::new());
-        let lock = get_target_lock(&locks, false, (1, 1)).await;
+    #[test]
+    fn get_target_lock_none_when_disabled() {
+        let locks: DashMap<(i32, i32), Arc<Mutex<()>>> = DashMap::new();
+        let lock = get_target_lock(&locks, false, (1, 1));
         assert!(lock.is_none());
     }
 
-    #[tokio::test]
-    async fn get_target_lock_reuses_arc() {
-        let locks: Arc<DashMap<(i32, i32), Arc<Mutex<()>>>> = Arc::new(DashMap::new());
-        let first = get_target_lock(&locks, true, (1, 1)).await.unwrap();
-        let second = get_target_lock(&locks, true, (1, 1)).await.unwrap();
+    #[test]
+    fn get_target_lock_reuses_arc() {
+        let locks: DashMap<(i32, i32), Arc<Mutex<()>>> = DashMap::new();
+        let first = get_target_lock(&locks, true, (1, 1)).unwrap();
+        let second = get_target_lock(&locks, true, (1, 1)).unwrap();
         assert!(Arc::ptr_eq(&first, &second));
     }
 }
