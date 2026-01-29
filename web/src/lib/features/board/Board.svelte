@@ -45,6 +45,12 @@
   let dragOverTeamId = $state(null);
   let dragPreviewEl = null;
   let optimisticSequences = $state(new Map());
+  let enqueueingRuns = $state({});
+
+  let toasts = $state([]);
+  let nextToastId = 1;
+
+  const TOAST_TIMEOUT_MS = 4500;
 
   let filteredExploits = $derived(exploits.filter(e => e.challenge_id === challengeId));
 
@@ -162,7 +168,28 @@
 
   async function runNow(run, e) {
     e.stopPropagation();
-    await api.enqueueSingleJob(run.id, run.team_id);
+    if (enqueueingRuns[run.id]) return;
+    enqueueingRuns[run.id] = true;
+    try {
+      const job = await api.enqueueSingleJob(run.id, run.team_id);
+      const teamName = getTeamDisplay(teams, run.team_id);
+      alert(`Enqueued job #${job.id}.`);
+      pushToast(`Job #${job.id} enqueued for ${teamName}.`, 'success');
+    } catch (error) {
+      pushToast('Failed to enqueue job. Please try again.', 'error');
+    } finally {
+      enqueueingRuns[run.id] = false;
+    }
+  }
+
+  function pushToast(message, variant = 'success') {
+    const id = nextToastId++;
+    toasts = [...toasts, { id, message, variant }];
+    setTimeout(() => removeToast(id), TOAST_TIMEOUT_MS);
+  }
+
+  function removeToast(id) {
+    toasts = toasts.filter((toast) => toast.id !== id);
   }
 
   function getSequence(run) {
@@ -664,6 +691,7 @@
         </h3>
         <div class="cards">
           {#each getDisplayedRuns(team.id, baseRuns) as run (run.id)}
+            {@const isEnqueueing = Boolean(enqueueingRuns[run.id])}
             <div 
               class="card" 
               class:disabled={!run.enabled || !getExploit(run.exploit_id)?.enabled}
@@ -706,8 +734,11 @@
               <button
                 type="button"
                 class="card-play"
-                title="Enqueue now"
-                aria-label="Enqueue now"
+                class:busy={isEnqueueing}
+                title={isEnqueueing ? 'Enqueueing...' : 'Enqueue now'}
+                aria-label={isEnqueueing ? 'Enqueueing' : 'Enqueue now'}
+                aria-busy={isEnqueueing}
+                disabled={isEnqueueing}
                 onclick={(e) => runNow(run, e)}
               >
                 <Icon name="play" />
@@ -718,6 +749,18 @@
       </div>
     {/each}
   </div>
+</div>
+
+<div class="toast-stack" aria-live="polite">
+  {#each toasts as toast (toast.id)}
+    <div
+      class={`toast ${toast.variant}`}
+      role="status"
+      onclick={() => removeToast(toast.id)}
+    >
+      {toast.message}
+    </div>
+  {/each}
 </div>
 
 {#if showAddExploit}
@@ -903,7 +946,13 @@
   .card:hover .card-actions, .card:focus-within .card-actions { opacity: 1; pointer-events: auto; }
   .card-play { cursor: pointer; opacity: 0.5; font-size: 0.7rem; margin-left: auto; background: transparent; border: none; padding: 0; color: inherit; }
   .card-play:hover { opacity: 1; }
+  .card-play.busy,
+  .card-play[disabled] { opacity: 0.3; cursor: not-allowed; }
   .danger { background: #d9534f; }
   .modal-title { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
   .modal-title code { margin-left: auto; text-align: right; }
+  .toast-stack { position: fixed; right: 1.25rem; bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; z-index: 30; }
+  .toast { background: #1a1a2e; border: 1px solid #00d9ff; color: #f2fbff; padding: 0.65rem 0.9rem; border-radius: 8px; font-size: 0.85rem; box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35); max-width: 280px; cursor: pointer; }
+  .toast.success { border-color: #00d9ff; }
+  .toast.error { border-color: #ff6b6b; color: #ffecec; }
 </style>
