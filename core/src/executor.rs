@@ -528,6 +528,9 @@ where
                     std::future::pending::<()>().await;
                 }
             } => {
+                if !exec_done && !exec_task.is_finished() {
+                    exec_task.abort();
+                }
                 return Ok(stopped_exec_result(pid));
             }
         }
@@ -781,5 +784,45 @@ mod tests {
         let result = handle.await.expect("join").expect("exec");
         assert_eq!(result.stderr, "stopped");
         assert_eq!(kill_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn run_exec_with_stop_aborts_task_on_deadline() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        struct DropFlag(Arc<AtomicBool>);
+        impl Drop for DropFlag {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+
+        let dropped = Arc::new(AtomicBool::new(false));
+        let drop_flag = DropFlag(dropped.clone());
+
+        let exec_future = async move {
+            let _guard = drop_flag;
+            std::future::pending::<anyhow::Result<ExecResult>>().await
+        };
+
+        let (pid_tx, pid_rx) = oneshot::channel();
+        drop(pid_tx);
+
+        let (stop_tx, stop_rx) = broadcast::channel(1);
+        let _ = stop_tx.send(StopSignal { job_id: 42 });
+
+        let result = run_exec_with_stop(
+            exec_future,
+            pid_rx,
+            stop_rx,
+            42,
+            Duration::from_millis(10),
+            |_| async {},
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.stderr, "stopped");
+        assert!(dropped.load(Ordering::SeqCst));
     }
 }
