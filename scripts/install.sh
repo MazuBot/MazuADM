@@ -20,17 +20,17 @@ wait
 BIN_DIR="/usr/local/bin"
 CLI_BIN="./target/release/mazuadm-cli"
 API_BIN="./target/release/mazuadm-api"
+CONFIG_DIR='/opt/mazuadm'
+
+$SUDO mkdir -p "$CONFIG_DIR"
 
 $SUDO systemctl stop mazuadm-api.service 
 $SUDO mkdir -p "$BIN_DIR"
 $SUDO cp "$CLI_BIN" "$BIN_DIR/mazuadm-cli"
-$SUDO cp "$API_BIN" "$BIN_DIR/mazuadm-api"
 $SUDO chmod 0755 "$BIN_DIR/mazuadm-cli"
-$SUDO chmod 0750 "$BIN_DIR/mazuadm-api"
+$SUDO cp "$API_BIN" "$CONFIG_DIR/mazuadm-api"
+$SUDO chmod 0755 "$CONFIG_DIR/mazuadm-api"
 $SUDO systemctl start mazuadm-api.service 
-
-CONFIG_DIR='/opt/mazuadm'
-$SUDO mkdir -p "$CONFIG_DIR"
 
 WEB_SRC="./web/build"
 WEB_DST="$CONFIG_DIR/web"
