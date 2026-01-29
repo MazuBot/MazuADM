@@ -2,13 +2,38 @@
   import * as api from '$lib/data/api';
   import { getChallengeName, getTeamDisplay } from '$lib/utils/lookup.js';
 
-  let { exploits, exploitRuns, challenges, teams, containers, onLoadContainers } = $props();
+  let { exploits, exploitRuns, challenges, teams, containers, selectedChallengeId, onSelectChallenge, onLoadContainers } = $props();
 
   let hasContainers = $derived((containers ?? []).length > 0);
+  let filteredExploits = $derived(
+    selectedChallengeId ? exploits.filter((exploit) => exploit.challenge_id === selectedChallengeId) : exploits
+  );
+  let restarting = $state(new Set());
+
+  function markRestarting(ids) {
+    const next = new Set(restarting);
+    for (const id of ids) {
+      next.add(id);
+    }
+    restarting = next;
+  }
+
+  function clearRestarting(ids) {
+    const next = new Set(restarting);
+    for (const id of ids) {
+      next.delete(id);
+    }
+    restarting = next;
+  }
 
   async function restartContainer(id) {
-    await api.restartContainer(id);
-    await onLoadContainers();
+    markRestarting([id]);
+    try {
+      await api.restartContainer(id);
+      await onLoadContainers();
+    } finally {
+      clearRestarting([id]);
+    }
   }
 
   async function deleteContainer(id) {
@@ -23,8 +48,14 @@
   async function restartAllContainers() {
     if (!containers?.length) return;
     if (!confirm(`Restart all ${containers.length} containers?`)) return;
-    await Promise.all(containers.map((c) => api.restartContainer(c.id)));
-    await onLoadContainers();
+    const ids = containers.map((c) => c.id);
+    markRestarting(ids);
+    try {
+      await Promise.all(containers.map((c) => api.restartContainer(c.id)));
+      await onLoadContainers();
+    } finally {
+      clearRestarting(ids);
+    }
   }
 
   async function removeAllContainers() {
@@ -35,16 +66,29 @@
   }
 </script>
 
+{#if challenges.length}
+  <div class="challenge-tabs">
+    <button class:active={selectedChallengeId === null} onclick={() => onSelectChallenge(null)}>
+      All
+    </button>
+    {#each challenges as c}
+      <button class:active={selectedChallengeId === c.id} onclick={() => onSelectChallenge(c.id)}>
+        {c.name}
+      </button>
+    {/each}
+  </div>
+{/if}
+
 <div class="panel">
   <div class="panel-header">
     <h2>Containers</h2>
     <div class="panel-actions">
       <button class="small" onclick={reloadContainers} disabled={!hasContainers}>Reload</button>
-      <button class="small" onclick={restartAllContainers} disabled={!hasContainers}>Restart All</button>
+      <button class="small" onclick={restartAllContainers} disabled={!hasContainers || restarting.size > 0}>Restart All</button>
       <button class="small danger" onclick={removeAllContainers} disabled={!hasContainers}>Remove All</button>
     </div>
   </div>
-  {#each exploits as exploit}
+  {#each filteredExploits as exploit}
     {@const expContainers = containers.filter((c) => c.exploit_id === exploit.id)}
     {#if expContainers.length}
       <h3>{getChallengeName(challenges, exploit.challenge_id)} / {exploit.name}</h3>
@@ -91,7 +135,7 @@
                 {/if}
               </td>
               <td>
-                <button onclick={() => restartContainer(c.id)}>Restart</button>
+                <button onclick={() => restartContainer(c.id)} disabled={restarting.has(c.id)}>Restart</button>
                 <button onclick={() => deleteContainer(c.id)}>Remove</button>
               </td>
             </tr>

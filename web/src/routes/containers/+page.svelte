@@ -15,10 +15,16 @@
     resetContainers
   } = app
 
+  let selectedChallengeId = null
+
   onMount(() => {
     resetContainers()
     loadContainers()
   })
+
+  function selectChallenge(id) {
+    selectedChallengeId = selectedChallengeId === id ? null : id
+  }
 </script>
 
 <ContainersPage
@@ -27,6 +33,8 @@
   challenges={$challenges}
   teams={$teams}
   containers={$containers}
+  selectedChallengeId={selectedChallengeId}
+  onSelectChallenge={selectChallenge}
   containerRunners={$containerRunners}
   onLoadContainers={loadContainers}
   onLoadRunners={loadRunners}
