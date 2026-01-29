@@ -87,8 +87,8 @@
   }
 
   function jobStartMs(job) {
-    if (!job.started_at) return null;
-    const ms = Date.parse(job.started_at);
+    if (!job.schedule_at) return null;
+    const ms = Date.parse(job.schedule_at);
     return Number.isNaN(ms) ? null : ms;
   }
 
