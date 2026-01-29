@@ -296,6 +296,7 @@ pub async fn reorder_jobs(State(s): S, Json(items): Json<Vec<ReorderJobItem>>) -
     for item in &items {
         if let Ok(job) = s.db.get_job(item.id).await {
             broadcast(&s, "job_updated", &job);
+            s.scheduler.send(SchedulerCommand::RefreshJob(job.id)).map_err(err)?;
         }
     }
     Ok(Json("ok".to_string()))
@@ -318,7 +319,7 @@ pub async fn enqueue_single_job(State(s): S, Json(req): Json<EnqueueSingleJobReq
     let max_priority = s.db.get_max_priority_for_round(round_id).await.map_err(err)?;
     let job = s.db.create_job(round_id, run.id, req.team_id, max_priority + 1).await.map_err(err)?;
     broadcast(&s, "job_created", &job);
-    s.scheduler.send(SchedulerCommand::RunPending(round_id)).map_err(err)?;
+    s.scheduler.send(SchedulerCommand::RefreshJob(job.id)).map_err(err)?;
     Ok(Json(job))
 }
 
@@ -331,19 +332,20 @@ pub async fn enqueue_existing_job(State(s): S, Path(job_id): Path<i32>) -> R<Exp
         s.db.update_job_priority(job_id, max_priority + 1).await.map_err(err)?;
         let job = s.db.get_job(job_id).await.map_err(err)?;
         broadcast(&s, "job_updated", &job);
-        s.scheduler.send(SchedulerCommand::RunPending(round_id)).map_err(err)?;
+        s.scheduler.send(SchedulerCommand::RefreshJob(job.id)).map_err(err)?;
         return Ok(Json(job));
     }
 
     let run_id = job.exploit_run_id.ok_or_else(|| "Job has no exploit_run_id".to_string())?;
     let new_job = s.db.create_job(round_id, run_id, job.team_id, max_priority + 1).await.map_err(err)?;
     broadcast(&s, "job_created", &new_job);
-    s.scheduler.send(SchedulerCommand::RunPending(round_id)).map_err(err)?;
+    s.scheduler.send(SchedulerCommand::RefreshJob(new_job.id)).map_err(err)?;
     Ok(Json(new_job))
 }
 
 pub async fn stop_job(State(s): S, Path(job_id): Path<i32>) -> R<ExploitJob> {
     let job = s.executor.stop_job(job_id, "stopped by user").await.map_err(err)?;
+    s.scheduler.send(SchedulerCommand::RefreshJob(job.id)).map_err(err)?;
     Ok(Json(job))
 }
 
