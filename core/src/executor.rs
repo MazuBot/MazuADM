@@ -1,9 +1,11 @@
 use crate::{Database, Exploit, ExploitJob, ExploitRun, ConnectionInfo, WsMessage, Challenge, Team};
-use crate::container_manager::ContainerManager;
+use crate::container_manager::{ContainerManager, ExecResult};
 use anyhow::Result;
+use std::future::Future;
 use std::time::{Instant, Duration};
 use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot, Mutex};
+use tokio::time::Instant as TokioInstant;
 use regex::Regex;
 use crate::settings::{compute_timeout, load_job_settings};
 use dashmap::DashMap;
@@ -83,7 +85,7 @@ impl Executor {
 
     pub async fn execute_job(&self, job: &ExploitJob, run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64, max_flags: usize) -> Result<JobResult> {
         let start = Instant::now();
-        let mut stop_rx = self.stop_tx.subscribe();
+        let stop_rx = self.stop_tx.subscribe();
         self.db.update_job_status(job.id, "running", true).await?;
         
         // Broadcast job running
@@ -115,49 +117,41 @@ impl Executor {
             format!("TARGET_TEAM_ID={}", team.team_id),
         ];
 
-        let (pid_tx, mut pid_rx) = oneshot::channel::<i64>();
-        let mut pid: Option<i64> = None;
-        let mut stop_requested = false;
-        let mut pid_pending = true;
-        let mut stop_rx_closed = false;
+        let (pid_tx, pid_rx) = oneshot::channel::<i64>();
         let container_id = lease.container_id().to_string();
 
         // Execute with timeout and PID tracking
-        let exec_fut = self.container_manager.execute_in_container_with_timeout(
-            &container_id, cmd, env, Duration::from_secs(timeout_secs), Some(pid_tx)
-        );
-        tokio::pin!(exec_fut);
-
-        let exec_result = loop {
-            tokio::select! {
-                res = &mut exec_fut => break res,
-                recv = &mut pid_rx, if pid_pending => {
-                    pid_pending = false;
-                    if let Ok(found_pid) = recv {
-                        pid = Some(found_pid);
-                        if stop_requested {
-                            let _ = self.container_manager.kill_process_in_container(&container_id, found_pid).await;
-                        }
-                    }
-                }
-                msg = stop_rx.recv(), if !stop_rx_closed => {
-                    match msg {
-                        Ok(signal) => {
-                            if signal.job_id == job.id {
-                                stop_requested = true;
-                                if let Some(found_pid) = pid {
-                                    let _ = self.container_manager.kill_process_in_container(&container_id, found_pid).await;
-                                }
-                            }
-                        }
-                        Err(broadcast::error::RecvError::Lagged(_)) => {}
-                        Err(broadcast::error::RecvError::Closed) => {
-                            stop_rx_closed = true;
-                        }
-                    }
-                }
+        let kill_manager = self.container_manager.clone();
+        let kill_container_id = container_id.clone();
+        let kill = move |pid: i64| {
+            let manager = kill_manager.clone();
+            let container_id = kill_container_id.clone();
+            async move {
+                let _ = manager.kill_process_in_container(&container_id, pid).await;
             }
         };
+        let exec_manager = self.container_manager.clone();
+        let exec_container_id = container_id.clone();
+        let exec_future = async move {
+            exec_manager
+                .execute_in_container_with_timeout(
+                    &exec_container_id,
+                    cmd,
+                    env,
+                    Duration::from_secs(timeout_secs),
+                    Some(pid_tx),
+                )
+                .await
+        };
+        let exec_result = run_exec_with_stop(
+            exec_future,
+            pid_rx,
+            stop_rx,
+            job.id,
+            Duration::from_millis(500),
+            kill,
+        )
+        .await;
         let result = match exec_result {
             Ok(result) => result,
             Err(e) => {
@@ -428,6 +422,101 @@ fn derive_job_status(flags_found: bool, timed_out: bool, ole: bool, exit_code: i
     }
 }
 
+fn stopped_exec_result(pid: Option<i64>) -> ExecResult {
+    ExecResult {
+        stdout: String::new(),
+        stderr: "stopped".to_string(),
+        exit_code: -1,
+        ole: false,
+        timed_out: false,
+        pid,
+    }
+}
+
+async fn run_exec_with_stop<F, K, Fut>(
+    exec_future: F,
+    mut pid_rx: oneshot::Receiver<i64>,
+    mut stop_rx: broadcast::Receiver<StopSignal>,
+    job_id: i32,
+    stop_grace: Duration,
+    mut kill: K,
+) -> Result<ExecResult>
+where
+    F: Future<Output = Result<ExecResult>> + Send + 'static,
+    K: FnMut(i64) -> Fut + Send,
+    Fut: Future<Output = ()> + Send,
+{
+    let mut exec_task = tokio::spawn(exec_future);
+    let mut exec_done = false;
+    let mut pid: Option<i64> = None;
+    let mut pid_pending = true;
+    let mut stop_requested = false;
+    let mut stop_rx_closed = false;
+    let mut stop_deadline: Option<TokioInstant> = None;
+    let mut exec_cancelled = false;
+
+    loop {
+        tokio::select! {
+            res = &mut exec_task, if !exec_done => {
+                exec_done = true;
+                match res {
+                    Ok(result) => return result,
+                    Err(err) if err.is_cancelled() && stop_requested => {
+                        exec_cancelled = true;
+                        if !pid_pending {
+                            return Ok(stopped_exec_result(pid));
+                        }
+                    }
+                    Err(err) => return Err(anyhow::Error::new(err)),
+                }
+            }
+            recv = &mut pid_rx, if pid_pending => {
+                pid_pending = false;
+                if let Ok(found_pid) = recv {
+                    pid = Some(found_pid);
+                    if stop_requested {
+                        kill(found_pid).await;
+                    }
+                }
+                if exec_cancelled && stop_requested {
+                    return Ok(stopped_exec_result(pid));
+                }
+            }
+            msg = stop_rx.recv(), if !stop_rx_closed => {
+                match msg {
+                    Ok(signal) => {
+                        if signal.job_id == job_id {
+                            stop_requested = true;
+                            if let Some(found_pid) = pid {
+                                kill(found_pid).await;
+                            }
+                            if stop_deadline.is_none() {
+                                stop_deadline = Some(TokioInstant::now() + stop_grace);
+                            }
+                            if !exec_done && !exec_task.is_finished() {
+                                exec_task.abort();
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => {
+                        stop_rx_closed = true;
+                    }
+                }
+            }
+            _ = async {
+                if let Some(deadline) = stop_deadline {
+                    tokio::time::sleep_until(deadline).await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            } => {
+                return Ok(stopped_exec_result(pid));
+            }
+        }
+    }
+}
+
 pub(crate) fn stagger_delay_ms(job_id: i32) -> u64 {
     (job_id.unsigned_abs() as u64) % 500
 }
@@ -445,16 +534,21 @@ mod tests {
     use super::{
         derive_job_status,
         ensure_pending,
+        ExecResult,
         get_target_lock,
         require_exploit_run_id,
+        run_exec_with_stop,
         skip_reason,
+        StopSignal,
         stagger_delay_ms,
     };
     use crate::container_manager::ContainerManager;
     use crate::ExploitJob;
     use chrono::{TimeZone, Utc};
-    use std::sync::Arc;
-    use tokio::sync::Mutex;
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use std::time::Duration;
+    use tokio::sync::{broadcast, oneshot, Mutex};
+    use tokio::time::{sleep, timeout};
     use dashmap::DashMap;
 
     fn make_job(status: &str, exploit_run_id: Option<i32>) -> ExploitJob {
@@ -544,5 +638,129 @@ mod tests {
         let first = get_target_lock(&locks, true, (1, 1)).unwrap();
         let second = get_target_lock(&locks, true, (1, 1)).unwrap();
         assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[tokio::test]
+    async fn stop_without_pid_finishes() {
+        let (_pid_tx, pid_rx) = oneshot::channel::<i64>();
+        let (stop_tx, stop_rx) = broadcast::channel(4);
+        let exec_future = async {
+            sleep(Duration::from_secs(5)).await;
+            Ok(ExecResult {
+                stdout: "late".to_string(),
+                stderr: String::new(),
+                exit_code: 0,
+                ole: false,
+                timed_out: false,
+                pid: None,
+            })
+        };
+        let kill_count = Arc::new(AtomicUsize::new(0));
+        let kill = {
+            let kill_count = kill_count.clone();
+            move |_pid| {
+                let kill_count = kill_count.clone();
+                async move {
+                    kill_count.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        };
+
+        let handle = tokio::spawn(run_exec_with_stop(
+            exec_future,
+            pid_rx,
+            stop_rx,
+            42,
+            Duration::from_millis(50),
+            kill,
+        ));
+        let _ = stop_tx.send(StopSignal { job_id: 42 });
+
+        let result = timeout(Duration::from_millis(200), handle)
+            .await
+            .expect("timeout")
+            .expect("join")
+            .expect("exec");
+        assert_eq!(result.stderr, "stopped");
+        assert_eq!(kill_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn stop_uses_output_if_exec_completes() {
+        let (_pid_tx, pid_rx) = oneshot::channel::<i64>();
+        let (stop_tx, stop_rx) = broadcast::channel(4);
+        let exec_future = async {
+            sleep(Duration::from_millis(10)).await;
+            Ok(ExecResult {
+                stdout: "ok".to_string(),
+                stderr: String::new(),
+                exit_code: 0,
+                ole: false,
+                timed_out: false,
+                pid: None,
+            })
+        };
+        let kill = |_pid| async {};
+        let stop_sender = tokio::spawn(async move {
+            sleep(Duration::from_millis(20)).await;
+            let _ = stop_tx.send(StopSignal { job_id: 7 });
+        });
+
+        let result = run_exec_with_stop(
+            exec_future,
+            pid_rx,
+            stop_rx,
+            7,
+            Duration::from_millis(50),
+            kill,
+        )
+        .await
+        .expect("exec");
+        let _ = stop_sender.await;
+
+        assert_eq!(result.stdout, "ok");
+    }
+
+    #[tokio::test]
+    async fn stop_kills_pid_when_arrives_after_stop() {
+        let (pid_tx, pid_rx) = oneshot::channel::<i64>();
+        let (stop_tx, stop_rx) = broadcast::channel(4);
+        let exec_future = async {
+            sleep(Duration::from_secs(5)).await;
+            Ok(ExecResult {
+                stdout: String::new(),
+                stderr: String::new(),
+                exit_code: 0,
+                ole: false,
+                timed_out: false,
+                pid: None,
+            })
+        };
+        let kill_count = Arc::new(AtomicUsize::new(0));
+        let kill = {
+            let kill_count = kill_count.clone();
+            move |_pid| {
+                let kill_count = kill_count.clone();
+                async move {
+                    kill_count.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        };
+
+        let handle = tokio::spawn(run_exec_with_stop(
+            exec_future,
+            pid_rx,
+            stop_rx,
+            9,
+            Duration::from_millis(100),
+            kill,
+        ));
+        let _ = stop_tx.send(StopSignal { job_id: 9 });
+        sleep(Duration::from_millis(10)).await;
+        let _ = pid_tx.send(123);
+
+        let result = handle.await.expect("join").expect("exec");
+        assert_eq!(result.stderr, "stopped");
+        assert_eq!(kill_count.load(Ordering::SeqCst), 1);
     }
 }
