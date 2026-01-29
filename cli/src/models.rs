@@ -54,7 +54,6 @@ pub struct Exploit {
     pub name: String,
     pub challenge_id: i32,
     pub enabled: bool,
-    pub priority: i32,
     pub max_per_container: i32,
     pub max_containers: i32,
     pub docker_image: String,
@@ -73,8 +72,6 @@ pub struct CreateExploit {
     pub entrypoint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_per_container: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -97,8 +94,6 @@ pub struct UpdateExploit {
     pub entrypoint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_per_container: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]

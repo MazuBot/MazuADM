@@ -11,7 +11,6 @@
       name: '',
       docker_image: '',
       entrypoint: '',
-      priority: 0,
       max_per_container: Math.max(teams.length, 1),
       max_containers: 0,
       default_counter: 999,
@@ -33,7 +32,7 @@
   let editFormInitial = $state(null);
 
   let editingExploit = $state(null);
-  let exploitForm = $state({ name: '', docker_image: '', entrypoint: '', priority: 0, max_per_container: 1, max_containers: 0, default_counter: 999, timeout_secs: 0, enabled: true });
+  let exploitForm = $state({ name: '', docker_image: '', entrypoint: '', max_per_container: 1, max_containers: 0, default_counter: 999, timeout_secs: 0, enabled: true });
   let exploitFormInitial = $state(null);
 
   let editingRelation = $state(null);
@@ -164,7 +163,6 @@
     await api.createExploit({ 
       name: newExploit.name,
       docker_image: newExploit.docker_image,
-      priority: newExploit.priority,
       challenge_id: challengeId,
       entrypoint: newExploit.entrypoint || null,
       max_per_container: newExploit.max_per_container,
@@ -190,7 +188,7 @@
 
   function openEditExploit(e) {
     editingExploit = e;
-    exploitForm = { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint || '', priority: e.priority, max_per_container: e.max_per_container, max_containers: e.max_containers, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, enabled: e.enabled };
+    exploitForm = { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint || '', max_per_container: e.max_per_container, max_containers: e.max_containers, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, enabled: e.enabled };
     exploitFormInitial = { ...exploitForm };
   }
 
@@ -519,9 +517,6 @@
       <label class:field-changed={isNewExploitChanged('entrypoint')}>
         Entrypoint <input type="text" bind:value={newExploit.entrypoint} placeholder="Leave empty to use image CMD" />
       </label>
-      <label class:field-changed={isNewExploitChanged('priority')}>
-        Priority <input bind:value={newExploit.priority} type="number" />
-      </label>
       <label class:field-changed={isNewExploitChanged('max_per_container')}>
         Max per container <input bind:value={newExploit.max_per_container} type="number" placeholder={`Default: ${Math.max(teams.length, 1)}`} />
       </label>
@@ -599,9 +594,6 @@
       </label>
       <label class:field-changed={isExploitFieldChanged('entrypoint')}>
         Entrypoint <input type="text" bind:value={exploitForm.entrypoint} placeholder="Leave empty to use image CMD" />
-      </label>
-      <label class:field-changed={isExploitFieldChanged('priority')}>
-        Priority <input bind:value={exploitForm.priority} type="number" />
       </label>
       <label class:field-changed={isExploitFieldChanged('max_per_container')}>
         Max per container <input bind:value={exploitForm.max_per_container} type="number" />

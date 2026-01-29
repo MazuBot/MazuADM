@@ -133,14 +133,13 @@ impl Database {
     // Exploits
     pub async fn create_exploit(&self, e: CreateExploit) -> Result<Exploit> {
         let exploit = sqlx::query_as::<_, Exploit>(
-            "INSERT INTO exploits (name, challenge_id, docker_image, entrypoint, enabled, priority, max_per_container, max_containers, timeout_secs, default_counter) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *",
+            "INSERT INTO exploits (name, challenge_id, docker_image, entrypoint, enabled, max_per_container, max_containers, timeout_secs, default_counter) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
         )
         .bind(e.name)
         .bind(e.challenge_id)
         .bind(e.docker_image)
         .bind(e.entrypoint)
         .bind(e.enabled.unwrap_or(true))
-        .bind(e.priority.unwrap_or(0))
         .bind(e.max_per_container.unwrap_or(1))
         .bind(e.max_containers.unwrap_or(0))
         .bind(e.timeout_secs.unwrap_or(30))
@@ -152,11 +151,11 @@ impl Database {
 
     pub async fn list_exploits(&self, challenge_id: Option<i32>) -> Result<Vec<Exploit>> {
         match challenge_id {
-            Some(cid) => Ok(sqlx::query_as::<_, Exploit>("SELECT * FROM exploits WHERE challenge_id = $1 ORDER BY priority DESC, id DESC")
+            Some(cid) => Ok(sqlx::query_as::<_, Exploit>("SELECT * FROM exploits WHERE challenge_id = $1 ORDER BY id DESC")
                 .bind(cid)
                 .fetch_all(&self.pool)
                 .await?),
-            None => Ok(sqlx::query_as::<_, Exploit>("SELECT * FROM exploits ORDER BY priority DESC, id DESC")
+            None => Ok(sqlx::query_as::<_, Exploit>("SELECT * FROM exploits ORDER BY id DESC")
                 .fetch_all(&self.pool)
                 .await?),
         }
@@ -178,21 +177,20 @@ impl Database {
     }
 
     pub async fn list_enabled_exploits(&self) -> Result<Vec<Exploit>> {
-        Ok(sqlx::query_as::<_, Exploit>("SELECT * FROM exploits WHERE enabled = true ORDER BY priority DESC, id DESC")
+        Ok(sqlx::query_as::<_, Exploit>("SELECT * FROM exploits WHERE enabled = true ORDER BY id DESC")
             .fetch_all(&self.pool)
             .await?)
     }
 
     pub async fn update_exploit(&self, id: i32, e: UpdateExploit) -> Result<Exploit> {
         let exploit = sqlx::query_as::<_, Exploit>(
-            "UPDATE exploits SET name = $2, docker_image = $3, entrypoint = $4, enabled = COALESCE($5, enabled), priority = COALESCE($6, priority), max_per_container = COALESCE($7, max_per_container), max_containers = COALESCE($8, max_containers), timeout_secs = COALESCE($9, timeout_secs), default_counter = COALESCE($10, default_counter) WHERE id = $1 RETURNING *",
+            "UPDATE exploits SET name = $2, docker_image = $3, entrypoint = $4, enabled = COALESCE($5, enabled), max_per_container = COALESCE($6, max_per_container), max_containers = COALESCE($7, max_containers), timeout_secs = COALESCE($8, timeout_secs), default_counter = COALESCE($9, default_counter) WHERE id = $1 RETURNING *",
         )
         .bind(id)
         .bind(e.name)
         .bind(e.docker_image)
         .bind(e.entrypoint)
         .bind(e.enabled)
-        .bind(e.priority)
         .bind(e.max_per_container)
         .bind(e.max_containers)
         .bind(e.timeout_secs)
