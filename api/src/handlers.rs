@@ -4,7 +4,6 @@ use axum::{extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade}}, Jso
 use futures_util::StreamExt;
 use mazuadm_core::*;
 use mazuadm_core::scheduler::{select_running_round_id, SchedulerCommand};
-use mazuadm_core::executor::Executor;
 use std::sync::Arc;
 use serde::Deserialize;
 
@@ -19,14 +18,6 @@ fn broadcast<T: serde::Serialize>(s: &AppState, msg_type: &str, data: &T) {
 
 fn should_continue_ws(err: tokio::sync::broadcast::error::RecvError) -> bool {
     matches!(err, tokio::sync::broadcast::error::RecvError::Lagged(_))
-}
-
-fn spawn_job_runner(executor: Executor, job_id: i32) {
-    tokio::spawn(async move {
-        if let Err(e) = executor.run_job_immediately(job_id).await {
-            tracing::error!("Job {} failed: {}", job_id, e);
-        }
-    });
 }
 
 // WebSocket handler
@@ -311,43 +302,44 @@ pub async fn reorder_jobs(State(s): S, Json(items): Json<Vec<ReorderJobItem>>) -
 }
 
 #[derive(Deserialize)]
-pub struct RunSingleJobRequest {
+pub struct EnqueueSingleJobRequest {
     pub exploit_run_id: i32,
     pub team_id: i32,
 }
 
-pub async fn run_single_job(State(s): S, Json(req): Json<RunSingleJobRequest>) -> R<ExploitJob> {
+async fn require_running_round_id(s: &AppState) -> Result<i32, String> {
+    let rounds = s.db.get_active_rounds().await.map_err(err)?;
+    select_running_round_id(&rounds).ok_or_else(|| "No running round".to_string())
+}
+
+pub async fn enqueue_single_job(State(s): S, Json(req): Json<EnqueueSingleJobRequest>) -> R<ExploitJob> {
     let run = s.db.get_exploit_run(req.exploit_run_id).await.map_err(err)?;
-    
-    // Find current running round, or create ad-hoc job if none
-    let job = if let Ok(rounds) = s.db.get_active_rounds().await {
-        if let Some(round_id) = select_running_round_id(&rounds) {
-            s.db.create_job(round_id, run.id, req.team_id, 0).await.map_err(err)?
-        } else {
-            s.db.create_adhoc_job(run.id, req.team_id).await.map_err(err)?
-        }
-    } else {
-        s.db.create_adhoc_job(run.id, req.team_id).await.map_err(err)?
-    };
+    let round_id = require_running_round_id(&s).await?;
+    let max_priority = s.db.get_max_priority_for_round(round_id).await.map_err(err)?;
+    let job = s.db.create_job(round_id, run.id, req.team_id, max_priority + 1).await.map_err(err)?;
     broadcast(&s, "job_created", &job);
-    
-    spawn_job_runner(s.executor.clone(), job.id);
-    
+    s.scheduler.send(SchedulerCommand::RunPending(round_id)).map_err(err)?;
     Ok(Json(job))
 }
 
-pub async fn run_existing_job(State(s): S, Path(job_id): Path<i32>) -> R<ExploitJob> {
+pub async fn enqueue_existing_job(State(s): S, Path(job_id): Path<i32>) -> R<ExploitJob> {
     let job = s.db.get_job(job_id).await.map_err(err)?;
-    let _ = job.exploit_run_id.ok_or("Job has no exploit_run_id".to_string())?;
-    
-    // Reset job status to pending
-    s.db.update_job_status(job_id, "pending", false).await.map_err(err)?;
-    let job = s.db.get_job(job_id).await.map_err(err)?;
-    broadcast(&s, "job_updated", &job);
-    
-    spawn_job_runner(s.executor.clone(), job_id);
-    
-    Ok(Json(job))
+    let round_id = require_running_round_id(&s).await?;
+    let max_priority = s.db.get_max_priority_for_round(round_id).await.map_err(err)?;
+
+    if job.status == "pending" && job.round_id == round_id {
+        s.db.update_job_priority(job_id, max_priority + 1).await.map_err(err)?;
+        let job = s.db.get_job(job_id).await.map_err(err)?;
+        broadcast(&s, "job_updated", &job);
+        s.scheduler.send(SchedulerCommand::RunPending(round_id)).map_err(err)?;
+        return Ok(Json(job));
+    }
+
+    let run_id = job.exploit_run_id.ok_or_else(|| "Job has no exploit_run_id".to_string())?;
+    let new_job = s.db.create_job(round_id, run_id, job.team_id, max_priority + 1).await.map_err(err)?;
+    broadcast(&s, "job_created", &new_job);
+    s.scheduler.send(SchedulerCommand::RunPending(round_id)).map_err(err)?;
+    Ok(Json(new_job))
 }
 
 pub async fn stop_job(State(s): S, Path(job_id): Path<i32>) -> R<ExploitJob> {

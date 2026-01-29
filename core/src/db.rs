@@ -359,13 +359,6 @@ impl Database {
         ).fetch_one(&self.pool).await?)
     }
 
-    pub async fn create_adhoc_job(&self, exploit_run_id: i32, team_id: i32) -> Result<ExploitJob> {
-        Ok(sqlx::query_as!(ExploitJob,
-            "INSERT INTO exploit_jobs (round_id, exploit_run_id, team_id, priority) VALUES (NULL, $1, $2, 0) RETURNING *",
-            exploit_run_id, team_id
-        ).fetch_one(&self.pool).await?)
-    }
-
     pub async fn list_jobs(&self, round_id: i32) -> Result<Vec<ExploitJob>> {
         Ok(sqlx::query_as!(ExploitJob, "SELECT * FROM exploit_jobs WHERE round_id = $1 ORDER BY priority DESC", round_id).fetch_all(&self.pool).await?)
     }
@@ -378,6 +371,13 @@ impl Database {
         Ok(sqlx::query_as!(ExploitJob,
             "SELECT * FROM exploit_jobs WHERE round_id = $1 AND status = 'pending' ORDER BY priority DESC, id", round_id
         ).fetch_all(&self.pool).await?)
+    }
+
+    pub async fn get_max_priority_for_round(&self, round_id: i32) -> Result<i32> {
+        let row = sqlx::query_scalar!("SELECT MAX(priority) FROM exploit_jobs WHERE round_id = $1", round_id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.unwrap_or(0))
     }
 
     pub async fn count_running_jobs_for_container(&self, container_id: &str) -> Result<i64> {
@@ -430,13 +430,6 @@ impl Database {
         Ok(sqlx::query_as!(Flag,
             "INSERT INTO flags (job_id, round_id, challenge_id, team_id, flag_value) VALUES ($1, $2, $3, $4, $5) RETURNING *",
             job_id, round_id, challenge_id, team_id, flag_value
-        ).fetch_one(&self.pool).await?)
-    }
-
-    pub async fn create_adhoc_flag(&self, job_id: i32, challenge_id: i32, team_id: i32, flag_value: &str) -> Result<Flag> {
-        Ok(sqlx::query_as!(Flag,
-            "INSERT INTO flags (job_id, round_id, challenge_id, team_id, flag_value) VALUES ($1, NULL, $2, $3, $4) RETURNING *",
-            job_id, challenge_id, team_id, flag_value
         ).fetch_one(&self.pool).await?)
     }
 

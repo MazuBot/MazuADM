@@ -26,6 +26,7 @@ pub enum SchedulerCommand {
     RunRound(i32),
     RerunRound(i32),
     ScheduleUnflagged(i32),
+    RunPending(i32),
 }
 
 pub struct SchedulerRunner {
@@ -87,6 +88,7 @@ impl SchedulerRunner {
             SchedulerCommand::RunRound(id) => self.scheduler.run_round(id).await,
             SchedulerCommand::RerunRound(id) => self.scheduler.rerun_round(id).await,
             SchedulerCommand::ScheduleUnflagged(id) => self.scheduler.schedule_unflagged_round(id).await,
+            SchedulerCommand::RunPending(id) => self.scheduler.run_pending_round(id).await,
         }
     }
 
@@ -99,7 +101,7 @@ impl SchedulerRunner {
         if pending.is_empty() {
             return Ok(false);
         }
-        self.scheduler.run_round(round_id).await?;
+        self.scheduler.run_pending_round(round_id).await?;
         Ok(true)
     }
 }
@@ -118,12 +120,12 @@ impl SchedulerHandle {
 
 pub struct Scheduler {
     db: Database,
-    executor: Executor,
+    executor: Arc<Executor>,
     tx: broadcast::Sender<WsMessage>,
 }
 
 impl Scheduler {
-    pub fn new(db: Database, executor: Executor, tx: broadcast::Sender<WsMessage>) -> Self {
+    pub fn new(db: Database, executor: Arc<Executor>, tx: broadcast::Sender<WsMessage>) -> Self {
         Self { db, executor, tx }
     }
 
@@ -203,6 +205,82 @@ impl Scheduler {
         }
 
         // Health check containers before round
+        self.executor.container_manager.health_check().await?;
+
+        self.execute_pending_jobs(round_id).await
+    }
+
+    pub async fn run_pending_round(&self, round_id: i32) -> Result<()> {
+        let round = self.db.get_round(round_id).await?;
+        if round.status != "running" {
+            return Err(anyhow::anyhow!("Round {} is not running", round_id));
+        }
+        self.execute_pending_jobs(round_id).await
+    }
+
+    pub async fn rerun_round(&self, round_id: i32) -> Result<()> {
+        self.stop_running_jobs_with_flag_check().await;
+
+        if let Ok(rounds) = self.db.list_rounds().await {
+            for rid in rounds_to_reset_after(&rounds, round_id) {
+                let _ = self.db.reset_jobs_for_round(rid).await;
+                let _ = self.db.reset_round(rid).await;
+                if let Ok(r) = self.db.get_round(rid).await {
+                    broadcast(&self.tx, "round_updated", &r);
+                }
+            }
+        }
+
+        let _ = self.db.reset_jobs_for_round(round_id).await;
+        let _ = self.db.reset_round(round_id).await;
+        if let Ok(r) = self.db.get_round(round_id).await {
+            broadcast(&self.tx, "round_updated", &r);
+        }
+
+        self.run_round(round_id).await?;
+        Ok(())
+    }
+
+    pub async fn schedule_unflagged_round(&self, round_id: i32) -> Result<()> {
+        self.stop_running_jobs_with_flag_check().await;
+
+        let _ = self.db.reset_unflagged_jobs_for_round(round_id).await;
+        let _ = self.db.reset_round(round_id).await;
+        if let Ok(r) = self.db.get_round(round_id).await {
+            broadcast(&self.tx, "round_updated", &r);
+        }
+
+        self.run_round(round_id).await?;
+        Ok(())
+    }
+
+    async fn stop_running_jobs_with_flag_check(&self) {
+        let settings = load_job_settings(&self.db).await;
+        let executor = self.executor.clone();
+        if let Ok(jobs) = self.db.kill_running_jobs().await {
+            for job in jobs {
+                let stdout = job.stdout.as_deref().unwrap_or("");
+                let stderr = job.stderr.as_deref().unwrap_or("");
+                let combined = if stderr.is_empty() {
+                    stdout.to_string()
+                } else if stdout.is_empty() {
+                    stderr.to_string()
+                } else {
+                    format!("{}\n{}", stdout, stderr)
+                };
+                let flags = Executor::extract_flags(&combined, None, settings.max_flags);
+                let has_flag = !flags.is_empty();
+                let _ = executor.stop_job_with_flags(job.id, has_flag, "stopped by new round").await;
+            }
+        }
+    }
+
+    pub async fn get_jobs(&self, round_id: i32) -> Result<Vec<ExploitJob>> {
+        self.db.list_jobs(round_id).await
+    }
+
+    async fn execute_pending_jobs(&self, round_id: i32) -> Result<()> {
+        // Health check containers before scheduling
         self.executor.container_manager.health_check().await?;
 
         let settings = load_executor_settings(&self.db).await;
@@ -291,67 +369,6 @@ impl Scheduler {
         }
 
         Ok(())
-    }
-
-    pub async fn rerun_round(&self, round_id: i32) -> Result<()> {
-        self.stop_running_jobs_with_flag_check().await;
-
-        if let Ok(rounds) = self.db.list_rounds().await {
-            for rid in rounds_to_reset_after(&rounds, round_id) {
-                let _ = self.db.reset_jobs_for_round(rid).await;
-                let _ = self.db.reset_round(rid).await;
-                if let Ok(r) = self.db.get_round(rid).await {
-                    broadcast(&self.tx, "round_updated", &r);
-                }
-            }
-        }
-
-        let _ = self.db.reset_jobs_for_round(round_id).await;
-        let _ = self.db.reset_round(round_id).await;
-        if let Ok(r) = self.db.get_round(round_id).await {
-            broadcast(&self.tx, "round_updated", &r);
-        }
-
-        self.run_round(round_id).await?;
-        Ok(())
-    }
-
-    pub async fn schedule_unflagged_round(&self, round_id: i32) -> Result<()> {
-        self.stop_running_jobs_with_flag_check().await;
-
-        let _ = self.db.reset_unflagged_jobs_for_round(round_id).await;
-        let _ = self.db.reset_round(round_id).await;
-        if let Ok(r) = self.db.get_round(round_id).await {
-            broadcast(&self.tx, "round_updated", &r);
-        }
-
-        self.run_round(round_id).await?;
-        Ok(())
-    }
-
-    async fn stop_running_jobs_with_flag_check(&self) {
-        let settings = load_job_settings(&self.db).await;
-        let executor = self.executor.clone();
-        if let Ok(jobs) = self.db.kill_running_jobs().await {
-            for job in jobs {
-                let stdout = job.stdout.as_deref().unwrap_or("");
-                let stderr = job.stderr.as_deref().unwrap_or("");
-                let combined = if stderr.is_empty() {
-                    stdout.to_string()
-                } else if stdout.is_empty() {
-                    stderr.to_string()
-                } else {
-                    format!("{}\n{}", stdout, stderr)
-                };
-                let flags = Executor::extract_flags(&combined, None, settings.max_flags);
-                let has_flag = !flags.is_empty();
-                let _ = executor.stop_job_with_flags(job.id, has_flag, "stopped by new round").await;
-            }
-        }
-    }
-
-    pub async fn get_jobs(&self, round_id: i32) -> Result<Vec<ExploitJob>> {
-        self.db.list_jobs(round_id).await
     }
 }
 

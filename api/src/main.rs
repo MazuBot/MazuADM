@@ -17,7 +17,7 @@ use tower_http::trace::TraceLayer;
 pub struct AppState {
     pub db: Database,
     pub tx: broadcast::Sender<WsMessage>,
-    pub executor: Executor,
+    pub executor: Arc<Executor>,
     pub scheduler: SchedulerHandle,
 }
 
@@ -31,7 +31,7 @@ async fn resume_running_round_if_needed(state: &AppState) -> Result<()> {
     if let Some(round_id) = running_round_id {
         let pending = state.db.get_pending_jobs(round_id).await?;
         if should_resume_running_round(pending.len()) {
-            if let Err(e) = state.scheduler.send(SchedulerCommand::RunRound(round_id)) {
+            if let Err(e) = state.scheduler.send(SchedulerCommand::RunPending(round_id)) {
                 tracing::error!("Round {} resume failed: {}", round_id, e);
             }
         }
@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
 
     let settings = load_executor_settings(&db).await;
     let (tx, _) = broadcast::channel::<WsMessage>(256);
-    let executor = Executor::new(db.clone(), tx.clone())?;
+    let executor = Arc::new(Executor::new(db.clone(), tx.clone())?);
     executor.container_manager.set_concurrent_create_limit(settings.concurrent_create_limit);
     executor.container_manager.restore_from_docker().await?;
     // Reset any jobs stuck in "running" state from previous run

@@ -8,7 +8,6 @@ use tokio::sync::{broadcast, oneshot, Mutex};
 use regex::Regex;
 use crate::settings::{compute_timeout, load_job_settings};
 
-#[derive(Clone)]
 pub struct Executor {
     pub db: Database,
     pub container_manager: ContainerManager,
@@ -287,11 +286,7 @@ impl Executor {
         match result {
             Ok(result) => {
                 for flag in &result.flags {
-                    let f = if let Some(rid) = ctx.job.round_id {
-                        self.db.create_flag(ctx.job.id, rid, ctx.challenge.id, ctx.team.id, flag).await
-                    } else {
-                        self.db.create_adhoc_flag(ctx.job.id, ctx.challenge.id, ctx.team.id, flag).await
-                    };
+                    let f = self.db.create_flag(ctx.job.id, ctx.job.round_id, ctx.challenge.id, ctx.team.id, flag).await;
                     if let Ok(f) = f {
                         broadcast(&self.tx, "flag_created", &f);
                     }
@@ -477,7 +472,6 @@ mod tests {
         require_exploit_run_id,
         skip_reason,
         stagger_delay_ms,
-        Executor,
     };
     use crate::container_manager::ContainerManager;
     use crate::ExploitJob;
@@ -489,7 +483,7 @@ mod tests {
     fn make_job(status: &str, exploit_run_id: Option<i32>) -> ExploitJob {
         ExploitJob {
             id: 1,
-            round_id: Some(1),
+            round_id: 1,
             exploit_run_id,
             team_id: 1,
             priority: 0,
@@ -535,9 +529,8 @@ mod tests {
     }
 
     #[test]
-    fn executor_and_container_manager_are_clone() {
+    fn container_manager_is_clone() {
         fn assert_clone<T: Clone>() {}
-        assert_clone::<Executor>();
         assert_clone::<ContainerManager>();
     }
 
