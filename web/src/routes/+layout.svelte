@@ -13,6 +13,7 @@
     selectedFlagRoundId,
     loadAll,
     start,
+    restart,
     stop
   } = app
 
@@ -44,7 +45,7 @@
     if (isValidUser(u)) {
       setUser(u)
       showUserModal = false
-      start()
+      restart()
     }
   }
 

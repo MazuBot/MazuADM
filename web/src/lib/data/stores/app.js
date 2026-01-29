@@ -145,6 +145,12 @@ export function start() {
   connect(handleWsMessage)
 }
 
+export function restart() {
+  disconnect()
+  started = false
+  start()
+}
+
 export function stop() {
   if (!started) return
   started = false
@@ -178,5 +184,6 @@ export const app = {
   rerunRound,
   rerunUnflaggedRound,
   start,
+  restart,
   stop
 }
