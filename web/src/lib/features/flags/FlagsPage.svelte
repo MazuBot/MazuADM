@@ -144,7 +144,7 @@
   {/if}
 </div>
 
-<div class="controls">
+<div class="controls flag-filters">
   <select
     value={selectedFlagRoundId ?? ''}
     onchange={(e) => onSelectFlagRound(e.target.value ? Number(e.target.value) : null)}
@@ -205,3 +205,9 @@
     {/each}
   </tbody>
 </table>
+
+<style>
+  .flag-filters {
+    margin-top: 0.75rem;
+  }
+</style>
