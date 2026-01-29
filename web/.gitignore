@@ -4,3 +4,4 @@ node_modules/
 # Generated
 .svelte-kit/
 dist/
+build/
