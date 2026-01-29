@@ -1,10 +1,21 @@
 <script>
   import * as api from '$lib/data/api';
+  import { formatApiError, pushToast } from '$lib/ui/toastStore.js';
 
   let { settings, onRefresh } = $props();
 
   function getSetting(key, fallback) {
     return settings.find((s) => s.key === key)?.value || fallback;
+  }
+
+  async function updateSettingAndToast(key, value) {
+    try {
+      await api.updateSetting(key, value);
+      await onRefresh();
+      pushToast(`Setting ${key} updated to ${value}.`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to update ${key}.`), 'error');
+    }
   }
 </script>
 
@@ -16,7 +27,7 @@
       <input
         id="setting_concurrent_limit"
         value={getSetting('concurrent_limit', '10')}
-        onchange={(e) => api.updateSetting('concurrent_limit', e.target.value).then(onRefresh)}
+        onchange={(e) => updateSettingAndToast('concurrent_limit', e.target.value)}
       />
     </div>
     <div class="setting-row">
@@ -24,7 +35,7 @@
       <input
         id="setting_concurrent_create_limit"
         value={getSetting('concurrent_create_limit', '1')}
-        onchange={(e) => api.updateSetting('concurrent_create_limit', e.target.value).then(onRefresh)}
+        onchange={(e) => updateSettingAndToast('concurrent_create_limit', e.target.value)}
       />
     </div>
     <div class="setting-row">
@@ -32,7 +43,7 @@
       <input
         id="setting_worker_timeout"
         value={getSetting('worker_timeout', '60')}
-        onchange={(e) => api.updateSetting('worker_timeout', e.target.value).then(onRefresh)}
+        onchange={(e) => updateSettingAndToast('worker_timeout', e.target.value)}
       />
     </div>
     <div class="setting-row">
@@ -40,12 +51,12 @@
       <input
         id="setting_max_flags_per_job"
         value={getSetting('max_flags_per_job', '50')}
-        onchange={(e) => api.updateSetting('max_flags_per_job', e.target.value).then(onRefresh)}
+        onchange={(e) => updateSettingAndToast('max_flags_per_job', e.target.value)}
       />
     </div>
     <div class="setting-row">
       <label for="setting_skip_on_flag">skip_on_flag</label>
-      <select id="setting_skip_on_flag" onchange={(e) => api.updateSetting('skip_on_flag', e.target.value).then(onRefresh)}>
+      <select id="setting_skip_on_flag" onchange={(e) => updateSettingAndToast('skip_on_flag', e.target.value)}>
         <option value="false" selected={getSetting('skip_on_flag', 'false') !== 'true'}>No</option>
         <option value="true" selected={getSetting('skip_on_flag', 'false') === 'true'}>Yes</option>
       </select>
@@ -54,7 +65,7 @@
       <label for="setting_sequential_per_target">sequential_per_target</label>
       <select
         id="setting_sequential_per_target"
-        onchange={(e) => api.updateSetting('sequential_per_target', e.target.value).then(onRefresh)}
+        onchange={(e) => updateSettingAndToast('sequential_per_target', e.target.value)}
       >
         <option value="false" selected={getSetting('sequential_per_target', 'false') !== 'true'}>No</option>
         <option value="true" selected={getSetting('sequential_per_target', 'false') === 'true'}>Yes</option>

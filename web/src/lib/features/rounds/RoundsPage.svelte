@@ -7,6 +7,7 @@
   import Icon from '$lib/ui/Icon.svelte';
   import { buildStatusOptions } from '$lib/utils/filters.js';
   import { getChallengeName, getExploitName, getTeamDisplay } from '$lib/utils/lookup.js';
+  import { formatApiError, pushToast } from '$lib/ui/toastStore.js';
 
   let { rounds, jobs, teams, challenges, exploits, exploitRuns, selectedRoundId, onSelectRound, onNewRound, onRunRound, onRerunUnflagged, onRefresh } = $props();
 
@@ -38,12 +39,19 @@
   async function handleRunClick() {
     if (!selectedRoundId) return;
     const round = getSelectedRound();
-    if (round && round.status !== 'pending') {
-      if (confirm(`Round ${selectedRoundId} is ${round.status}. Re-running will kill all running jobs and reset all later rounds. Continue?`)) {
+    try {
+      if (round && round.status !== 'pending') {
+        if (!confirm(`Round ${selectedRoundId} is ${round.status}. Re-running will kill all running jobs and reset all later rounds. Continue?`)) {
+          return;
+        }
         await api.rerunRound(selectedRoundId);
+        pushToast(`Round #${selectedRoundId} re-run started.`, 'success');
+      } else {
+        await onRunRound(selectedRoundId);
+        pushToast(`Round #${selectedRoundId} started.`, 'success');
       }
-    } else {
-      onRunRound(selectedRoundId);
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to run round #${selectedRoundId}.`), 'error');
     }
   }
 
@@ -52,8 +60,13 @@
     const round = getSelectedRound();
     if (!round || round.status !== 'running') return;
     if (!confirm(`Rerun all non-flag jobs for running round ${selectedRoundId}?`)) return;
-    await onRerunUnflagged?.(selectedRoundId);
-    onRefresh?.();
+    try {
+      await onRerunUnflagged?.(selectedRoundId);
+      onRefresh?.();
+      pushToast(`Round #${selectedRoundId} re-run (unflagged) started.`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to rerun unflagged jobs for round #${selectedRoundId}.`), 'error');
+    }
   }
 
   function getExploitRunInfo(runId) {
@@ -121,6 +134,19 @@
       const bPriority = getJobPriority(b);
       return bPriority - aPriority || a.id - b.id;
     });
+  }
+
+  async function handleNewRoundClick() {
+    try {
+      const id = await onNewRound?.();
+      if (id) {
+        pushToast(`Round #${id} created.`, 'success');
+      } else {
+        pushToast('Round created.', 'success');
+      }
+    } catch (error) {
+      pushToast(formatApiError(error, 'Failed to create round.'), 'error');
+    }
   }
 
   function getReasonBase(reason) {
@@ -288,6 +314,9 @@
     clearDragOver();
     try {
       await api.reorderJobs([{ id: draggedId, priority: newPriority }]);
+      pushToast('Job order updated.', 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, 'Failed to update job order.'), 'error');
     } finally {
       await onRefresh?.();
       optimisticPriority = null;
@@ -302,11 +331,20 @@
 
   async function runJob(job, e) {
     e.stopPropagation();
-    if (job.status === 'running') {
-      await api.stopJob(job.id);
-    } else {
-      if (job.status === 'pending' && isPendingRound) return;
-      await api.enqueueExistingJob(job.id);
+    try {
+      if (job.status === 'running') {
+        await api.stopJob(job.id);
+        pushToast(`Job #${job.id} stopped.`, 'success');
+      } else {
+        if (job.status === 'pending' && isPendingRound) return;
+        await api.enqueueExistingJob(job.id);
+        pushToast(`Job #${job.id} enqueued.`, 'success');
+      }
+    } catch (error) {
+      const fallback = job.status === 'running'
+        ? `Failed to stop job #${job.id}.`
+        : `Failed to enqueue job #${job.id}.`
+      pushToast(formatApiError(error, fallback), 'error');
     }
   }
 
@@ -321,7 +359,7 @@
 
 <div class="rounds-panel">
   <div class="controls">
-    <button onclick={onNewRound}>New Round</button>
+    <button onclick={handleNewRoundClick}>New Round</button>
     <select
       value={selectedRoundId ?? ''}
       onchange={(e) => onSelectRound(e.target.value ? Number(e.target.value) : null)}

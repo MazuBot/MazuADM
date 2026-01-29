@@ -4,7 +4,7 @@
   import Modal from '$lib/ui/Modal.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import { getChallengeName, getExploitName, getTeamDisplay } from '$lib/utils/lookup.js';
-  import { pushToast } from '$lib/ui/toastStore.js';
+  import { formatApiError, pushToast } from '$lib/ui/toastStore.js';
 
   let { challenges, teams, exploits, exploitRuns, challengeId, onRefresh } = $props();
 
@@ -166,15 +166,15 @@
     e.stopPropagation();
     if (enqueueingRuns[run.id]) return;
     enqueueingRuns[run.id] = true;
+    const teamName = teamLabel(run.team_id);
+    const challengeName = challengeLabel();
+    const exploitName = exploitLabel(run.exploit_id);
     try {
       const job = await api.enqueueSingleJob(run.id, run.team_id);
-      const teamName = getTeamDisplay(teams, run.team_id);
-      const challengeName = getChallengeName(challenges, challengeId);
-      const exploitName = getExploitName(exploits, run.exploit_id);
       alert(`Enqueued job #${job.id} for ${challengeName} / ${exploitName}.`);
       pushToast(`Job #${job.id} enqueued for ${teamName}: ${challengeName} / ${exploitName}.`, 'success');
     } catch (error) {
-      pushToast('Failed to enqueue job. Please try again.', 'error');
+      pushToast(formatApiError(error, `Failed to enqueue ${challengeName} / ${exploitName} for ${teamName}.`), 'error');
     } finally {
       enqueueingRuns[run.id] = false;
     }
@@ -195,24 +195,43 @@
     return exploits.find(e => e.id === exploitId);
   }
 
+  function challengeLabel() {
+    return getChallengeName(challenges, challengeId) || 'Unknown challenge';
+  }
+
+  function exploitLabel(exploitId) {
+    return getExploitName(exploits, exploitId) || `Exploit ${exploitId}`;
+  }
+
+  function teamLabel(teamId) {
+    return getTeamDisplay(teams, teamId) || `Team ${teamId}`;
+  }
+
   async function addExploit() {
-    await api.createExploit({ 
-      name: newExploit.name,
-      docker_image: newExploit.docker_image,
-      challenge_id: challengeId,
-      entrypoint: newExploit.entrypoint || null,
-      max_per_container: newExploit.max_per_container,
-      max_containers: newExploit.max_containers,
-      default_counter: newExploit.default_counter,
-      timeout_secs: newExploit.timeout_secs || 0,
-      auto_add: newExploit.auto_add,
-      insert_into_rounds: newExploit.insert_into_rounds
-    });
-    showAddExploit = false;
-    const defaults = getNewExploitDefaults();
-    newExploit = { ...defaults };
-    newExploitInitial = { ...defaults };
-    onRefresh();
+    const challengeName = challengeLabel();
+    const exploitName = newExploit.name || 'Unnamed exploit';
+    try {
+      await api.createExploit({ 
+        name: newExploit.name,
+        docker_image: newExploit.docker_image,
+        challenge_id: challengeId,
+        entrypoint: newExploit.entrypoint || null,
+        max_per_container: newExploit.max_per_container,
+        max_containers: newExploit.max_containers,
+        default_counter: newExploit.default_counter,
+        timeout_secs: newExploit.timeout_secs || 0,
+        auto_add: newExploit.auto_add,
+        insert_into_rounds: newExploit.insert_into_rounds
+      });
+      showAddExploit = false;
+      const defaults = getNewExploitDefaults();
+      newExploit = { ...defaults };
+      newExploitInitial = { ...defaults };
+      onRefresh();
+      pushToast(`Exploit created: ${exploitName} (${challengeName}).`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to create exploit ${exploitName} (${challengeName}).`), 'error');
+    }
   }
 
   function openAddExploit() {
@@ -236,33 +255,54 @@
   }
 
   async function saveExploit() {
-    await api.updateExploit(editingExploit.id, {
-      ...exploitForm,
-      entrypoint: exploitForm.entrypoint || null
-    });
-    editingExploit = null;
-    onRefresh();
+    const challengeName = challengeLabel();
+    const exploitName = exploitForm.name || exploitLabel(editingExploit?.id);
+    try {
+      await api.updateExploit(editingExploit.id, {
+        ...exploitForm,
+        entrypoint: exploitForm.entrypoint || null
+      });
+      editingExploit = null;
+      onRefresh();
+      pushToast(`Exploit updated: ${exploitName} (${challengeName}).`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to update exploit ${exploitName} (${challengeName}).`), 'error');
+    }
   }
 
   async function deleteExploit() {
     if (confirm('Delete this exploit and all its runs?')) {
-      await api.deleteExploit(editingExploit.id);
-      editingExploit = null;
-      onRefresh();
+      const challengeName = challengeLabel();
+      const exploitName = editingExploit?.name || exploitLabel(editingExploit?.id);
+      try {
+        await api.deleteExploit(editingExploit.id);
+        editingExploit = null;
+        onRefresh();
+        pushToast(`Exploit deleted: ${exploitName} (${challengeName}).`, 'success');
+      } catch (error) {
+        pushToast(formatApiError(error, `Failed to delete exploit ${exploitName} (${challengeName}).`), 'error');
+      }
     }
   }
 
   async function deleteExploitFromList(exploit, e) {
     e.stopPropagation();
     if (confirm('Delete this exploit and all its runs?')) {
-      await api.deleteExploit(exploit.id);
-      if (editingExploit?.id === exploit.id) {
-        editingExploit = null;
+      const challengeName = challengeLabel();
+      const exploitName = exploit.name || exploitLabel(exploit.id);
+      try {
+        await api.deleteExploit(exploit.id);
+        if (editingExploit?.id === exploit.id) {
+          editingExploit = null;
+        }
+        if (selectedExploitId === exploit.id) {
+          selectedExploitId = null;
+        }
+        onRefresh();
+        pushToast(`Exploit deleted: ${exploitName} (${challengeName}).`, 'success');
+      } catch (error) {
+        pushToast(formatApiError(error, `Failed to delete exploit ${exploitName} (${challengeName}).`), 'error');
       }
-      if (selectedExploitId === exploit.id) {
-        selectedExploitId = null;
-      }
-      onRefresh();
     }
   }
 
@@ -273,13 +313,20 @@
 
   async function toggleExploitEnabled(exploit, e) {
     e.stopPropagation();
-    await api.updateExploit(exploit.id, {
-      name: exploit.name,
-      docker_image: exploit.docker_image,
-      entrypoint: exploit.entrypoint,
-      enabled: !exploit.enabled
-    });
-    onRefresh();
+    const exploitName = exploit.name || exploitLabel(exploit.id);
+    const nextEnabled = !exploit.enabled;
+    try {
+      await api.updateExploit(exploit.id, {
+        name: exploit.name,
+        docker_image: exploit.docker_image,
+        entrypoint: exploit.entrypoint,
+        enabled: nextEnabled
+      });
+      onRefresh();
+      pushToast(`Exploit ${exploitName} ${nextEnabled ? 'enabled' : 'disabled'}.`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to update exploit ${exploitName}.`), 'error');
+    }
   }
 
   async function appendExploitToAllTeams(exploitId, e) {
@@ -287,14 +334,27 @@
     if (!confirm('Append this exploit to all teams?')) {
       return;
     }
-    for (const team of teams) {
-      const hasRun = exploitRuns.some((r) => r.challenge_id === challengeId && r.team_id === team.id && r.exploit_id === exploitId);
-      if (hasRun) continue;
-      const runs = getRunsForTeam(team.id);
-      const maxSeq = runs.length > 0 ? Math.max(...runs.map(r => r.sequence)) : -1;
-      await api.createExploitRun({ exploit_id: exploitId, challenge_id: challengeId, team_id: team.id, sequence: maxSeq + 1 });
+    const challengeName = challengeLabel();
+    const exploitName = exploitLabel(exploitId);
+    let added = 0;
+    try {
+      for (const team of teams) {
+        const hasRun = exploitRuns.some((r) => r.challenge_id === challengeId && r.team_id === team.id && r.exploit_id === exploitId);
+        if (hasRun) continue;
+        const runs = getRunsForTeam(team.id);
+        const maxSeq = runs.length > 0 ? Math.max(...runs.map(r => r.sequence)) : -1;
+        await api.createExploitRun({ exploit_id: exploitId, challenge_id: challengeId, team_id: team.id, sequence: maxSeq + 1 });
+        added += 1;
+      }
+      onRefresh();
+      if (added > 0) {
+        pushToast(`Exploit ${exploitName} appended to ${added} team${added === 1 ? '' : 's'} (${challengeName}).`, 'success');
+      } else {
+        pushToast(`All teams already have ${exploitName} (${challengeName}).`, 'success');
+      }
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to append ${exploitName} to all teams (${challengeName}).`), 'error');
     }
-    onRefresh();
   }
 
   async function openRelationModal(team) {
@@ -305,18 +365,33 @@
   }
 
   async function saveRelation() {
-    await api.updateConnectionInfo(challengeId, editingRelation.id, {
-      addr: relationForm.addr || null,
-      port: relationForm.port ? Number(relationForm.port) : null
-    });
-    editingRelation = null;
+    const challengeName = challengeLabel();
+    const teamName = teamLabel(editingRelation?.id);
+    try {
+      await api.updateConnectionInfo(challengeId, editingRelation.id, {
+        addr: relationForm.addr || null,
+        port: relationForm.port ? Number(relationForm.port) : null
+      });
+      editingRelation = null;
+      pushToast(`Connection updated for ${teamName} (${challengeName}).`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to update connection for ${teamName} (${challengeName}).`), 'error');
+    }
   }
 
   async function addRun(exploitId, teamId) {
     const runs = getRunsForTeam(teamId);
     const maxSeq = runs.length > 0 ? Math.max(...runs.map(r => r.sequence)) : -1;
-    await api.createExploitRun({ exploit_id: exploitId, challenge_id: challengeId, team_id: teamId, sequence: maxSeq + 1 });
-    onRefresh();
+    const challengeName = challengeLabel();
+    const exploitName = exploitLabel(exploitId);
+    const teamName = teamLabel(teamId);
+    try {
+      await api.createExploitRun({ exploit_id: exploitId, challenge_id: challengeId, team_id: teamId, sequence: maxSeq + 1 });
+      onRefresh();
+      pushToast(`Run added: ${exploitName} → ${teamName} (${challengeName}).`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to add run for ${exploitName} → ${teamName} (${challengeName}).`), 'error');
+    }
   }
 
   function openEditModal(run, e) {
@@ -332,35 +407,68 @@
       rawPriority === '' || rawPriority === null || rawPriority === undefined
         ? null
         : Number(rawPriority);
-    await api.updateExploitRun(editingRun.id, {
-      priority: Number.isNaN(priority) ? null : priority,
-      sequence: editForm.sequence,
-      enabled: editForm.enabled
-    });
-    editingRun = null;
-    onRefresh();
+    const challengeName = challengeLabel();
+    const exploitName = exploitLabel(editingRun?.exploit_id);
+    const teamName = teamLabel(editingRun?.team_id);
+    try {
+      await api.updateExploitRun(editingRun.id, {
+        priority: Number.isNaN(priority) ? null : priority,
+        sequence: editForm.sequence,
+        enabled: editForm.enabled
+      });
+      editingRun = null;
+      onRefresh();
+      pushToast(`Run updated: ${exploitName} → ${teamName} (${challengeName}).`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to update run for ${exploitName} → ${teamName} (${challengeName}).`), 'error');
+    }
   }
 
   async function deleteRun() {
     if (confirm('Delete this exploit run?')) {
-      await api.deleteExploitRun(editingRun.id);
-      editingRun = null;
-      onRefresh();
+      const challengeName = challengeLabel();
+      const exploitName = exploitLabel(editingRun?.exploit_id);
+      const teamName = teamLabel(editingRun?.team_id);
+      try {
+        await api.deleteExploitRun(editingRun.id);
+        editingRun = null;
+        onRefresh();
+        pushToast(`Run removed: ${exploitName} → ${teamName} (${challengeName}).`, 'success');
+      } catch (error) {
+        pushToast(formatApiError(error, `Failed to remove run for ${exploitName} → ${teamName} (${challengeName}).`), 'error');
+      }
     }
   }
 
   async function deleteRunFromCard(run, e) {
     e.stopPropagation();
     if (confirm('Delete this exploit run?')) {
-      await api.deleteExploitRun(run.id);
-      onRefresh();
+      const challengeName = challengeLabel();
+      const exploitName = exploitLabel(run.exploit_id);
+      const teamName = teamLabel(run.team_id);
+      try {
+        await api.deleteExploitRun(run.id);
+        onRefresh();
+        pushToast(`Run removed: ${exploitName} → ${teamName} (${challengeName}).`, 'success');
+      } catch (error) {
+        pushToast(formatApiError(error, `Failed to remove run for ${exploitName} → ${teamName} (${challengeName}).`), 'error');
+      }
     }
   }
 
   async function toggleRunEnabled(run, e) {
     e.stopPropagation();
-    await api.updateExploitRun(run.id, { enabled: !run.enabled });
-    onRefresh();
+    const challengeName = challengeLabel();
+    const exploitName = exploitLabel(run.exploit_id);
+    const teamName = teamLabel(run.team_id);
+    const nextEnabled = !run.enabled;
+    try {
+      await api.updateExploitRun(run.id, { enabled: nextEnabled });
+      onRefresh();
+      pushToast(`Run ${nextEnabled ? 'enabled' : 'disabled'}: ${exploitName} → ${teamName} (${challengeName}).`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to update run for ${exploitName} → ${teamName} (${challengeName}).`), 'error');
+    }
   }
 
   function cleanupDragPreview() {
@@ -471,6 +579,8 @@
       .map((r, i) => ({ id: r.id, sequence: i }))
       .filter((u, i) => reordered[i].sequence !== u.sequence);
     const runIds = reordered.map((r) => r.id);
+    const teamName = teamLabel(teamId);
+    const challengeName = challengeLabel();
     setOptimisticOrder(reordered);
     clearDragOver();
     draggingCard = null;
@@ -479,6 +589,11 @@
         await api.reorderExploitRuns(updates);
       }
       await onRefresh();
+      if (updates.length > 0) {
+        pushToast(`Run order updated for ${teamName} (${challengeName}).`, 'success');
+      }
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to update run order for ${teamName} (${challengeName}).`), 'error');
     } finally {
       clearOptimisticOrder(runIds);
     }
@@ -489,7 +604,7 @@
     cleanupDragPreview();
     const exploitId = e.dataTransfer.getData('exploitId');
     if (exploitId) {
-      addRun(+exploitId, teamId);
+      await addRun(+exploitId, teamId);
       clearDragOver();
       draggingCard = null;
       return;
@@ -525,6 +640,8 @@
       .map((r, i) => ({ id: r.id, sequence: i }))
       .filter((u, i) => reordered[i].sequence !== u.sequence);
     const runIds = reordered.map((r) => r.id);
+    const teamName = teamLabel(teamId);
+    const challengeName = challengeLabel();
     setOptimisticOrder(reordered);
     clearDragOver();
     draggingCard = null;
@@ -533,6 +650,11 @@
         await api.reorderExploitRuns(updates);
       }
       await onRefresh();
+      if (updates.length > 0) {
+        pushToast(`Run order updated for ${teamName} (${challengeName}).`, 'success');
+      }
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to update run order for ${teamName} (${challengeName}).`), 'error');
     } finally {
       clearOptimisticOrder(runIds);
     }

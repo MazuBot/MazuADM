@@ -23,3 +23,12 @@ export function removeToast(id) {
   }
   toasts.update((items) => items.filter((toast) => toast.id !== id))
 }
+
+export function formatApiError(err, fallback = 'Request failed.') {
+  if (!err) return fallback
+  const message = err?.message
+  if (message && typeof message === 'string') return message
+  const payloadMessage = err?.payload?.error || err?.payload?.message
+  if (payloadMessage && typeof payloadMessage === 'string') return payloadMessage
+  return fallback
+}

@@ -1,6 +1,7 @@
 <script>
   import * as api from '$lib/data/api';
   import { getChallengeName, getTeamDisplay } from '$lib/utils/lookup.js';
+  import { formatApiError, pushToast } from '$lib/ui/toastStore.js';
 
   let { exploits, exploitRuns, challenges, teams, containers, selectedChallengeId, onSelectChallenge, onLoadContainers } = $props();
 
@@ -28,17 +29,27 @@
 
   async function restartContainer(id) {
     markRestarting([id]);
+    const shortId = id.slice(0, 12);
     try {
       await api.restartContainer(id);
       await onLoadContainers();
+      pushToast(`Container restarted: ${shortId}.`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to restart container ${shortId}.`), 'error');
     } finally {
       clearRestarting([id]);
     }
   }
 
   async function deleteContainer(id) {
-    await api.deleteContainer(id);
-    await onLoadContainers();
+    const shortId = id.slice(0, 12);
+    try {
+      await api.deleteContainer(id);
+      await onLoadContainers();
+      pushToast(`Container removed: ${shortId}.`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to remove container ${shortId}.`), 'error');
+    }
   }
 
   async function reloadContainers() {
@@ -53,6 +64,9 @@
     try {
       await api.restartAllContainers();
       await onLoadContainers();
+      pushToast(`Restarted ${containers.length} containers.`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, 'Failed to restart all containers.'), 'error');
     } finally {
       clearRestarting(ids);
     }
@@ -61,8 +75,13 @@
   async function removeAllContainers() {
     if (!containers?.length) return;
     if (!confirm(`Remove all ${containers.length} containers?`)) return;
-    await api.removeAllContainers();
-    await onLoadContainers();
+    try {
+      await api.removeAllContainers();
+      await onLoadContainers();
+      pushToast(`Removed ${containers.length} containers.`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, 'Failed to remove all containers.'), 'error');
+    }
   }
 </script>
 

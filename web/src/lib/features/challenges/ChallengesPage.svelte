@@ -1,6 +1,7 @@
 <script>
   import * as api from '$lib/data/api';
   import Modal from '$lib/ui/Modal.svelte';
+  import { formatApiError, pushToast } from '$lib/ui/toastStore.js';
 
   let { challenges, onRefresh } = $props();
 
@@ -55,20 +56,33 @@
       flag_regex: challengeForm.flag_regex || null,
       enabled: challengeForm.enabled
     };
-    if (editingChallenge) await api.updateChallenge(editingChallenge.id, data);
-    else await api.createChallenge(data);
+    const action = editingChallenge ? 'updated' : 'created';
+    const challengeName = challengeForm.name || 'Challenge';
+    try {
+      if (editingChallenge) await api.updateChallenge(editingChallenge.id, data);
+      else await api.createChallenge(data);
 
-    showChallengeModal = false;
-    await onRefresh();
+      showChallengeModal = false;
+      await onRefresh();
+      pushToast(`Challenge ${action}: ${challengeName}.`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to save challenge ${challengeName}.`), 'error');
+    }
   }
 
   async function deleteChallenge() {
     if (!editingChallenge) return;
     if (!confirm('Delete this challenge?')) return;
 
-    await api.deleteChallenge(editingChallenge.id);
-    showChallengeModal = false;
-    await onRefresh();
+    const challengeName = editingChallenge.name || 'Challenge';
+    try {
+      await api.deleteChallenge(editingChallenge.id);
+      showChallengeModal = false;
+      await onRefresh();
+      pushToast(`Challenge deleted: ${challengeName}.`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to delete challenge ${challengeName}.`), 'error');
+    }
   }
 
   function closeModal() {
@@ -109,14 +123,21 @@
 
   async function toggleChallengeEnabled(challenge) {
     clearPendingChallengeToggle();
-    await api.updateChallenge(challenge.id, {
-      name: challenge.name,
-      default_port: challenge.default_port ?? null,
-      priority: challenge.priority,
-      flag_regex: challenge.flag_regex ?? null,
-      enabled: !challenge.enabled
-    });
-    await onRefresh();
+    const nextEnabled = !challenge.enabled;
+    const challengeName = challenge.name || 'Challenge';
+    try {
+      await api.updateChallenge(challenge.id, {
+        name: challenge.name,
+        default_port: challenge.default_port ?? null,
+        priority: challenge.priority,
+        flag_regex: challenge.flag_regex ?? null,
+        enabled: nextEnabled
+      });
+      await onRefresh();
+      pushToast(`Challenge ${challengeName} ${nextEnabled ? 'enabled' : 'disabled'}.`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to update challenge ${challengeName}.`), 'error');
+    }
   }
 
 </script>

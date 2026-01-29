@@ -1,6 +1,7 @@
 <script>
   import * as api from '$lib/data/api';
   import Modal from '$lib/ui/Modal.svelte';
+  import { formatApiError, pushToast } from '$lib/ui/toastStore.js';
 
   let { teams, onRefresh } = $props();
 
@@ -49,20 +50,33 @@
       priority: Number(teamForm.priority),
       enabled: teamForm.enabled
     };
-    if (editingTeam) await api.updateTeam(editingTeam.id, data);
-    else await api.createTeam(data);
+    const action = editingTeam ? 'updated' : 'created';
+    const teamName = teamForm.team_name || teamForm.team_id || 'Team';
+    try {
+      if (editingTeam) await api.updateTeam(editingTeam.id, data);
+      else await api.createTeam(data);
 
-    showTeamModal = false;
-    await onRefresh();
+      showTeamModal = false;
+      await onRefresh();
+      pushToast(`Team ${action}: ${teamName} (${teamForm.team_id}).`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to save team ${teamName} (${teamForm.team_id}).`), 'error');
+    }
   }
 
   async function deleteTeam() {
     if (!editingTeam) return;
     if (!confirm('Delete this team?')) return;
 
-    await api.deleteTeam(editingTeam.id);
-    showTeamModal = false;
-    await onRefresh();
+    const teamName = editingTeam.team_name || editingTeam.team_id || 'Team';
+    try {
+      await api.deleteTeam(editingTeam.id);
+      showTeamModal = false;
+      await onRefresh();
+      pushToast(`Team deleted: ${teamName} (${editingTeam.team_id}).`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to delete team ${teamName} (${editingTeam.team_id}).`), 'error');
+    }
   }
 
   function closeModal() {
@@ -103,14 +117,21 @@
 
   async function toggleTeamEnabled(team) {
     clearPendingTeamToggle();
-    await api.updateTeam(team.id, {
-      team_id: team.team_id,
-      team_name: team.team_name,
-      default_ip: team.default_ip ?? null,
-      priority: team.priority,
-      enabled: !team.enabled
-    });
-    await onRefresh();
+    const nextEnabled = !team.enabled;
+    const teamName = team.team_name || team.team_id || 'Team';
+    try {
+      await api.updateTeam(team.id, {
+        team_id: team.team_id,
+        team_name: team.team_name,
+        default_ip: team.default_ip ?? null,
+        priority: team.priority,
+        enabled: nextEnabled
+      });
+      await onRefresh();
+      pushToast(`Team ${teamName} ${nextEnabled ? 'enabled' : 'disabled'}.`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to update team ${teamName}.`), 'error');
+    }
   }
 
 </script>

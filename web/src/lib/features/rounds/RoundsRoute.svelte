@@ -51,6 +51,7 @@
   async function newRound() {
     const id = await createRound()
     if (id) goto(`/jobs/${id}`)
+    return id
   }
 
   async function runRoundHandler(id) {

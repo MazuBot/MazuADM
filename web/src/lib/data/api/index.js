@@ -1,11 +1,40 @@
 const BASE = '/api'
 
+export class ApiError extends Error {
+  constructor(status, message, payload) {
+    super(message || `Request failed (${status})`)
+    this.name = 'ApiError'
+    this.status = status
+    this.payload = payload
+  }
+}
+
 export async function fetchJson(path, opts = {}) {
   const res = await fetch(BASE + path, {
     ...opts,
     headers: { 'Content-Type': 'application/json', ...opts.headers }
   })
-  return res.json()
+  const contentType = res.headers.get('content-type') || ''
+  let payload = null
+  if (contentType.includes('application/json')) {
+    try {
+      payload = await res.json()
+    } catch {
+      payload = null
+    }
+  } else {
+    const text = await res.text()
+    payload = text || null
+  }
+  if (!res.ok) {
+    const message =
+      (payload && typeof payload === 'object' && (payload.error || payload.message)) ||
+      (typeof payload === 'string' && payload) ||
+      res.statusText ||
+      `Request failed (${res.status})`
+    throw new ApiError(res.status, message, payload)
+  }
+  return payload
 }
 
 export * from './challenges.js'
