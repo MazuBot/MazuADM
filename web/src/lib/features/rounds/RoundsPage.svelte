@@ -242,9 +242,9 @@
               <button
                 class={`play-btn ${j.status === 'running' ? 'stop' : ''}`}
                 onclick={(e) => runJob(j, e)}
-                title={j.status === 'running' ? 'Stop now' : 'Enqueue now'}
+                title={j.status === 'running' ? 'Stop now' : j.status === 'pending' ? 'Enqueue now' : 'Re-run'}
               >
-                {j.status === 'running' ? '⏹' : '▶'}
+                {j.status === 'running' ? '⏹' : j.status === 'pending' ? '▶' : '↻'}
               </button>
             </td>
           </tr>
