@@ -207,6 +207,13 @@
     newExploitInitial = { ...defaults };
   }
 
+  function duplicateExploit(e, ev) {
+    ev.stopPropagation();
+    showAddExploit = true;
+    newExploit = { name: e.name + ' (copy)', docker_image: e.docker_image, entrypoint: e.entrypoint || '', max_per_container: e.max_per_container, max_containers: e.max_containers, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, auto_add: 'end', insert_into_rounds: true };
+    newExploitInitial = { ...newExploit };
+  }
+
   function openEditExploit(e) {
     editingExploit = e;
     exploitForm = { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint || '', max_per_container: e.max_per_container, max_containers: e.max_containers, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, enabled: e.enabled };
@@ -534,6 +541,15 @@
             onclick={(ev) => editExploitFromList(e, ev)}
           >
             <Icon name="pen" />
+          </button>
+          <button
+            type="button"
+            class="exploit-action"
+            title="Duplicate exploit"
+            aria-label="Duplicate exploit"
+            onclick={(ev) => duplicateExploit(e, ev)}
+          >
+            <Icon name="copy" />
           </button>
           <button
             type="button"
