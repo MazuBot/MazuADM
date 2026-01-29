@@ -33,18 +33,6 @@ impl Database {
         Ok(sqlx::query_as!(Challenge, "SELECT * FROM challenges WHERE id = $1", id).fetch_one(&self.pool).await?)
     }
 
-    pub async fn get_challenge_by_name_optional(&self, name: &str) -> Result<Option<Challenge>> {
-        Ok(sqlx::query_as!(Challenge, "SELECT * FROM challenges WHERE name = $1", name)
-            .fetch_optional(&self.pool)
-            .await?)
-    }
-
-    pub async fn get_challenge_by_name(&self, name: &str) -> Result<Challenge> {
-        Ok(sqlx::query_as!(Challenge, "SELECT * FROM challenges WHERE name = $1", name)
-            .fetch_one(&self.pool)
-            .await?)
-    }
-
     pub async fn set_challenge_enabled(&self, id: i32, enabled: bool) -> Result<()> {
         sqlx::query!("UPDATE challenges SET enabled = $2 WHERE id = $1", id, enabled).execute(&self.pool).await?;
         Ok(())
@@ -79,12 +67,6 @@ impl Database {
         Ok(sqlx::query_as!(Team, "SELECT * FROM teams WHERE id = $1", id).fetch_one(&self.pool).await?)
     }
 
-    pub async fn get_team_by_team_id(&self, team_id: &str) -> Result<Option<Team>> {
-        Ok(sqlx::query_as!(Team, "SELECT * FROM teams WHERE team_id = $1", team_id)
-            .fetch_optional(&self.pool)
-            .await?)
-    }
-
     pub async fn update_team(&self, id: i32, t: CreateTeam) -> Result<Team> {
         let priority = t.priority.map(|p| p.clamp(0, 99));
         Ok(sqlx::query_as!(Team,
@@ -95,11 +77,6 @@ impl Database {
 
     pub async fn delete_team(&self, id: i32) -> Result<()> {
         sqlx::query!("DELETE FROM teams WHERE id = $1", id).execute(&self.pool).await?;
-        Ok(())
-    }
-
-    pub async fn set_team_enabled(&self, id: i32, enabled: bool) -> Result<()> {
-        sqlx::query!("UPDATE teams SET enabled = $2 WHERE id = $1", id, enabled).execute(&self.pool).await?;
         Ok(())
     }
 
@@ -177,17 +154,6 @@ impl Database {
             .await?)
     }
 
-    pub async fn get_exploit_by_name(&self, challenge_id: i32, name: &str) -> Result<Exploit> {
-        Ok(sqlx::query_as!(
-            Exploit,
-            "SELECT * FROM exploits WHERE challenge_id = $1 AND name = $2",
-            challenge_id,
-            name
-        )
-        .fetch_one(&self.pool)
-        .await?)
-    }
-
     pub async fn list_enabled_exploits(&self) -> Result<Vec<Exploit>> {
         Ok(sqlx::query_as!(
             Exploit,
@@ -218,11 +184,6 @@ impl Database {
 
     pub async fn delete_exploit(&self, id: i32) -> Result<()> {
         sqlx::query!("DELETE FROM exploits WHERE id = $1", id).execute(&self.pool).await?;
-        Ok(())
-    }
-
-    pub async fn set_exploit_enabled(&self, id: i32, enabled: bool) -> Result<()> {
-        sqlx::query!("UPDATE exploits SET enabled = $2 WHERE id = $1", id, enabled).execute(&self.pool).await?;
         Ok(())
     }
 
@@ -263,9 +224,17 @@ impl Database {
     }
 
     pub async fn reorder_exploit_runs(&self, items: &[(i32, i32)]) -> Result<()> {
-        for (id, seq) in items {
-            sqlx::query!("UPDATE exploit_runs SET sequence = $2 WHERE id = $1", id, seq).execute(&self.pool).await?;
+        if items.is_empty() {
+            return Ok(());
         }
+        let (ids, seqs): (Vec<i32>, Vec<i32>) = items.iter().copied().unzip();
+        sqlx::query!(
+            "UPDATE exploit_runs er SET sequence = v.sequence FROM UNNEST($1::int[], $2::int[]) AS v(id, sequence) WHERE er.id = v.id",
+            &ids,
+            &seqs
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -326,10 +295,6 @@ impl Database {
         ).fetch_all(&self.pool).await?)
     }
 
-    pub async fn mark_job_stopped(&self, id: i32, has_flag: bool) -> Result<()> {
-        self.mark_job_stopped_with_reason(id, has_flag, "stopped by new round").await
-    }
-
     pub async fn mark_job_stopped_with_reason(&self, id: i32, has_flag: bool, reason: &str) -> Result<()> {
         let status = if has_flag { "flag" } else { "stopped" };
         sqlx::query!(
@@ -354,11 +319,6 @@ impl Database {
 
     pub async fn get_active_rounds(&self) -> Result<Vec<Round>> {
         Ok(sqlx::query_as!(Round, "SELECT * FROM rounds WHERE status IN ('pending', 'running') ORDER BY id").fetch_all(&self.pool).await?)
-    }
-
-    pub async fn clean_rounds(&self) -> Result<()> {
-        sqlx::query!("TRUNCATE flags, exploit_jobs, rounds RESTART IDENTITY CASCADE").execute(&self.pool).await?;
-        Ok(())
     }
 
     // Jobs
@@ -393,18 +353,13 @@ impl Database {
         Ok(row.unwrap_or(0))
     }
 
-    pub async fn count_running_jobs_for_container(&self, container_id: &str) -> Result<i64> {
-        let row = sqlx::query_scalar!("SELECT COUNT(*) FROM exploit_jobs WHERE container_id = $1 AND status = 'running'", container_id)
-            .fetch_one(&self.pool).await?;
-        Ok(row.unwrap_or(0))
-    }
-
-    pub async fn update_job_status(&self, id: i32, status: &str, set_started: bool) -> Result<()> {
-        if set_started {
-            sqlx::query!("UPDATE exploit_jobs SET status = $2, started_at = NOW() WHERE id = $1", id, status).execute(&self.pool).await?;
-        } else {
-            sqlx::query!("UPDATE exploit_jobs SET status = $2 WHERE id = $1", id, status).execute(&self.pool).await?;
-        }
+    pub async fn mark_job_running(&self, id: i32) -> Result<()> {
+        sqlx::query!(
+            "UPDATE exploit_jobs SET status = 'running', started_at = NOW() WHERE id = $1",
+            id
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -428,9 +383,17 @@ impl Database {
     }
 
     pub async fn reorder_jobs(&self, items: &[(i32, i32)]) -> Result<()> {
-        for (id, priority) in items {
-            sqlx::query!("UPDATE exploit_jobs SET priority = $2 WHERE id = $1 AND status = 'pending'", id, priority).execute(&self.pool).await?;
+        if items.is_empty() {
+            return Ok(());
         }
+        let (ids, priorities): (Vec<i32>, Vec<i32>) = items.iter().copied().unzip();
+        sqlx::query!(
+            "UPDATE exploit_jobs ej SET priority = v.priority FROM UNNEST($1::int[], $2::int[]) AS v(id, priority) WHERE ej.id = v.id AND ej.status = 'pending'",
+            &ids,
+            &priorities
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 

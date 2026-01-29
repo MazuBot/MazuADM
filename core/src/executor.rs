@@ -86,7 +86,7 @@ impl Executor {
     pub async fn execute_job(&self, job: &ExploitJob, run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64, max_flags: usize) -> Result<JobResult> {
         let start = Instant::now();
         let stop_rx = self.stop_tx.subscribe();
-        self.db.update_job_status(job.id, "running", true).await?;
+        self.db.mark_job_running(job.id).await?;
         
         // Broadcast job running
         if let Ok(updated_job) = self.db.get_job(job.id).await {
