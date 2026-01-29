@@ -69,6 +69,13 @@ function handleWsMessage(msg) {
     case 'round_updated':
       rounds.update((list) => list.map((r) => (r.id === data.id ? data : r)))
       break
+    case 'job_created': {
+      const currentRoundId = get(selectedRoundId)
+      if (data.round_id === currentRoundId) {
+        jobs.update((list) => [...list, data])
+      }
+      break
+    }
     case 'job_updated': {
       const currentRoundId = get(selectedRoundId)
       if (data.round_id === currentRoundId) {

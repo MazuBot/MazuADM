@@ -146,7 +146,7 @@
 
   async function runNow(run, e) {
     e.stopPropagation();
-    await api.runSingleJob(run.id, run.team_id);
+    await api.enqueueSingleJob(run.id, run.team_id);
   }
 
   function getRunsForTeam(teamId) {
@@ -487,8 +487,8 @@
               <button
                 type="button"
                 class="card-play"
-                title="Run now"
-                aria-label="Run now"
+                title="Enqueue now"
+                aria-label="Enqueue now"
                 onclick={(e) => runNow(run, e)}
               >
                 ▶

@@ -107,7 +107,7 @@
     if (job.status === 'running') {
       await api.stopJob(job.id);
     } else {
-      await api.runExistingJob(job.id);
+      await api.enqueueExistingJob(job.id);
     }
   }
 </script>
@@ -187,7 +187,7 @@
               <button
                 class={`play-btn ${j.status === 'running' ? 'stop' : ''}`}
                 onclick={(e) => runJob(j, e)}
-                title={j.status === 'running' ? 'Stop now' : 'Run now'}
+                title={j.status === 'running' ? 'Stop now' : 'Enqueue now'}
               >
                 {j.status === 'running' ? '⏹' : '▶'}
               </button>
