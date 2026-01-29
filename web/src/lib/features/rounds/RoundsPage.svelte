@@ -130,6 +130,8 @@
 
   let filteredJobs = $derived(filterJobs());
   let availableStatuses = $derived(buildStatusOptions(jobs));
+  let selectedRound = $derived(getSelectedRound());
+  let isPendingRound = $derived(selectedRound?.status === 'pending');
 
   function onDragStart(e, job) {
     if (job.status !== 'pending') { e.preventDefault(); return; }
@@ -161,8 +163,17 @@
     if (job.status === 'running') {
       await api.stopJob(job.id);
     } else {
+      if (job.status === 'pending' && isPendingRound) return;
       await api.enqueueExistingJob(job.id);
     }
+  }
+
+  function jobActionTitle(job) {
+    if (job.status === 'running') return 'Stop now';
+    if (job.status === 'pending') {
+      return isPendingRound ? 'Start the round to enqueue' : 'Enqueue now';
+    }
+    return 'Re-run';
   }
 </script>
 
@@ -243,7 +254,9 @@
               <button
                 class={`play-btn ${j.status === 'running' ? 'stop' : ''}`}
                 onclick={(e) => runJob(j, e)}
-                title={j.status === 'running' ? 'Stop now' : j.status === 'pending' ? 'Enqueue now' : 'Re-run'}
+                title={jobActionTitle(j)}
+                disabled={j.status === 'pending' && isPendingRound}
+                aria-disabled={j.status === 'pending' && isPendingRound}
               >
                 {#if j.status === 'running'}<Icon name="stop" />{:else if j.status === 'pending'}<Icon name="play" />{:else}<Icon name="rotate" />{/if}
               </button>
@@ -302,6 +315,7 @@
   .dragging { opacity: 0.4; background: #333; }
   .play-btn { background: transparent; border: none; cursor: pointer; font-size: 0.9rem; padding: 0.2rem 0.4rem; opacity: 0.6; color: white; }
   .play-btn:hover { opacity: 1; }
+  .play-btn:disabled { cursor: not-allowed; opacity: 0.3; }
   .play-btn.stop { color: #ff6b6b; }
   .job-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 </style>
