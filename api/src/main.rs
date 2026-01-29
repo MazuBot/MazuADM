@@ -3,11 +3,13 @@ mod handlers;
 mod routes;
 
 use crate::events::WsMessage;
-use anyhow::Result;
+use anyhow::{bail, Result};
 use mazuadm_core::executor::Executor;
 use mazuadm_core::scheduler::{Scheduler, SchedulerCommand, SchedulerHandle, SchedulerRunner};
 use mazuadm_core::settings::load_executor_settings;
 use mazuadm_core::Database;
+use std::ffi::OsString;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
@@ -23,6 +25,47 @@ pub struct AppState {
 
 fn should_resume_running_round(pending_count: usize) -> bool {
     pending_count > 0
+}
+
+fn parse_config_dir<I, T>(args: I) -> Result<Option<PathBuf>>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString>,
+{
+    let mut iter = args.into_iter();
+    let _ = iter.next();
+    let mut config_dir = None;
+
+    while let Some(arg) = iter.next() {
+        let arg_os: OsString = arg.into();
+        let arg_s = arg_os.to_string_lossy();
+
+        if arg_s.starts_with('-') {
+            bail!("unexpected argument: {}", arg_s);
+        }
+
+        if config_dir.is_some() {
+            bail!("unexpected argument: {}", arg_s);
+        }
+        config_dir = Some(PathBuf::from(arg_os));
+    }
+
+    Ok(config_dir)
+}
+
+fn resolve_config_from_dir(config_dir: Option<PathBuf>) -> Result<Option<PathBuf>> {
+    let (dir, explicit) = match config_dir {
+        Some(dir) => (dir, true),
+        None => (std::env::current_dir()?, false),
+    };
+    let path = dir.join("config.toml");
+    if path.exists() {
+        Ok(Some(path))
+    } else if explicit {
+        bail!("config file not found: {}", path.display());
+    } else {
+        Ok(None)
+    }
 }
 
 async fn resume_running_round_if_needed(state: &AppState) -> Result<()> {
@@ -43,8 +86,8 @@ async fn resume_running_round_if_needed(state: &AppState) -> Result<()> {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let config_arg = mazuadm_core::config::find_config_arg(std::env::args_os())?;
-    let config_path = mazuadm_core::config::resolve_config_path(config_arg)?;
+    let config_dir = parse_config_dir(std::env::args_os())?;
+    let config_path = resolve_config_from_dir(config_dir)?;
     let config = match config_path {
         Some(path) => mazuadm_core::config::load_toml_config(&path)?,
         None => mazuadm_core::AppConfig::default(),
@@ -91,7 +134,34 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::should_resume_running_round;
+    use super::{parse_config_dir, resolve_config_from_dir, should_resume_running_round};
+    use std::fs;
+    use std::path::PathBuf;
+
+    struct CwdGuard {
+        prev: PathBuf,
+    }
+
+    impl Drop for CwdGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.prev);
+        }
+    }
+
+    fn temp_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "mazuadm-api-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn set_cwd(path: &PathBuf) -> CwdGuard {
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(path).unwrap();
+        CwdGuard { prev }
+    }
 
     #[test]
     fn should_resume_when_pending_jobs_exist() {
@@ -101,5 +171,45 @@ mod tests {
     #[test]
     fn should_not_resume_when_no_pending_jobs() {
         assert!(!should_resume_running_round(0));
+    }
+
+    #[test]
+    fn parse_config_dir_accepts_optional_dir() {
+        let args = vec!["bin", "/etc/mazuadm"];
+        let config_dir = parse_config_dir(args).unwrap();
+        assert_eq!(config_dir, Some(PathBuf::from("/etc/mazuadm")));
+    }
+
+    #[test]
+    fn parse_config_dir_rejects_extra_args() {
+        let args = vec!["bin", "one", "two"];
+        assert!(parse_config_dir(args).is_err());
+    }
+
+    #[test]
+    fn resolve_config_from_dir_uses_cwd_when_missing_dir_arg() {
+        let dir = temp_dir();
+        fs::write(dir.join("config.toml"), "listen_addr = \"127.0.0.1:3000\"\n").unwrap();
+        let _guard = set_cwd(&dir);
+        let path = resolve_config_from_dir(None).unwrap();
+        assert_eq!(path, Some(dir.join("config.toml")));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_config_from_dir_errors_on_missing_explicit_dir() {
+        let dir = temp_dir();
+        let err = resolve_config_from_dir(Some(dir.clone())).unwrap_err();
+        assert!(err.to_string().contains("config.toml"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_config_from_dir_returns_none_when_missing_cwd() {
+        let dir = temp_dir();
+        let _guard = set_cwd(&dir);
+        let path = resolve_config_from_dir(None).unwrap();
+        assert!(path.is_none());
+        let _ = fs::remove_dir_all(&dir);
     }
 }

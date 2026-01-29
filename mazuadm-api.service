@@ -5,7 +5,7 @@ After=network.target postgresql.service
 [Service]
 Type=simple
 Environment=DATABASE_URL=postgres://mazuadm:mazuadm@127.0.0.1:5433/mazuadm
-ExecStart=/home/seadog007/MazuADM/target/release/mazuadm-api
+ExecStart=/home/seadog007/MazuADM/target/release/mazuadm-api /etc/mazuadm
 Restart=on-failure
 
 [Install]

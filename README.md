@@ -47,7 +47,8 @@ cargo build --release
 
 ### Run API
 ```bash
-DATABASE_URL=postgres://localhost/mazuadm ./target/release/mazuadm-api
+DATABASE_URL=postgres://localhost/mazuadm ./target/release/mazuadm-api [config_dir]
+# example: ./target/release/mazuadm-api /etc/mazuadm
 ```
 
 ### Run CLI
