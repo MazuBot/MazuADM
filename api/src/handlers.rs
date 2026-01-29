@@ -321,22 +321,25 @@ async fn require_running_round_id(s: &AppState) -> Result<i32, String> {
     select_running_round_id(&rounds).ok_or_else(|| "No running round".to_string())
 }
 
+async fn run_job_immediately(s: &AppState, job_id: i32) {
+    if let Err(e) = s.db.mark_job_scheduled(job_id).await {
+        tracing::error!("Failed to mark job {} scheduled: {}", job_id, e);
+    }
+    let executor = s.executor.clone();
+    tokio::spawn(async move {
+        if let Err(e) = executor.run_job_immediately(job_id).await {
+            tracing::error!("Immediate job {} failed: {}", job_id, e);
+        }
+    });
+}
+
 pub async fn enqueue_single_job(State(s): S, Json(req): Json<EnqueueSingleJobRequest>) -> R<ExploitJob> {
     let run = s.db.get_exploit_run(req.exploit_run_id).await.map_err(err)?;
     let round_id = require_running_round_id(&s).await?;
     let max_priority = s.db.get_max_priority_for_round(round_id).await.map_err(err)?;
     let job = s.db.create_job(round_id, run.id, req.team_id, max_priority + 1, Some("enqueue_exploit")).await.map_err(err)?;
     broadcast_job(&s, "job_created", &job);
-    if let Err(e) = s.db.mark_job_scheduled(job.id).await {
-        tracing::error!("Failed to mark job {} scheduled: {}", job.id, e);
-    }
-    let executor = s.executor.clone();
-    let job_id = job.id;
-    tokio::spawn(async move {
-        if let Err(e) = executor.run_job_immediately(job_id).await {
-            tracing::error!("Immediate job {} failed: {}", job_id, e);
-        }
-    });
+    run_job_immediately(&s, job.id).await;
     Ok(Json(job))
 }
 
@@ -346,15 +349,7 @@ pub async fn enqueue_existing_job(State(s): S, Path(job_id): Path<i32>) -> R<Exp
     let max_priority = s.db.get_max_priority_for_round(round_id).await.map_err(err)?;
 
     if job.status == "pending" && job.round_id == round_id {
-        if let Err(e) = s.db.mark_job_scheduled(job_id).await {
-            tracing::error!("Failed to mark job {} scheduled: {}", job_id, e);
-        }
-        let executor = s.executor.clone();
-        tokio::spawn(async move {
-            if let Err(e) = executor.run_job_immediately(job_id).await {
-                tracing::error!("Immediate job {} failed: {}", job_id, e);
-            }
-        });
+        run_job_immediately(&s, job_id).await;
         return Ok(Json(job));
     }
 
