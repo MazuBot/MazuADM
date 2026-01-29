@@ -45,7 +45,7 @@ $SUDO mkdir -p "$TEMPLATE_DST"
 $SUDO cp -R "$TEMPLATE_SRC/." "$TEMPLATE_DST/"
 if [ -f "$CONFIG_SRC" ]; then
   $SUDO cp "$CONFIG_SRC" "$CONFIG_DST"
-  $SUDO chmod 0750 "$CONFIG_DST"
+  $SUDO chmod 0755 "$CONFIG_DST"
 fi
 
 echo "Installed mazuadm-cli and mazuadm-api to $BIN_DIR."
