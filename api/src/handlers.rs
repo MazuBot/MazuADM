@@ -24,6 +24,10 @@ fn should_continue_ws(err: tokio::sync::broadcast::error::RecvError) -> bool {
     matches!(err, tokio::sync::broadcast::error::RecvError::Lagged(_))
 }
 
+fn should_refresh_scheduler(round_status: &str) -> bool {
+    round_status == "running"
+}
+
 // WebSocket handler
 pub async fn ws_handler(ws: WebSocketUpgrade, State(s): S) -> Response {
     ws.on_upgrade(move |socket| handle_ws(socket, s))
@@ -158,7 +162,7 @@ pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Expl
     }
 
     // Insert jobs into active rounds if requested
-    let mut inserted_jobs = false;
+    let mut refresh_job_ids = Vec::new();
     if insert_into_rounds.unwrap_or(false) {
         if let Ok(rounds) = s.db.get_active_rounds().await {
             let runs = s.db.list_exploit_runs(Some(exploit.challenge_id), None).await.unwrap_or_default();
@@ -166,15 +170,19 @@ pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Expl
             for round in rounds {
                 for run in &exploit_runs {
                     if let Ok(job) = s.db.create_job(round.id, run.id, run.team_id, 0, Some("new_exploit")).await {
-                        inserted_jobs = true;
                         broadcast_job(&s, "job_created", &job);
+                        if should_refresh_scheduler(&round.status) {
+                            refresh_job_ids.push(job.id);
+                        }
                     }
                 }
             }
         }
     }
-    if inserted_jobs {
-        s.scheduler.notify();
+    for job_id in refresh_job_ids {
+        if let Err(e) = s.scheduler.send(SchedulerCommand::RefreshJob(job_id)) {
+            tracing::error!("Failed to refresh scheduler for job {}: {}", job_id, e);
+        }
     }
     
     // Pre-warm containers for enabled exploit
@@ -491,11 +499,18 @@ pub async fn update_relation(State(s): S, Path((challenge_id, team_id)): Path<(i
 
 #[cfg(test)]
 mod tests {
-    use super::should_continue_ws;
+    use super::{should_continue_ws, should_refresh_scheduler};
 
     #[test]
     fn should_continue_ws_only_on_lagged() {
         assert!(should_continue_ws(tokio::sync::broadcast::error::RecvError::Lagged(1)));
         assert!(!should_continue_ws(tokio::sync::broadcast::error::RecvError::Closed));
+    }
+
+    #[test]
+    fn should_refresh_scheduler_only_for_running_rounds() {
+        assert!(should_refresh_scheduler("running"));
+        assert!(!should_refresh_scheduler("pending"));
+        assert!(!should_refresh_scheduler("finished"));
     }
 }
