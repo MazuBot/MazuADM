@@ -46,6 +46,12 @@ struct PendingEntry {
     job_id: i32,
 }
 
+#[derive(serde::Serialize)]
+struct JobsChangedPayload {
+    round_id: i32,
+    created: u64,
+}
+
 impl Ord for PendingEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.priority.cmp(&other.priority) {
@@ -500,7 +506,10 @@ impl Scheduler {
     pub async fn rerun_unflagged_round(&self, round_id: i32) -> Result<()> {
         self.stop_running_jobs_with_flag_check().await;
 
-        let _ = self.db.clone_unflagged_jobs_for_round(round_id).await?;
+        let created = self.db.clone_unflagged_jobs_for_round(round_id).await?;
+        if created > 0 {
+            broadcast(&self.tx, "jobs_changed", &JobsChangedPayload { round_id, created });
+        }
         if let Ok(r) = self.db.get_round(round_id).await {
             broadcast(&self.tx, "round_updated", &r);
         }
