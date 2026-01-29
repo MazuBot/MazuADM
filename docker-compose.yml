@@ -1,20 +1,22 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_DB: mazuadm
       POSTGRES_USER: mazuadm
       POSTGRES_PASSWORD: mazuadm
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - ./core/migrations/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/18/docker
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mazuadm"]
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - mazuadm
 
   api:
     build:
@@ -30,6 +32,24 @@ services:
         condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - mazuadm
+
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "127.0.0.1:5050:80"
+    depends_on:
+      - db
+    networks:
+      - mazuadm
+
+networks:
+  mazuadm:
+    name: mazuadm
 
 volumes:
   pgdata:
