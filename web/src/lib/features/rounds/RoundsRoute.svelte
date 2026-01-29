@@ -17,7 +17,7 @@
     selectedRoundId,
     createRound,
     runRound,
-    scheduleUnflaggedRound,
+    rerunUnflaggedRound,
     loadJobs,
     loadAll
   } = app
@@ -57,8 +57,8 @@
     await runRound(id)
   }
 
-  async function scheduleUnflaggedHandler(id) {
-    await scheduleUnflaggedRound(id)
+  async function rerunUnflaggedHandler(id) {
+    await rerunUnflaggedRound(id)
   }
 </script>
 
@@ -73,6 +73,6 @@
   onSelectRound={selectRound}
   onNewRound={newRound}
   onRunRound={runRoundHandler}
-  onScheduleUnflagged={scheduleUnflaggedHandler}
+  onRerunUnflagged={rerunUnflaggedHandler}
   onRefresh={loadAll}
 />

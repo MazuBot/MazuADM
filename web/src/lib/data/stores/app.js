@@ -4,7 +4,7 @@ import { connect, disconnect } from '$lib/websocket.js'
 import { challenges, exploits, exploitRuns, loadAllEntities, teams } from './entities.js'
 import { flags, loadFlags, selectedFlagRoundId } from './flags.js'
 import { containers, containerRunners, loadContainers, loadRunners, resetContainers } from './containers.js'
-import { jobs, loadJobs, rounds, selectedRoundId, createRound, loadRounds, rerunRound, runRound, scheduleUnflaggedRound } from './rounds.js'
+import { jobs, loadJobs, rounds, selectedRoundId, createRound, loadRounds, rerunRound, runRound, rerunUnflaggedRound } from './rounds.js'
 import { selectedChallengeId, ensureSelections } from './selections.js'
 
 export const ready = writable(false)
@@ -142,7 +142,7 @@ export const app = {
   createRound,
   runRound,
   rerunRound,
-  scheduleUnflaggedRound,
+  rerunUnflaggedRound,
   start,
   stop
 }

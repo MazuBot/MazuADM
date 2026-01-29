@@ -26,7 +26,7 @@ fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &
 pub enum SchedulerCommand {
     RunRound(i32),
     RerunRound(i32),
-    ScheduleUnflagged(i32),
+    RerunUnflagged(i32),
     RunPending(i32),
     RefreshJob(i32),
 }
@@ -192,8 +192,8 @@ impl SchedulerRunner {
                 self.scheduler.rerun_round(id).await?;
                 self.reset_queue(id).await?;
             }
-            SchedulerCommand::ScheduleUnflagged(id) => {
-                self.scheduler.schedule_unflagged_round(id).await?;
+            SchedulerCommand::RerunUnflagged(id) => {
+                self.scheduler.rerun_unflagged_round(id).await?;
                 self.reset_queue(id).await?;
             }
             SchedulerCommand::RunPending(id) => {
@@ -417,7 +417,7 @@ impl Scheduler {
         Ok(())
     }
 
-    pub async fn schedule_unflagged_round(&self, round_id: i32) -> Result<()> {
+    pub async fn rerun_unflagged_round(&self, round_id: i32) -> Result<()> {
         self.stop_running_jobs_with_flag_check().await;
 
         let _ = self.db.reset_unflagged_jobs_for_round(round_id).await;

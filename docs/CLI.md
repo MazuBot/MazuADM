@@ -80,7 +80,7 @@ mazuadm-cli round new
 mazuadm-cli round list
 mazuadm-cli round run 1
 mazuadm-cli round rerun 1
-mazuadm-cli round schedule-unflagged 1 # only for running rounds
+mazuadm-cli round rerun-unflagged 1 # only for running rounds
 mazuadm-cli round clean --db postgres://localhost/mazuadm
 ```
 

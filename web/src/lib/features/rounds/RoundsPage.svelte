@@ -6,7 +6,7 @@
   import { buildStatusOptions } from '$lib/utils/filters.js';
   import { getChallengeName, getExploitName, getTeamDisplay } from '$lib/utils/lookup.js';
 
-  let { rounds, jobs, teams, challenges, exploits, exploitRuns, selectedRoundId, onSelectRound, onNewRound, onRunRound, onScheduleUnflagged, onRefresh } = $props();
+  let { rounds, jobs, teams, challenges, exploits, exploitRuns, selectedRoundId, onSelectRound, onNewRound, onRunRound, onRerunUnflagged, onRefresh } = $props();
 
   const ansi_up = new AnsiUp();
   function renderAnsi(text) {
@@ -35,12 +35,12 @@
     }
   }
 
-  async function handleScheduleUnflaggedClick() {
+  async function handleRerunUnflaggedClick() {
     if (!selectedRoundId) return;
     const round = getSelectedRound();
     if (!round || round.status !== 'running') return;
-    if (!confirm(`Schedule all non-flag jobs for running round ${selectedRoundId}?`)) return;
-    await onScheduleUnflagged?.(selectedRoundId);
+    if (!confirm(`Rerun all non-flag jobs for running round ${selectedRoundId}?`)) return;
+    await onRerunUnflagged?.(selectedRoundId);
     onRefresh?.();
   }
 
@@ -126,10 +126,10 @@
     </select>
     <button onclick={handleRunClick} disabled={!selectedRoundId}>Run</button>
     <button
-      onclick={handleScheduleUnflaggedClick}
+      onclick={handleRerunUnflaggedClick}
       disabled={!selectedRoundId || getSelectedRound()?.status !== 'running'}
     >
-      Schedule Unflagged
+      Rerun Unflagged
     </button>
   </div>
   <FilterBar

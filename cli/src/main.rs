@@ -81,7 +81,7 @@ enum RoundCmd {
     List,
     Run { id: i32 },
     Rerun { id: i32 },
-    ScheduleUnflagged { id: i32 },
+    RerunUnflagged { id: i32 },
     Clean { #[arg(long, env = "DATABASE_URL")] db: String },
 }
 
@@ -321,7 +321,7 @@ async fn main() -> Result<()> {
             }
             RoundCmd::Run { id } => { ctx.api.run_round(id).await?; println!("Started round {}", id); }
             RoundCmd::Rerun { id } => { ctx.api.rerun_round(id).await?; println!("Rerunning round {}", id); }
-            RoundCmd::ScheduleUnflagged { id } => { ctx.api.schedule_unflagged_round(id).await?; println!("Scheduled unflagged jobs for round {}", id); }
+            RoundCmd::RerunUnflagged { id } => { ctx.api.rerun_unflagged_round(id).await?; println!("Reran unflagged jobs for round {}", id); }
             RoundCmd::Clean { db } => {
                 let pool = sqlx::PgPool::connect(&db).await?;
                 sqlx::query!("TRUNCATE flags, exploit_jobs, rounds RESTART IDENTITY CASCADE")

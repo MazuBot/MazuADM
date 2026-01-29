@@ -95,7 +95,7 @@ pub struct SchedulerHandle {
 | `create_round()` | Create round and pre-warm containers |
 | `run_round(round_id)` | Execute all pending jobs in priority order |
 | `rerun_round(round_id)` | Reset round state and re-run |
-| `schedule_unflagged_round(round_id)` | Reset non-flag jobs for running round and execute |
+| `rerun_unflagged_round(round_id)` | Reset non-flag jobs for running round and execute |
 
 Priority formula (when no override):
 ```
@@ -171,7 +171,7 @@ pub struct AppState {
 | `/api/rounds` | POST | `create_round` |
 | `/api/rounds/{id}/run` | POST | `run_round` |
 | `/api/rounds/{id}/rerun` | POST | `rerun_round` |
-| `/api/rounds/{id}/schedule-unflagged` | POST | `schedule_unflagged_round` |
+| `/api/rounds/{id}/rerun-unflagged` | POST | `rerun_unflagged_round` |
 | `/api/jobs` | GET | `list_jobs` |
 | `/api/jobs/reorder` | POST | `reorder_jobs` |
 | `/api/jobs/enqueue` | POST | `enqueue_single_job` |
@@ -228,7 +228,7 @@ run list [--challenge <ID>] [--team <ID>]
 round new
 round list
 round run <ID>
-round schedule-unflagged <ID>
+round rerun-unflagged <ID>
 round jobs <ID>
 
 flag list [--round <ID>]

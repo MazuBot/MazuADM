@@ -211,7 +211,7 @@ Start executing a round.
 ### `POST /api/rounds/{id}/rerun`
 Rerun a round (resets this round and all subsequent rounds, then executes).
 
-### `POST /api/rounds/{id}/schedule-unflagged`
+### `POST /api/rounds/{id}/rerun-unflagged`
 Reset and execute all non-flag jobs for the **running** round (flagged jobs are preserved).
 
 ---
