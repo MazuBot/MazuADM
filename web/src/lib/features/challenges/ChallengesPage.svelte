@@ -188,7 +188,7 @@
         Default Port <input bind:value={challengeForm.default_port} type="number" placeholder="Optional" />
       </label>
       <label class:field-changed={isChallengeFieldChanged('priority')}>
-        Priority <input bind:value={challengeForm.priority} type="number" />
+        Priority <input bind:value={challengeForm.priority} type="number" min="0" max="99" />
       </label>
       <label class:field-changed={isChallengeFieldChanged('flag_regex')}>
         Flag Regex <input bind:value={challengeForm.flag_regex} placeholder="e.g. [A-Za-z0-9]{31}=" />

@@ -34,9 +34,9 @@ enum Cmd {
 
 #[derive(Subcommand)]
 enum ChallengeCmd {
-    Add { #[arg(long)] name: String, #[arg(long)] port: Option<i32>, #[arg(long)] priority: Option<i32>, #[arg(long)] flag_regex: Option<String> },
+    Add { #[arg(long)] name: String, #[arg(long)] port: Option<i32>, #[arg(long, value_parser = clap::value_parser!(i32).range(0..=99))] priority: Option<i32>, #[arg(long)] flag_regex: Option<String> },
     List,
-    Update { challenge: String, #[arg(long)] name: Option<String>, #[arg(long)] port: Option<i32>, #[arg(long)] priority: Option<i32>, #[arg(long)] flag_regex: Option<String> },
+    Update { challenge: String, #[arg(long)] name: Option<String>, #[arg(long)] port: Option<i32>, #[arg(long, value_parser = clap::value_parser!(i32).range(0..=99))] priority: Option<i32>, #[arg(long)] flag_regex: Option<String> },
     Delete { challenge: String },
     Enable { challenge: String },
     Disable { challenge: String },
@@ -44,9 +44,9 @@ enum ChallengeCmd {
 
 #[derive(Subcommand)]
 enum TeamCmd {
-    Add { #[arg(long)] id: String, #[arg(long)] name: String, #[arg(long)] ip: Option<String>, #[arg(long)] priority: Option<i32> },
+    Add { #[arg(long)] id: String, #[arg(long)] name: String, #[arg(long)] ip: Option<String>, #[arg(long, value_parser = clap::value_parser!(i32).range(0..=99))] priority: Option<i32> },
     List,
-    Update { team: String, #[arg(long)] team_id: Option<String>, #[arg(long)] name: Option<String>, #[arg(long)] ip: Option<String>, #[arg(long)] priority: Option<i32> },
+    Update { team: String, #[arg(long)] team_id: Option<String>, #[arg(long)] name: Option<String>, #[arg(long)] ip: Option<String>, #[arg(long, value_parser = clap::value_parser!(i32).range(0..=99))] priority: Option<i32> },
     Delete { team: String },
     Enable { team: String },
     Disable { team: String },

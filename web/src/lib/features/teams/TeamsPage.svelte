@@ -185,7 +185,7 @@
         Default IP <input bind:value={teamForm.default_ip} placeholder="Optional" />
       </label>
       <label class:field-changed={isTeamFieldChanged('priority')}>
-        Priority <input bind:value={teamForm.priority} type="number" />
+        Priority <input bind:value={teamForm.priority} type="number" min="0" max="99" />
       </label>
       <label class="checkbox" class:field-changed={isTeamFieldChanged('enabled')}>
         <input type="checkbox" bind:checked={teamForm.enabled} /> Enabled

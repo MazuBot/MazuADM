@@ -13,11 +13,15 @@ impl Database {
         Ok(Self { pool })
     }
 
+    fn clamp_priority(p: Option<i32>) -> i32 {
+        p.unwrap_or(0).clamp(0, 99)
+    }
+
     // Challenges
     pub async fn create_challenge(&self, c: CreateChallenge) -> Result<Challenge> {
         Ok(sqlx::query_as!(Challenge,
             "INSERT INTO challenges (name, enabled, default_port, priority, flag_regex) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-            c.name, c.enabled.unwrap_or(true), c.default_port, c.priority.unwrap_or(0), c.flag_regex
+            c.name, c.enabled.unwrap_or(true), c.default_port, Self::clamp_priority(c.priority), c.flag_regex
         ).fetch_one(&self.pool).await?)
     }
 
@@ -47,9 +51,10 @@ impl Database {
     }
 
     pub async fn update_challenge(&self, id: i32, c: CreateChallenge) -> Result<Challenge> {
+        let priority = c.priority.map(|p| p.clamp(0, 99));
         Ok(sqlx::query_as!(Challenge,
             "UPDATE challenges SET name = $2, enabled = COALESCE($3, enabled), default_port = $4, priority = COALESCE($5, priority), flag_regex = $6 WHERE id = $1 RETURNING *",
-            id, c.name, c.enabled, c.default_port, c.priority, c.flag_regex
+            id, c.name, c.enabled, c.default_port, priority, c.flag_regex
         ).fetch_one(&self.pool).await?)
     }
 
@@ -62,7 +67,7 @@ impl Database {
     pub async fn create_team(&self, t: CreateTeam) -> Result<Team> {
         Ok(sqlx::query_as!(Team,
             "INSERT INTO teams (team_id, team_name, default_ip, priority, enabled) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-            t.team_id, t.team_name, t.default_ip, t.priority.unwrap_or(0), t.enabled.unwrap_or(true)
+            t.team_id, t.team_name, t.default_ip, Self::clamp_priority(t.priority), t.enabled.unwrap_or(true)
         ).fetch_one(&self.pool).await?)
     }
 
@@ -81,9 +86,10 @@ impl Database {
     }
 
     pub async fn update_team(&self, id: i32, t: CreateTeam) -> Result<Team> {
+        let priority = t.priority.map(|p| p.clamp(0, 99));
         Ok(sqlx::query_as!(Team,
             "UPDATE teams SET team_id = $2, team_name = $3, default_ip = $4, priority = COALESCE($5, priority), enabled = COALESCE($6, enabled) WHERE id = $1 RETURNING *",
-            id, t.team_id, t.team_name, t.default_ip, t.priority, t.enabled
+            id, t.team_id, t.team_name, t.default_ip, priority, t.enabled
         ).fetch_one(&self.pool).await?)
     }
 

@@ -27,7 +27,7 @@ Create a challenge.
   "name": "string",
   "enabled": "boolean?",
   "default_port": "int?",
-  "priority": "int?",
+  "priority": "int? (0-99)",
   "flag_regex": "string?"
 }
 ```
@@ -65,7 +65,7 @@ Create a team.
   "team_id": "string",
   "team_name": "string",
   "default_ip": "string?",
-  "priority": "int?",
+  "priority": "int? (0-99)",
   "enabled": "boolean?"
 }
 ```
