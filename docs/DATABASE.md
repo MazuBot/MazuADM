@@ -179,9 +179,9 @@ challenges ─┬─< challenge_team_relations >─┬─ teams
 ## Container Lifecycle
 
 1. Containers are pre-warmed when a round is created
-2. Each container has a `counter` (default 999) that decrements per job execution
+2. Each container has a `counter` (default 999) that decrements when a job lease is acquired
 3. Each container enforces `max_per_container` concurrent execs
-4. Containers store `mazuadm.affinity` with a CSV list of `exploit_run_id` values
+4. Containers store `mazuadm.affinity` with a CSV list of dynamically assigned `exploit_run_id` values
 5. When counter reaches 0 and no execs remain, the container is destroyed
 6. Dead containers are removed and recreated on demand
 7. `max_containers` caps active containers per exploit (0 = unlimited)

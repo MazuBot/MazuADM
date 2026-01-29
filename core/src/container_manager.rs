@@ -84,6 +84,12 @@ impl ContainerLease {
     }
 }
 
+enum AffinityAcquire {
+    Lease(ContainerLease),
+    Exhausted,
+    None,
+}
+
 async fn collect_exec_output<S>(stream: S, timeout: Option<Duration>) -> ExecOutput
 where
     S: Stream<Item = Result<bollard::container::LogOutput, bollard::errors::Error>>,
@@ -255,41 +261,50 @@ impl ContainerManager {
         let exploit_id = exploit.id;
         let max_containers = exploit.max_containers;
 
-        if let Some(lease) = self.try_acquire_affinity(exploit_id, exploit_run_id).await? {
-            return Ok(lease);
+        let affinity_result = self.try_acquire_affinity(exploit_id, exploit_run_id).await?;
+        match affinity_result {
+            AffinityAcquire::Lease(lease) => return Ok(lease),
+            AffinityAcquire::Exhausted => {}
+            AffinityAcquire::None => {
+                if let Some(lease) = self.try_acquire_best_available(exploit_id, exploit_run_id).await? {
+                    return Ok(lease);
+                }
+            }
+        }
+
+        let pool_len = {
+            let guard = self.registry.lock().await;
+            guard
+                .pools
+                .get(&exploit_id)
+                .map(|p| p.iter().filter(|c| c.counter.load(Ordering::SeqCst) > 0).count())
+                .unwrap_or(0)
+        };
+        if max_containers > 0 && (pool_len as i32) >= max_containers {
+            return Err(anyhow::anyhow!("Max containers reached for exploit {}", exploit_id));
         }
 
         let run_ids = self.db.get_exploit_runs_for_exploit(exploit_id).await?
             .into_iter()
             .map(|r| r.id)
             .collect::<Vec<_>>();
-        let groups = build_affinity_groups(&run_ids, max_containers, exploit.max_per_container);
-        let bucket = groups.iter().find(|g| g.contains(&exploit_run_id)).cloned().unwrap_or_else(|| vec![exploit_run_id]);
-
-        if let Some(lease) = self.try_acquire_from_bucket(exploit_id, &bucket, exploit_run_id).await? {
-            return Ok(lease);
-        }
-
-        let unmapped = self.filter_unmapped_runs(&bucket).await;
-        let assigned = if unmapped.is_empty() { vec![exploit_run_id] } else { unmapped };
-
-        let pool_len = {
-            let guard = self.registry.lock().await;
-            guard.pools.get(&exploit_id).map(|p| p.len()).unwrap_or(0)
-        };
-        if max_containers > 0 && (pool_len as i32) >= max_containers {
-            return Err(anyhow::anyhow!("Max containers reached for exploit {}", exploit_id));
-        }
-
-        let container = self.spawn_container(exploit, max_execs, Some(assigned.clone())).await?;
+        let assigned = self.select_affinity_for_new_container(exploit_run_id, &run_ids, max_execs).await;
+        let affinity_runs = if assigned.is_empty() { None } else { Some(assigned.clone()) };
+        let container = self.spawn_container(exploit, max_execs, affinity_runs).await?;
         let permit = container.exec_sem.clone().acquire_owned().await?;
+        if !try_decrement_counter(&container) {
+            drop(permit);
+            self.handle_exhausted_container(&container).await;
+            return Err(anyhow::anyhow!("Container counter exhausted for exploit {}", exploit_id));
+        }
         Ok(ContainerLease { manager: self.clone(), container, permit })
     }
 
     async fn release_container(&self, container: Arc<ManagedContainer>, permit: tokio::sync::OwnedSemaphorePermit) {
-        let remaining = container.counter.fetch_sub(1, Ordering::SeqCst) - 1;
         drop(permit);
-        if remaining <= 0 && container.exec_sem.available_permits() == container.max_execs {
+        if container.counter.load(Ordering::SeqCst) <= 0
+            && container.exec_sem.available_permits() == container.max_execs
+        {
             let _ = self.destroy_container_by_id(&container.container_id).await;
         }
     }
@@ -305,26 +320,28 @@ impl ContainerManager {
             return;
         }
         let mut guard = self.registry.lock().await;
-        {
-            let entry = guard.reverse_affinity.entry(container_id.to_string()).or_default();
-            for run_id in runs {
-                entry.insert(*run_id);
-            }
-        }
         for run_id in runs {
-            guard.affinity.insert(*run_id, container_id.to_string());
+            let registry = &mut *guard;
+            drop_affinity_for_run(&mut registry.affinity, &mut registry.reverse_affinity, *run_id);
+            registry.affinity.insert(*run_id, container_id.to_string());
+            registry
+                .reverse_affinity
+                .entry(container_id.to_string())
+                .or_default()
+                .insert(*run_id);
         }
     }
 
-    async fn try_acquire_affinity(self: &Arc<Self>, exploit_id: i32, run_id: i32) -> Result<Option<ContainerLease>> {
+    async fn try_acquire_affinity(self: &Arc<Self>, exploit_id: i32, run_id: i32) -> Result<AffinityAcquire> {
         let container = {
             let mut guard = self.registry.lock().await;
             let Some(container_id) = guard.affinity.get(&run_id).cloned() else {
-                return Ok(None);
+                return Ok(AffinityAcquire::None);
             };
             let Some(container) = guard.by_id.get(&container_id).cloned() else {
-                guard.affinity.remove(&run_id);
-                return Ok(None);
+                let registry = &mut *guard;
+                drop_affinity_for_run(&mut registry.affinity, &mut registry.reverse_affinity, run_id);
+                return Ok(AffinityAcquire::None);
             };
             let has_run = guard
                 .reverse_affinity
@@ -332,54 +349,96 @@ impl ContainerManager {
                 .map(|set| set.contains(&run_id))
                 .unwrap_or(false);
             if container.exploit_id != exploit_id || !has_run {
-                guard.affinity.remove(&run_id);
-                return Ok(None);
+                let registry = &mut *guard;
+                drop_affinity_for_run(&mut registry.affinity, &mut registry.reverse_affinity, run_id);
+                return Ok(AffinityAcquire::None);
             }
             container
         };
 
         if container.counter.load(Ordering::SeqCst) <= 0 {
-            let _ = self.destroy_container_by_id(&container.container_id).await;
-            return Ok(None);
+            self.handle_exhausted_container(&container).await;
+            return Ok(AffinityAcquire::Exhausted);
         }
 
         let permit = container.exec_sem.clone().acquire_owned().await?;
-        Ok(Some(ContainerLease { manager: self.clone(), container, permit }))
+        if !try_decrement_counter(&container) {
+            drop(permit);
+            self.handle_exhausted_container(&container).await;
+            return Ok(AffinityAcquire::Exhausted);
+        }
+        Ok(AffinityAcquire::Lease(ContainerLease { manager: self.clone(), container, permit }))
     }
 
-    async fn try_acquire_from_bucket(self: &Arc<Self>, exploit_id: i32, bucket: &[i32], run_id: i32) -> Result<Option<ContainerLease>> {
-        let container = {
-            let mut guard = self.registry.lock().await;
-            let mut selected: Option<Arc<ManagedContainer>> = None;
-            for candidate in bucket {
-                let Some(container_id) = guard.affinity.get(candidate).cloned() else { continue; };
-                let Some(container) = guard.by_id.get(&container_id).cloned() else { continue; };
-                if container.exploit_id != exploit_id {
-                    continue;
-                }
-                let has_run = guard
-                    .reverse_affinity
-                    .get(&container_id)
-                    .map(|set| set.contains(&run_id))
-                    .unwrap_or(false);
-                if !has_run {
-                    continue;
-                }
-                guard.affinity.insert(run_id, container_id);
-                selected = Some(container);
-                break;
-            }
-            selected
+    async fn try_acquire_best_available(self: &Arc<Self>, exploit_id: i32, run_id: i32) -> Result<Option<ContainerLease>> {
+        let containers = {
+            let guard = self.registry.lock().await;
+            guard.pools.get(&exploit_id).cloned().unwrap_or_default()
         };
 
-        let Some(container) = container else { return Ok(None); };
+        let Some(container) = select_best_container(containers.into_iter()) else {
+            return Ok(None);
+        };
+
         let permit = container.exec_sem.clone().acquire_owned().await?;
+        if !try_decrement_counter(&container) {
+            drop(permit);
+            self.handle_exhausted_container(&container).await;
+            return Ok(None);
+        }
+
+        self.register_affinity(&container.container_id, &[run_id]).await;
         Ok(Some(ContainerLease { manager: self.clone(), container, permit }))
     }
 
-    async fn filter_unmapped_runs(&self, bucket: &[i32]) -> Vec<i32> {
-        let guard = self.registry.lock().await;
-        bucket.iter().copied().filter(|run_id| !guard.affinity.contains_key(run_id)).collect()
+    async fn select_affinity_for_new_container(&self, run_id: i32, run_ids: &[i32], max_execs: usize) -> Vec<i32> {
+        if max_execs == 0 {
+            return Vec::new();
+        }
+
+        let mut ids = run_ids.to_vec();
+        ids.sort_unstable();
+        ids.dedup();
+
+        let mut guard = self.registry.lock().await;
+        let mut mapped = HashSet::new();
+        let mut to_unmap = Vec::new();
+        for id in &ids {
+            if let Some(container_id) = guard.affinity.get(id) {
+                let is_active = guard
+                    .by_id
+                    .get(container_id)
+                    .map(|c| c.counter.load(Ordering::SeqCst) > 0)
+                    .unwrap_or(false);
+                if is_active {
+                    mapped.insert(*id);
+                    continue;
+                }
+                to_unmap.push(*id);
+            }
+        }
+        for id in to_unmap {
+            let registry = &mut *guard;
+            drop_affinity_for_run(&mut registry.affinity, &mut registry.reverse_affinity, id);
+        }
+        build_affinity_for_new_container(run_id, &ids, &mapped, max_execs)
+    }
+
+    async fn handle_exhausted_container(&self, container: &Arc<ManagedContainer>) {
+        if container.counter.load(Ordering::SeqCst) > 0 {
+            return;
+        }
+        self.unmap_exhausted_container(&container.container_id).await;
+        if container.exec_sem.available_permits() == container.max_execs {
+            let _ = self.destroy_container_by_id(&container.container_id).await;
+        }
+    }
+
+    async fn unmap_exhausted_container(&self, container_id: &str) {
+        let mut guard = self.registry.lock().await;
+        let mut reverse = std::mem::take(&mut guard.reverse_affinity);
+        drop_affinity_for_container(&mut guard.affinity, &mut reverse, container_id);
+        guard.reverse_affinity = reverse;
     }
 
     async fn detach_container(&self, container_id: &str) -> Option<Arc<ManagedContainer>> {
@@ -438,10 +497,22 @@ impl ContainerManager {
             guard.pools.get(&exploit_id).map(|p| p.len()).unwrap_or(0)
         };
         if existing == 0 {
-            let runs = self.db.get_exploit_runs_for_exploit(exploit_id).await?.into_iter().map(|r| r.id).collect::<Vec<_>>();
-        let groups = build_affinity_groups(&runs, exploit.max_containers, exploit.max_per_container);
-            let affinity = groups.get(0).cloned().filter(|g| !g.is_empty());
-            let _ = self.spawn_container(&exploit, exploit.max_per_container.max(1) as usize, affinity).await?;
+            let run_ids = self
+                .db
+                .get_exploit_runs_for_exploit(exploit_id)
+                .await?
+                .into_iter()
+                .map(|r| r.id)
+                .collect::<Vec<_>>();
+            let max_execs = exploit.max_per_container.max(1) as usize;
+            let affinity = if run_ids.is_empty() {
+                None
+            } else {
+                let primary = *run_ids.iter().min().unwrap();
+                let assigned = self.select_affinity_for_new_container(primary, &run_ids, max_execs).await;
+                if assigned.is_empty() { None } else { Some(assigned) }
+            };
+            let _ = self.spawn_container(&exploit, max_execs, affinity).await?;
         }
         Ok(())
     }
@@ -702,7 +773,7 @@ impl ContainerManager {
             if runs.is_empty() { continue; }
 
             let run_ids = runs.iter().map(|r| r.id).collect::<Vec<_>>();
-            let groups = build_affinity_groups(&run_ids, exploit.max_containers, exploit.max_per_container);
+            let max_execs = exploit.max_per_container.max(1) as usize;
 
             let active_runs = runs.len().min(concurrent_limit);
             let mut needed = needed_containers(active_runs, exploit.max_per_container);
@@ -720,22 +791,43 @@ impl ContainerManager {
             let to_spawn = needed.saturating_sub(existing);
             if to_spawn > 0 {
                 info!("Pre-warming {} containers for exploit {} (need {}, have {})", to_spawn, exploit.name, needed, existing);
+                let mut ids = run_ids.clone();
+                ids.sort_unstable();
+                ids.dedup();
+                let unmapped = {
+                    let mut guard = self.registry.lock().await;
+                    let mut unmapped = Vec::new();
+                    let mut to_unmap = Vec::new();
+                    for run_id in &ids {
+                        if let Some(container_id) = guard.affinity.get(run_id) {
+                            let is_active = guard
+                                .by_id
+                                .get(container_id)
+                                .map(|c| c.counter.load(Ordering::SeqCst) > 0)
+                                .unwrap_or(false);
+                            if is_active {
+                                continue;
+                            }
+                            to_unmap.push(*run_id);
+                        }
+                        unmapped.push(*run_id);
+                    }
+                    for run_id in to_unmap {
+                        let registry = &mut *guard;
+                        drop_affinity_for_run(&mut registry.affinity, &mut registry.reverse_affinity, run_id);
+                    }
+                    unmapped
+                };
+
                 let mut spawned = 0usize;
-                for group in groups {
+                for chunk in unmapped.chunks(max_execs) {
                     if spawned >= to_spawn {
                         break;
                     }
-                    if group.is_empty() {
+                    if chunk.is_empty() {
                         continue;
                     }
-                    let mapped = {
-                        let guard = self.registry.lock().await;
-                        group.iter().any(|run_id| guard.affinity.contains_key(run_id))
-                    };
-                    if mapped {
-                        continue;
-                    }
-                    if let Err(e) = self.spawn_container(&exploit, exploit.max_per_container.max(1) as usize, Some(group)).await {
+                    if let Err(e) = self.spawn_container(&exploit, max_execs, Some(chunk.to_vec())).await {
                         error!("Failed to spawn container for {}: {}", exploit.name, e);
                     } else {
                         spawned += 1;
@@ -752,25 +844,68 @@ fn needed_containers(active_runs: usize, max_per_container: i32) -> usize {
     (active_runs + per_container - 1) / per_container
 }
 
-fn build_affinity_groups(run_ids: &[i32], max_containers: i32, max_per_container: i32) -> Vec<Vec<i32>> {
-    if run_ids.is_empty() {
-        return Vec::new();
-    }
-    let mut ids = run_ids.to_vec();
-    ids.sort_unstable();
-    ids.dedup();
-    let group_size = max_per_container.max(1) as usize;
-    let groups: Vec<Vec<i32>> = ids
-        .chunks(group_size)
-        .map(|chunk| chunk.to_vec())
-        .collect();
-    if max_containers > 0 {
-        let max = max_containers as usize;
-        if groups.len() > max {
-            warn!("Affinity groups ({}) exceed max_containers ({})", groups.len(), max);
+fn try_decrement_counter(container: &ManagedContainer) -> bool {
+    loop {
+        let current = container.counter.load(Ordering::SeqCst);
+        if current <= 0 {
+            return false;
+        }
+        if container
+            .counter
+            .compare_exchange(current, current - 1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            return true;
         }
     }
-    groups
+}
+
+fn select_best_container<I>(containers: I) -> Option<Arc<ManagedContainer>>
+where
+    I: IntoIterator<Item = Arc<ManagedContainer>>,
+{
+    let mut best: Option<(usize, DateTime<Utc>, Arc<ManagedContainer>)> = None;
+    for container in containers {
+        if container.counter.load(Ordering::SeqCst) <= 0 {
+            continue;
+        }
+        let available = container.exec_sem.available_permits();
+        if available == 0 {
+            continue;
+        }
+        let running = container.max_execs.saturating_sub(available);
+        match &best {
+            None => best = Some((running, container.created_at, container)),
+            Some((best_running, best_created, _)) => {
+                if running < *best_running || (running == *best_running && container.created_at < *best_created) {
+                    best = Some((running, container.created_at, container));
+                }
+            }
+        }
+    }
+    best.map(|(_, _, container)| container)
+}
+
+fn build_affinity_for_new_container(run_id: i32, run_ids: &[i32], mapped: &HashSet<i32>, max_per_container: usize) -> Vec<i32> {
+    let mut result = Vec::new();
+    if max_per_container == 0 {
+        return result;
+    }
+    let mut seen = HashSet::new();
+    result.push(run_id);
+    seen.insert(run_id);
+
+    for id in run_ids {
+        if result.len() >= max_per_container {
+            break;
+        }
+        if mapped.contains(id) || seen.contains(id) {
+            continue;
+        }
+        result.push(*id);
+        seen.insert(*id);
+    }
+    result
 }
 
 fn parse_affinity_list(value: &str) -> Vec<i32> {
@@ -791,6 +926,21 @@ fn sorted_run_ids(set: &HashSet<i32>) -> Vec<i32> {
     let mut ids: Vec<i32> = set.iter().copied().collect();
     ids.sort_unstable();
     ids
+}
+
+fn drop_affinity_for_run(
+    affinity: &mut HashMap<i32, String>,
+    reverse_affinity: &mut HashMap<String, HashSet<i32>>,
+    run_id: i32,
+) {
+    if let Some(container_id) = affinity.remove(&run_id) {
+        if let Some(set) = reverse_affinity.get_mut(&container_id) {
+            set.remove(&run_id);
+            if set.is_empty() {
+                reverse_affinity.remove(&container_id);
+            }
+        }
+    }
 }
 
 fn drop_affinity_for_container(
@@ -826,11 +976,48 @@ pub struct ExecResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_exec_output, MAX_OUTPUT, needed_containers, parse_affinity_list, format_affinity_list, drop_affinity_for_container, build_affinity_groups};
+    use super::{
+        build_affinity_for_new_container,
+        collect_exec_output,
+        drop_affinity_for_container,
+        drop_affinity_for_run,
+        needed_containers,
+        parse_affinity_list,
+        format_affinity_list,
+        select_best_container,
+        try_decrement_counter,
+        ManagedContainer,
+        MAX_OUTPUT,
+    };
     use bollard::container::LogOutput;
+    use chrono::{TimeZone, Utc};
     use futures::stream;
     use std::collections::{HashMap, HashSet};
+    use std::sync::{Arc, atomic::{AtomicI32, Ordering}};
     use std::time::Duration;
+    use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+
+    fn make_container(
+        counter: i32,
+        max_execs: usize,
+        running: usize,
+        created_at: chrono::DateTime<Utc>,
+    ) -> (Arc<ManagedContainer>, Vec<OwnedSemaphorePermit>) {
+        let exec_sem = Arc::new(Semaphore::new(max_execs));
+        let mut permits = Vec::new();
+        for _ in 0..running {
+            permits.push(exec_sem.clone().try_acquire_owned().expect("permit"));
+        }
+        let container = Arc::new(ManagedContainer {
+            container_id: format!("c-{}-{}", counter, running),
+            exploit_id: 1,
+            counter: AtomicI32::new(counter),
+            exec_sem,
+            max_execs,
+            created_at,
+        });
+        (container, permits)
+    }
 
     #[tokio::test]
     async fn collect_exec_output_separates_streams() {
@@ -909,10 +1096,55 @@ mod tests {
     }
 
     #[test]
-    fn build_affinity_groups_respects_max_per_container() {
-        let groups = build_affinity_groups(&[1, 2, 3, 4], 2, 2);
-        assert_eq!(groups.len(), 2);
-        assert_eq!(groups[0], vec![1, 2]);
-        assert_eq!(groups[1], vec![3, 4]);
+    fn drop_affinity_for_run_removes_reverse_entry() {
+        let mut affinity = HashMap::new();
+        let mut reverse = HashMap::new();
+        affinity.insert(1, "c1".to_string());
+        affinity.insert(2, "c1".to_string());
+        reverse.insert("c1".to_string(), HashSet::from([1, 2]));
+
+        drop_affinity_for_run(&mut affinity, &mut reverse, 2);
+
+        assert!(!affinity.contains_key(&2));
+        assert!(affinity.contains_key(&1));
+        assert_eq!(reverse.get("c1").unwrap(), &HashSet::from([1]));
+    }
+
+    #[test]
+    fn try_decrement_counter_decrements_once() {
+        let (container, _permits) = make_container(2, 1, 0, Utc::now());
+        assert!(try_decrement_counter(&container));
+        assert_eq!(container.counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn try_decrement_counter_refuses_at_zero() {
+        let (container, _permits) = make_container(0, 1, 0, Utc::now());
+        assert!(!try_decrement_counter(&container));
+        assert_eq!(container.counter.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn build_affinity_for_new_container_skips_mapped_and_caps() {
+        let run_ids = vec![1, 2, 3, 4];
+        let mapped = HashSet::from([2, 4]);
+        let result = build_affinity_for_new_container(3, &run_ids, &mapped, 2);
+        assert_eq!(result, vec![3, 1]);
+    }
+
+    #[test]
+    fn select_best_container_prefers_lowest_running_and_oldest() {
+        let t_old = Utc.timestamp_opt(100, 0).single().unwrap();
+        let t_new = Utc.timestamp_opt(200, 0).single().unwrap();
+        let (c1, _p1) = make_container(5, 2, 0, t_new);
+        let (c2, _p2) = make_container(5, 2, 1, t_old);
+        let (c3, _p3) = make_container(0, 2, 0, t_old);
+
+        let selected = select_best_container(vec![c2.clone(), c3.clone(), c1.clone()]).unwrap();
+        assert_eq!(selected.container_id, c1.container_id);
+
+        let (c4, _p4) = make_container(5, 2, 0, t_old);
+        let tie_selected = select_best_container(vec![c1.clone(), c4.clone()]).unwrap();
+        assert_eq!(tie_selected.container_id, c4.container_id);
     }
 }

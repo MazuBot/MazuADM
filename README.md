@@ -66,7 +66,7 @@ See [CLI.md](CLI.md) for detailed CLI documentation.
 
 ## Exploit Container Interface
 
-Exploits run in persistent Docker containers. Each container has a lifetime counter that decrements per execution.
+Exploits run in persistent Docker containers. Each container has a lifetime counter that decrements when a job lease is acquired.
 
 Environment variables provided:
 - `TARGET_HOST` - Target IP/hostname
