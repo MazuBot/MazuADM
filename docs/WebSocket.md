@@ -4,9 +4,22 @@
 
 `GET /ws`
 
-## Subscription
+## Query Parameters
 
-### Query Parameter
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `user` | Yes | User identifier (3-16 alphanumeric characters) |
+| `client` | No | Client identifier (e.g., `web-ui-dev`) |
+| `events` | No | Event subscription filter |
+
+### User Parameter
+
+The `user` parameter is mandatory. If missing or invalid, the server will:
+1. Accept the WebSocket connection
+2. Send an error message: `{"type": "error", "data": {"message": "..."}}`
+3. Close the connection
+
+### Events Parameter
 
 `?events=<prefix1>,<prefix2>,...`
 
@@ -16,9 +29,9 @@
 
 ### Available Prefixes
 
-`challenge`, `team`, `exploit`, `exploit_run`, `round`, `job`, `flag`, `setting`, `container`, `connection_info`
+`challenge`, `team`, `exploit`, `exploit_run`, `round`, `job`, `flag`, `setting`, `ws_connection`, `connection_info`
 
-### Dynamic Subscription
+## Dynamic Subscription
 
 Send JSON messages to change subscriptions:
 
@@ -89,14 +102,17 @@ Send JSON messages to change subscriptions:
 |-------|------|-------------|
 | `setting_updated` | `UpdateSetting` | Setting value changed |
 
-### Containers
+### WebSocket Connections
 | Event | Data | Description |
 |-------|------|-------------|
-| `container_created` | `ContainerInfo` | New container created |
-| `container_updated` | `ContainerInfo` | Container updated |
-| `container_deleted` | `string` | Container ID deleted |
+| `ws_connections` | `Vec<WsConnectionInfo>` | Connection list updated |
 
 ### Relations
 | Event | Data | Description |
 |-------|------|-------------|
 | `connection_info_updated` | `ChallengeTeamRelation` | Connection info updated |
+
+### Errors
+| Event | Data | Description |
+|-------|------|-------------|
+| `error` | `{"message": string}` | Error (connection will close) |
