@@ -55,6 +55,14 @@
       />
     </div>
     <div class="setting-row">
+      <label for="setting_past_flag_rounds">past_flag_rounds</label>
+      <input
+        id="setting_past_flag_rounds"
+        value={getSetting('past_flag_rounds', '5')}
+        onchange={(e) => updateSettingAndToast('past_flag_rounds', e.target.value)}
+      />
+    </div>
+    <div class="setting-row">
       <label for="setting_skip_on_flag">skip_on_flag</label>
       <select id="setting_skip_on_flag" onchange={(e) => updateSettingAndToast('skip_on_flag', e.target.value)}>
         <option value="false" selected={getSetting('skip_on_flag', 'false') !== 'true'}>No</option>
@@ -82,6 +90,7 @@
     </div>
   </div>
   <p class="hint">skip_on_flag: Skip remaining exploits for a chal/team once a flag is found in this round.</p>
+  <p class="hint">past_flag_rounds: Allow manual flag submission for up to N rounds before the running round.</p>
   <p class="hint">sequential_per_target: Run exploits sequentially per chal/team (don't run multiple exploits for same target at once).</p>
   <p class="hint">ip_headers: Comma-separated list of headers to check for client IP (e.g., X-Forwarded-For,X-Real-IP).</p>
 </div>

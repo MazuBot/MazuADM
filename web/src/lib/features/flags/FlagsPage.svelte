@@ -4,8 +4,16 @@
   import { getChallengeName, getTeamDisplay } from '$lib/utils/lookup.js';
   import { formatApiError, pushToast } from '$lib/ui/toastStore.js';
 
-  let { rounds, flags, teams, challenges, selectedFlagRoundId, onSelectFlagRound, onSubmitFlag } =
-    $props();
+  let {
+    rounds,
+    flags,
+    teams,
+    challenges,
+    settings,
+    selectedFlagRoundId,
+    onSelectFlagRound,
+    onSubmitFlag
+  } = $props();
 
   let challengeFilterId = $state('');
   let teamFilterId = $state('');
@@ -16,11 +24,28 @@
   let submitFlagValue = $state('');
   let submitting = $state(false);
 
+  function getSetting(key, fallback) {
+    return settings?.find((s) => s.key === key)?.value || fallback;
+  }
+
   $effect(() => {
     if (submitRoundId === '' && selectedFlagRoundId) {
       submitRoundId = String(selectedFlagRoundId);
     }
   });
+
+  function parsePastFlagRounds() {
+    const raw = getSetting('past_flag_rounds', '5');
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) return 0;
+    return parsed;
+  }
+
+  function buildAllowedRounds() {
+    if (!runningRound) return [];
+    const minId = runningRound.id - pastFlagRounds;
+    return rounds.filter((r) => r.id <= runningRound.id && r.id >= minId);
+  }
 
   function filterFlags() {
     const teamId = teamFilterId ? Number(teamFilterId) : null;
@@ -59,12 +84,24 @@
 
   let filteredFlags = $derived(filterFlags());
   let availableStatuses = $derived(buildStatusOptions(flags));
+  let pastFlagRounds = $derived(parsePastFlagRounds());
+  let runningRound = $derived(rounds.find((r) => r.status === 'running'));
+  let allowedRounds = $derived(buildAllowedRounds());
+  let hasRunningRound = $derived(Boolean(runningRound));
   let canSubmit = $derived(
     !submitting &&
+      hasRunningRound &&
       submitChallengeId !== '' &&
       submitTeamId !== '' &&
       submitFlagValue.trim().length > 0
   );
+
+  $effect(() => {
+    if (!submitRoundId || allowedRounds.length === 0) return;
+    if (!allowedRounds.some((r) => String(r.id) === submitRoundId)) {
+      submitRoundId = '';
+    }
+  });
 </script>
 
 <div class="panel">
@@ -74,7 +111,7 @@
   <div class="controls">
     <select bind:value={submitRoundId} aria-label="Round for manual flag">
       <option value="">Running round</option>
-      {#each rounds as r}
+      {#each allowedRounds as r}
         <option value={r.id}>Round {r.id} ({r.status})</option>
       {/each}
     </select>
@@ -102,6 +139,9 @@
     </button>
   </div>
   <p class="hint">Leave round empty to target the running round.</p>
+  {#if !hasRunningRound}
+    <p class="hint">Manual submission requires a running round.</p>
+  {/if}
 </div>
 
 <div class="controls">
