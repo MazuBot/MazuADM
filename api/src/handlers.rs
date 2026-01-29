@@ -1,6 +1,6 @@
 use crate::events::WsMessage;
 use crate::{AppState, WsConnection};
-use axum::{extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade}, ConnectInfo}, Json, response::Response};
+use axum::{extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade}, ConnectInfo}, http::HeaderMap, Json, response::Response};
 use chrono::Utc;
 use futures_util::{stream, SinkExt, StreamExt};
 use mazuadm_core::*;
@@ -61,7 +61,7 @@ struct WsClientMsg {
     events: Vec<String>,
 }
 
-pub async fn ws_handler(ws: WebSocketUpgrade, Query(q): Query<WsQuery>, ConnectInfo(addr): ConnectInfo<SocketAddr>, State(s): S) -> Response {
+pub async fn ws_handler(ws: WebSocketUpgrade, Query(q): Query<WsQuery>, headers: HeaderMap, ConnectInfo(addr): ConnectInfo<SocketAddr>, State(s): S) -> Response {
     let user = q.user.filter(|u| !u.is_empty());
     let error = match &user {
         None => Some("Missing required 'user' parameter"),
@@ -77,9 +77,24 @@ pub async fn ws_handler(ws: WebSocketUpgrade, Query(q): Query<WsQuery>, ConnectI
             let _ = socket.close().await;
         });
     }
+    
+    let client_ip = get_client_ip(&s, &headers, addr).await;
     let subs = parse_events(q.events);
     let client_name = q.client.unwrap_or_else(|| "unknown".to_string());
-    ws.on_upgrade(move |socket| handle_ws(socket, s, subs, addr, client_name, user.unwrap()))
+    ws.on_upgrade(move |socket| handle_ws(socket, s, subs, client_ip, client_name, user.unwrap()))
+}
+
+async fn get_client_ip(state: &AppState, headers: &HeaderMap, addr: SocketAddr) -> String {
+    let ip_headers = state.db.get_setting("ip_headers").await.unwrap_or_default();
+    for header_name in ip_headers.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(value) = headers.get(header_name).and_then(|v| v.to_str().ok()) {
+            let ip = value.split(',').next().unwrap_or("").trim();
+            if !ip.is_empty() {
+                return ip.to_string();
+            }
+        }
+    }
+    addr.ip().to_string()
 }
 
 fn broadcast_ws_connections(state: &AppState) {
@@ -88,7 +103,7 @@ fn broadcast_ws_connections(state: &AppState) {
         let conn = entry.value();
         WsConnectionInfo {
             id: entry.key().to_string(),
-            client_ip: conn.client_ip.to_string(),
+            client_ip: conn.client_ip.clone(),
             client_name: conn.client_name.clone(),
             user: conn.user.clone(),
             subscribed_events: conn.subscribed_events.iter().cloned().collect(),
@@ -99,12 +114,12 @@ fn broadcast_ws_connections(state: &AppState) {
     broadcast(state, "ws_connections", &conns);
 }
 
-async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, mut subs: Option<HashSet<String>>, addr: SocketAddr, client_name: String, user: String) {
+async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, mut subs: Option<HashSet<String>>, client_ip: String, client_name: String, user: String) {
     let conn_id = Uuid::new_v4();
     let mut rx = state.tx.subscribe();
     
     state.ws_connections.insert(conn_id, WsConnection {
-        client_ip: addr,
+        client_ip,
         client_name,
         user,
         subscribed_events: subs.clone().unwrap_or_default(),
@@ -617,7 +632,7 @@ pub async fn list_ws_connections(State(s): S) -> Json<Vec<WsConnectionInfo>> {
         let conn = entry.value();
         WsConnectionInfo {
             id: entry.key().to_string(),
-            client_ip: conn.client_ip.to_string(),
+            client_ip: conn.client_ip.clone(),
             client_name: conn.client_name.clone(),
             user: conn.user.clone(),
             subscribed_events: conn.subscribed_events.iter().cloned().collect(),
