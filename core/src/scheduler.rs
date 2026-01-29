@@ -1,4 +1,4 @@
-use crate::{Database, ExploitJob, Round, WsMessage};
+use crate::{ContainerInfo, Database, ExploitJob, Round, WsMessage};
 use crate::executor::{
     build_job_context_or_finish,
     finish_job_and_broadcast,
@@ -15,7 +15,7 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 use dashmap::DashMap;
-use tokio::sync::{broadcast, mpsc, Mutex, Notify, OwnedMutexGuard, Semaphore};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex, Notify, OwnedMutexGuard, Semaphore};
 use tokio::task::JoinSet;
 use std::time::Duration;
 
@@ -23,13 +23,20 @@ fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &
     let _ = tx.send(WsMessage::new(msg_type, data));
 }
 
-#[derive(Debug, Clone)]
 pub enum SchedulerCommand {
     RunRound(i32),
     RerunRound(i32),
     RerunUnflagged(i32),
     RunPending(i32),
     RefreshJob(i32),
+    CreateRound { resp: oneshot::Sender<Result<i32>> },
+    RunJobImmediately(i32),
+    StopJob { job_id: i32, reason: String, resp: oneshot::Sender<Result<ExploitJob>> },
+    EnsureContainers { exploit_id: i32, resp: oneshot::Sender<Result<()>> },
+    DestroyExploitContainers { exploit_id: i32, resp: oneshot::Sender<Result<()>> },
+    ListContainers { exploit_id: Option<i32>, resp: oneshot::Sender<Result<Vec<ContainerInfo>>> },
+    RestartContainer { id: String, resp: oneshot::Sender<Result<()>> },
+    DestroyContainer { id: String, resp: oneshot::Sender<Result<()>> },
 }
 
 #[derive(Clone, Debug)]
@@ -154,6 +161,7 @@ pub struct SchedulerRunner {
     rx: mpsc::UnboundedReceiver<SchedulerCommand>,
     queue: PendingQueue,
     join_set: JoinSet<()>,
+    immediate_join_set: JoinSet<()>,
     semaphore: Arc<Semaphore>,
     concurrent_limit: usize,
     running_jobs: usize,
@@ -178,6 +186,7 @@ impl SchedulerRunner {
             rx,
             queue: PendingQueue::default(),
             join_set: JoinSet::new(),
+            immediate_join_set: JoinSet::new(),
             semaphore: Arc::new(Semaphore::new(1)),
             concurrent_limit: 1,
             running_jobs: 0,
@@ -209,11 +218,19 @@ impl SchedulerRunner {
                     }
                     self.schedule_more().await;
                 }
+                Some(result) = self.immediate_join_set.join_next(), if !self.immediate_join_set.is_empty() => {
+                    if let Err(e) = result {
+                        tracing::error!("Immediate job task failed: {}", e);
+                    }
+                }
                 _ = self.notify.notified() => {
                     self.schedule_more().await;
                 }
             }
         }
+
+        self.immediate_join_set.shutdown().await;
+        self.join_set.shutdown().await;
     }
 
     async fn handle_command(&mut self, cmd: SchedulerCommand) -> Result<()> {
@@ -237,9 +254,69 @@ impl SchedulerRunner {
             SchedulerCommand::RefreshJob(id) => {
                 self.refresh_job(id).await?;
             }
+            SchedulerCommand::CreateRound { resp } => {
+                let res = self.scheduler.create_round().await;
+                let _ = resp.send(res);
+            }
+            SchedulerCommand::RunJobImmediately(job_id) => {
+                let executor = self.executor_static();
+                self.immediate_join_set.spawn(async move {
+                    if let Err(e) = executor.run_job_immediately(job_id).await {
+                        tracing::error!("Immediate job {} failed: {}", job_id, e);
+                    }
+                });
+            }
+            SchedulerCommand::StopJob { job_id, reason, resp } => {
+                let res = self.scheduler.executor.stop_job(job_id, &reason).await;
+                let _ = resp.send(res);
+            }
+            SchedulerCommand::EnsureContainers { exploit_id, resp } => {
+                let cm = self.scheduler.executor.container_manager.clone();
+                tokio::spawn(async move {
+                    let res = cm.ensure_containers(exploit_id).await;
+                    let _ = resp.send(res);
+                });
+            }
+            SchedulerCommand::DestroyExploitContainers { exploit_id, resp } => {
+                let cm = self.scheduler.executor.container_manager.clone();
+                tokio::spawn(async move {
+                    let res = cm.destroy_exploit_containers(exploit_id).await;
+                    let _ = resp.send(res);
+                });
+            }
+            SchedulerCommand::ListContainers { exploit_id, resp } => {
+                let res = self.scheduler.executor.container_manager.list_containers().await
+                    .map(|mut containers| {
+                        if let Some(id) = exploit_id {
+                            containers.retain(|c| c.exploit_id == id);
+                        }
+                        containers
+                    });
+                let _ = resp.send(res);
+            }
+            SchedulerCommand::RestartContainer { id, resp } => {
+                let cm = self.scheduler.executor.container_manager.clone();
+                tokio::spawn(async move {
+                    let res = cm.restart_container_by_id(&id).await;
+                    let _ = resp.send(res);
+                });
+            }
+            SchedulerCommand::DestroyContainer { id, resp } => {
+                let cm = self.scheduler.executor.container_manager.clone();
+                tokio::spawn(async move {
+                    let res = cm.destroy_container_by_id(&id).await;
+                    let _ = resp.send(res);
+                });
+            }
         }
         self.schedule_more().await;
         Ok(())
+    }
+
+    fn executor_static(&self) -> &'static Executor {
+        // Safety: SchedulerRunner owns Scheduler for the lifetime of the runner task.
+        // We drain join sets before drop, so spawned tasks cannot outlive executor.
+        unsafe { std::mem::transmute::<&Executor, &'static Executor>(&self.scheduler.executor) }
     }
 
     async fn reset_queue(&mut self, round_id: i32) -> Result<()> {
@@ -359,7 +436,7 @@ impl SchedulerRunner {
             self.running_jobs += 1;
             let db = self.scheduler.db.clone();
             let tx = self.scheduler.tx.clone();
-            let executor = self.scheduler.executor.clone();
+            let executor = self.executor_static();
             let settings = settings.clone();
 
             self.join_set.spawn(async move {
@@ -386,6 +463,52 @@ impl SchedulerHandle {
         res
     }
 
+    pub async fn create_round(&self) -> Result<i32> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.send(SchedulerCommand::CreateRound { resp: resp_tx })?;
+        resp_rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("Scheduler response dropped")))
+    }
+
+    pub fn run_job_immediately(&self, job_id: i32) -> Result<(), mpsc::error::SendError<SchedulerCommand>> {
+        self.send(SchedulerCommand::RunJobImmediately(job_id))
+    }
+
+    pub async fn stop_job(&self, job_id: i32, reason: &str) -> Result<ExploitJob> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.send(SchedulerCommand::StopJob { job_id, reason: reason.to_string(), resp: resp_tx })?;
+        resp_rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("Scheduler response dropped")))
+    }
+
+    pub async fn ensure_containers(&self, exploit_id: i32) -> Result<()> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.send(SchedulerCommand::EnsureContainers { exploit_id, resp: resp_tx })?;
+        resp_rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("Scheduler response dropped")))
+    }
+
+    pub async fn destroy_exploit_containers(&self, exploit_id: i32) -> Result<()> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.send(SchedulerCommand::DestroyExploitContainers { exploit_id, resp: resp_tx })?;
+        resp_rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("Scheduler response dropped")))
+    }
+
+    pub async fn list_containers(&self, exploit_id: Option<i32>) -> Result<Vec<ContainerInfo>> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.send(SchedulerCommand::ListContainers { exploit_id, resp: resp_tx })?;
+        resp_rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("Scheduler response dropped")))
+    }
+
+    pub async fn restart_container(&self, id: String) -> Result<()> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.send(SchedulerCommand::RestartContainer { id, resp: resp_tx })?;
+        resp_rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("Scheduler response dropped")))
+    }
+
+    pub async fn destroy_container(&self, id: String) -> Result<()> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.send(SchedulerCommand::DestroyContainer { id, resp: resp_tx })?;
+        resp_rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("Scheduler response dropped")))
+    }
+
     pub fn notify(&self) {
         self.notify.notify_one();
     }
@@ -393,12 +516,12 @@ impl SchedulerHandle {
 
 pub struct Scheduler {
     db: Database,
-    executor: Arc<Executor>,
+    executor: Executor,
     tx: broadcast::Sender<WsMessage>,
 }
 
 impl Scheduler {
-    pub fn new(db: Database, executor: Arc<Executor>, tx: broadcast::Sender<WsMessage>) -> Self {
+    pub fn new(db: Database, executor: Executor, tx: broadcast::Sender<WsMessage>) -> Self {
         Self { db, executor, tx }
     }
 
@@ -527,7 +650,7 @@ impl Scheduler {
 
     async fn stop_running_jobs_with_flag_check(&self) {
         let settings = load_job_settings(&self.db).await;
-        let executor = self.executor.clone();
+        let executor = &self.executor;
         if let Ok(jobs) = self.db.kill_running_jobs().await {
             for job in jobs {
                 let stdout = job.stdout.as_deref().unwrap_or("");
@@ -555,7 +678,7 @@ impl Scheduler {
 async fn execute_one_job(
     db: Database,
     tx: broadcast::Sender<WsMessage>,
-    executor: Arc<Executor>,
+    executor: &Executor,
     _target_guard: Option<OwnedMutexGuard<()>>,
     ctx: JobContext,
     round_id: i32,

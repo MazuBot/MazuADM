@@ -34,7 +34,6 @@ pub struct WsConnection {
 pub struct AppState {
     pub db: Database,
     pub tx: broadcast::Sender<WsMessage>,
-    pub executor: Arc<Executor>,
     pub scheduler: SchedulerHandle,
     pub ws_connections: Arc<DashMap<Uuid, WsConnection>>,
 }
@@ -135,7 +134,7 @@ async fn main() -> Result<()> {
 
     let settings = load_executor_settings(&db).await;
     let (tx, _) = broadcast::channel::<WsMessage>(256);
-    let executor = Arc::new(Executor::new(db.clone(), tx.clone())?);
+    let executor = Executor::new(db.clone(), tx.clone())?;
     executor.container_manager.set_concurrent_create_limit(settings.concurrent_create_limit);
     executor.container_manager.restore_from_docker().await?;
     // Reset any jobs stuck in "running" state from previous run
@@ -144,11 +143,11 @@ async fn main() -> Result<()> {
         tracing::warn!("Reset {} stale running jobs to stopped status", reset);
     }
     
-    let scheduler = Scheduler::new(db.clone(), executor.clone(), tx.clone());
+    let scheduler = Scheduler::new(db.clone(), executor, tx.clone());
     let (runner, scheduler_handle) = SchedulerRunner::new(scheduler);
     tokio::spawn(runner.run());
 
-    let state = Arc::new(AppState { db, tx, executor, scheduler: scheduler_handle, ws_connections: Arc::new(DashMap::new()) });
+    let state = Arc::new(AppState { db, tx, scheduler: scheduler_handle, ws_connections: Arc::new(DashMap::new()) });
     resume_running_round_if_needed(state.as_ref()).await?;
 
     let app = routes::routes()

@@ -278,8 +278,7 @@ pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Expl
     
     // Pre-warm containers for enabled exploit
     if exploit.enabled {
-        let cm = s.executor.container_manager.clone();
-        let _ = cm.ensure_containers(exploit.id).await;
+        let _ = s.scheduler.ensure_containers(exploit.id).await;
     }
     
     broadcast(&s, "exploit_created", &exploit);
@@ -290,11 +289,10 @@ pub async fn update_exploit(State(s): S, Path(id): Path<i32>, Json(e): Json<Upda
     let was_enabled = s.db.get_exploit(id).await.map(|e| e.enabled).unwrap_or(false);
     let exploit = s.db.update_exploit(id, e).await.map_err(err)?;
     
-    let cm = s.executor.container_manager.clone();
     if exploit.enabled && !was_enabled {
-        let _ = cm.ensure_containers(id).await;
+        let _ = s.scheduler.ensure_containers(id).await;
     } else if !exploit.enabled && was_enabled {
-        let _ = cm.destroy_exploit_containers(id).await;
+        let _ = s.scheduler.destroy_exploit_containers(id).await;
     }
     
     broadcast(&s, "exploit_updated", &exploit);
@@ -302,8 +300,7 @@ pub async fn update_exploit(State(s): S, Path(id): Path<i32>, Json(e): Json<Upda
 }
 
 pub async fn delete_exploit(State(s): S, Path(id): Path<i32>) -> R<String> {
-    let cm = s.executor.container_manager.clone();
-    let _ = cm.destroy_exploit_containers(id).await;
+    let _ = s.scheduler.destroy_exploit_containers(id).await;
     
     s.db.delete_exploit(id).await.map_err(err)?;
     broadcast(&s, "exploit_deleted", &id);
@@ -358,8 +355,7 @@ pub async fn list_rounds(State(s): S) -> R<Vec<Round>> {
 }
 
 pub async fn create_round(State(s): S) -> R<i32> {
-    let scheduler = mazuadm_core::scheduler::Scheduler::new(s.db.clone(), s.executor.clone(), s.tx.clone());
-    let round_id = scheduler.create_round().await.map_err(err)?;
+    let round_id = s.scheduler.create_round().await.map_err(err)?;
     Ok(Json(round_id))
 }
 
@@ -424,12 +420,9 @@ async fn run_job_immediately(s: &AppState, job_id: i32) {
     if let Err(e) = s.db.mark_job_scheduled(job_id).await {
         tracing::error!("Failed to mark job {} scheduled: {}", job_id, e);
     }
-    let executor = s.executor.clone();
-    tokio::spawn(async move {
-        if let Err(e) = executor.run_job_immediately(job_id).await {
-            tracing::error!("Immediate job {} failed: {}", job_id, e);
-        }
-    });
+    if let Err(e) = s.scheduler.run_job_immediately(job_id) {
+        tracing::error!("Immediate job {} failed to enqueue: {}", job_id, e);
+    }
 }
 
 pub async fn enqueue_single_job(State(s): S, Json(req): Json<EnqueueSingleJobRequest>) -> R<ExploitJob> {
@@ -461,7 +454,7 @@ pub async fn enqueue_existing_job(State(s): S, Path(job_id): Path<i32>) -> R<Exp
 }
 
 pub async fn stop_job(State(s): S, Path(job_id): Path<i32>) -> R<ExploitJob> {
-    let job = s.executor.stop_job(job_id, "stopped by user").await.map_err(err)?;
+    let job = s.scheduler.stop_job(job_id, "stopped by user").await.map_err(err)?;
     s.scheduler.send(SchedulerCommand::RefreshJob(job.id)).map_err(err)?;
     Ok(Json(job))
 }
@@ -490,10 +483,7 @@ pub async fn update_setting(State(s): S, Json(u): Json<UpdateSetting>) -> R<Stri
 
 // Containers
 pub async fn list_containers(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<ContainerInfo>> {
-    let mut containers = s.executor.container_manager.list_containers().await.map_err(err)?;
-    if let Some(exploit_id) = q.challenge_id {
-        containers.retain(|c| c.exploit_id == exploit_id);
-    }
+    let containers = s.scheduler.list_containers(q.challenge_id).await.map_err(err)?;
     Ok(Json(containers))
 }
 
@@ -502,25 +492,23 @@ pub async fn get_container_runners(State(s): S, Path(id): Path<String>) -> R<Vec
 }
 
 pub async fn delete_container(State(s): S, Path(id): Path<String>) -> R<String> {
-    let cm = s.executor.container_manager.clone();
-    cm.destroy_container_by_id(&id).await.map_err(err)?;
+    s.scheduler.destroy_container(id).await.map_err(err)?;
     Ok(Json("ok".to_string()))
 }
 
 pub async fn restart_container(State(s): S, Path(id): Path<String>) -> R<String> {
-    let cm = s.executor.container_manager.clone();
-    cm.restart_container_by_id(&id).await.map_err(err)?;
+    s.scheduler.restart_container(id).await.map_err(err)?;
     Ok(Json("ok".to_string()))
 }
 
 pub async fn restart_all_containers(State(s): S) -> R<String> {
-    let cm = s.executor.container_manager.clone();
-    let containers = cm.list_containers().await.map_err(err)?;
+    let containers = s.scheduler.list_containers(None).await.map_err(err)?;
     let ids: Vec<String> = containers.into_iter().map(|c| c.id).collect();
+    let scheduler = s.scheduler.clone();
     let results = stream::iter(ids)
         .map(|id| {
-            let cm = cm.clone();
-            async move { (id.clone(), cm.restart_container_by_id(&id).await) }
+            let scheduler = scheduler.clone();
+            async move { (id.clone(), scheduler.restart_container(id).await) }
         })
         .buffer_unordered(10)
         .collect::<Vec<_>>()
@@ -541,13 +529,13 @@ pub async fn restart_all_containers(State(s): S) -> R<String> {
 }
 
 pub async fn remove_all_containers(State(s): S) -> R<String> {
-    let cm = s.executor.container_manager.clone();
-    let containers = cm.list_containers().await.map_err(err)?;
+    let containers = s.scheduler.list_containers(None).await.map_err(err)?;
     let ids: Vec<String> = containers.into_iter().map(|c| c.id).collect();
+    let scheduler = s.scheduler.clone();
     let results = stream::iter(ids)
         .map(|id| {
-            let cm = cm.clone();
-            async move { (id.clone(), cm.destroy_container_by_id(&id).await) }
+            let scheduler = scheduler.clone();
+            async move { (id.clone(), scheduler.destroy_container(id).await) }
         })
         .buffer_unordered(10)
         .collect::<Vec<_>>()
