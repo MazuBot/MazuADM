@@ -104,8 +104,8 @@ impl ApiClient {
 
     // Jobs
     pub async fn list_jobs(&self, round_id: i32) -> Result<Vec<ExploitJob>> { self.get(&format!("/api/jobs?round_id={}", round_id)).await }
-    pub async fn run_single_job(&self, req: RunSingleJobRequest) -> Result<ExploitJob> { self.post("/api/jobs/run", &req).await }
-    pub async fn run_existing_job(&self, id: i32) -> Result<ExploitJob> { self.post_empty(&format!("/api/jobs/{}/run", id)).await }
+    pub async fn enqueue_single_job(&self, req: EnqueueSingleJobRequest) -> Result<ExploitJob> { self.post("/api/jobs/enqueue", &req).await }
+    pub async fn enqueue_existing_job(&self, id: i32) -> Result<ExploitJob> { self.post_empty(&format!("/api/jobs/{}/enqueue", id)).await }
     pub async fn stop_job(&self, id: i32) -> Result<ExploitJob> { self.post_empty(&format!("/api/jobs/{}/stop", id)).await }
     pub async fn reorder_jobs(&self, items: Vec<ReorderJobItem>) -> Result<()> { let _: String = self.post("/api/jobs/reorder", &items).await?; Ok(()) }
 

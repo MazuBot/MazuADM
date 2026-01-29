@@ -267,8 +267,8 @@ async fn main() -> Result<()> {
                 let t = ctx.find_team(&team).await?;
                 let runs = ctx.api.list_exploit_runs(Some(challenge.id), Some(t.id)).await?;
                 let run = runs.iter().find(|r| r.exploit_id == e.id).ok_or_else(|| anyhow!("no exploit run found"))?;
-                let job = ctx.api.run_single_job(RunSingleJobRequest { exploit_run_id: run.id, team_id: t.id }).await?;
-                println!("Started job {}", job.id);
+                let job = ctx.api.enqueue_single_job(EnqueueSingleJobRequest { exploit_run_id: run.id, team_id: t.id }).await?;
+                println!("Enqueued job {}", job.id);
             }
         },
         Cmd::Run { cmd } => match cmd {
@@ -334,14 +334,14 @@ async fn main() -> Result<()> {
                 let rows: Vec<_> = ctx.api.list_jobs(round).await?.into_iter().map(|j| { let (tid, tn) = ctx.team_label(j.team_id); JobRow { id: j.id, run: j.exploit_run_id.map(|r| r.to_string()).unwrap_or("-".into()), team_id: tid, team_name: tn, priority: j.priority, status: j.status } }).collect();
                 println!("{}", Table::new(rows));
             }
-            JobCmd::Run { id } => { let j = ctx.api.run_existing_job(id).await?; println!("Started job {}", j.id); }
+            JobCmd::Run { id } => { let j = ctx.api.enqueue_existing_job(id).await?; println!("Enqueued job {}", j.id); }
             JobCmd::Stop { id } => { ctx.api.stop_job(id).await?; println!("Stopped job {}", id); }
             JobCmd::SetPriority { id, priority } => { ctx.api.reorder_jobs(vec![ReorderJobItem { id, priority }]).await?; println!("Set priority"); }
         },
         Cmd::Flag { cmd } => match cmd {
             FlagCmd::List { round } => {
                 ctx.teams().await?;
-                let rows: Vec<_> = ctx.api.list_flags(round).await?.into_iter().map(|f| { let (tid, tn) = ctx.team_label(f.team_id); FlagRow { id: f.id, round: f.round_id.map(|r| r.to_string()).unwrap_or("-".into()), challenge: f.challenge_id, team_id: tid, team_name: tn, flag: f.flag_value, status: f.status } }).collect();
+                let rows: Vec<_> = ctx.api.list_flags(round).await?.into_iter().map(|f| { let (tid, tn) = ctx.team_label(f.team_id); FlagRow { id: f.id, round: f.round_id.to_string(), challenge: f.challenge_id, team_id: tid, team_name: tn, flag: f.flag_value, status: f.status } }).collect();
                 println!("{}", Table::new(rows));
             }
         },
