@@ -233,6 +233,7 @@
     padding: 0.2rem 0.45rem;
     white-space: nowrap;
     z-index: 5;
+    font: inherit;
   }
 
   .toggle-popup:focus-visible,
