@@ -9,7 +9,7 @@ pub struct Database {
 
 impl Database {
     pub async fn connect(url: &str) -> Result<Self> {
-        let pool = PgPoolOptions::new().max_connections(10).connect(url).await?;
+        let pool = PgPoolOptions::new().max_connections(75).connect(url).await?;
         Ok(Self { pool })
     }
 
