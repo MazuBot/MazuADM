@@ -51,7 +51,6 @@ Docker-based exploit definitions.
 | name | VARCHAR(255) | NO | Exploit name |
 | challenge_id | INTEGER | NO | FK → challenges (CASCADE) |
 | enabled | BOOLEAN | NO | Whether exploit is active (default: true) |
-| priority | INTEGER | NO | Execution priority (default: 0) |
 | docker_image | VARCHAR(512) | NO | Docker image to run |
 | entrypoint | VARCHAR(512) | YES | Custom entrypoint |
 | timeout_secs | INTEGER | NO | Container timeout (default: 30) |

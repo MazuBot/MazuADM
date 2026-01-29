@@ -54,7 +54,9 @@ DATABASE_URL=postgres://localhost/mazuadm ./target/release/mazuadm-api [config_d
 
 ### Run CLI
 ```bash
-DATABASE_URL=postgres://localhost/mazuadm ./target/release/mazuadm-cli --help
+./target/release/mazuadm-cli --help
+# or with custom API URL:
+./target/release/mazuadm-cli --api http://localhost:3000 --help
 ```
 
 ### Web UI
