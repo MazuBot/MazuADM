@@ -62,7 +62,7 @@ pub fn resolve_config_path(explicit: Option<PathBuf>) -> Result<Option<PathBuf>>
     }
 
     let mut candidates = Vec::new();
-    candidates.push(PathBuf::from("/etc/mazuadm/config.toml"));
+    candidates.push(PathBuf::from("/opt/mazuadm/config.toml"));
 
     if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
         candidates.push(PathBuf::from(xdg).join("mazuadm/config.toml"));

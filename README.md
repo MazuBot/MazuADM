@@ -17,7 +17,7 @@ A Trello-like interface for managing CTF A/D exploits with persistent container 
 ./scripts/install.sh
 ```
 
-The installer copies `config.toml` from your current directory to `/etc/mazuadm/config.toml` if it exists.
+The installer copies `config.toml` from your current directory to `/opt/mazuadm/config.toml` if it exists.
 
 ### Database
 ```bash
@@ -48,7 +48,7 @@ cargo build --release
 ### Run API
 ```bash
 DATABASE_URL=postgres://localhost/mazuadm ./target/release/mazuadm-api [config_dir]
-# example: ./target/release/mazuadm-api /etc/mazuadm
+# example: ./target/release/mazuadm-api /opt/mazuadm
 # logs: <config_dir>/mazuadm-api.log (or ./mazuadm-api.log when omitted)
 ```
 

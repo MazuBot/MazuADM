@@ -11,7 +11,7 @@ struct BuildConfig {
 fn main() {
     println!("cargo:rerun-if-env-changed=DATABASE_URL");
     println!("cargo:rerun-if-env-changed=MAZUADM_CONFIG");
-    println!("cargo:rerun-if-changed=/etc/mazuadm/config.toml");
+    println!("cargo:rerun-if-changed=/opt/mazuadm/config.toml");
 
     if env::var_os("DATABASE_URL").is_some() {
         return;
@@ -19,7 +19,7 @@ fn main() {
 
     let config_path = match env::var("MAZUADM_CONFIG") {
         Ok(path) if !path.trim().is_empty() => PathBuf::from(path),
-        _ => PathBuf::from("/etc/mazuadm/config.toml"),
+        _ => PathBuf::from("/opt/mazuadm/config.toml"),
     };
 
     if !config_path.exists() {

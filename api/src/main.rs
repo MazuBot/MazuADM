@@ -210,9 +210,9 @@ mod tests {
 
     #[test]
     fn parse_config_dir_accepts_optional_dir() {
-        let args = vec!["bin", "/etc/mazuadm"];
+        let args = vec!["bin", "/opt/mazuadm"];
         let config_dir = parse_config_dir(args).unwrap();
-        assert_eq!(config_dir, Some(PathBuf::from("/etc/mazuadm")));
+        assert_eq!(config_dir, Some(PathBuf::from("/opt/mazuadm")));
     }
 
     #[test]
