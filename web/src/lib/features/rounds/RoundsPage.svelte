@@ -56,6 +56,13 @@
     return status === 'flag' ? '🚩 FLAG' : status;
   }
 
+  function formatTimestamp(value) {
+    if (!value) return '-';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '-';
+    return parsed.toLocaleString();
+  }
+
   function closeModal() {
     jobDetailToken += 1;
     selectedJob = null;
@@ -257,6 +264,10 @@
       <p><strong>Exploit:</strong> {getExploitName(exploits, getExploitRunInfo(modalJob.exploit_run_id)?.exploit_id)}</p>
       <p><strong>Team:</strong> <span class="truncate">{getTeamDisplay(teams, modalJob.team_id)}</span></p>
       <p><strong>Priority:</strong> {modalJob.priority}</p>
+      <p><strong>Start reason:</strong> {modalJob.create_reason || '-'}</p>
+      <p><strong>Scheduled at:</strong> {formatTimestamp(modalJob.schedule_at)}</p>
+      <p><strong>Started at:</strong> {formatTimestamp(modalJob.started_at)}</p>
+      <p><strong>Finished at:</strong> {formatTimestamp(modalJob.finished_at)}</p>
       <p><strong>Duration:</strong> {modalJob.duration_ms ? `${modalJob.duration_ms}ms` : '-'}</p>
       {#if modalJob.container_id}<p><strong>Container:</strong> <code>{modalJob.container_id.slice(0, 12)}</code></p>{/if}
     </div>
