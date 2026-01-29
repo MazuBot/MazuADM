@@ -29,7 +29,7 @@ $SUDO chmod 0755 "$BIN_DIR/mazuadm-cli"
 $SUDO chmod 0750 "$BIN_DIR/mazuadm-api"
 $SUDO systemctl start mazuadm-api.service 
 
-CONFIG_DIR='/etc/mazuadm'
+CONFIG_DIR='/opt/mazuadm'
 $SUDO mkdir -p "$CONFIG_DIR"
 
 WEB_SRC="./web/build"
