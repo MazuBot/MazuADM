@@ -55,7 +55,7 @@ mazuadm-cli exploit update pwn1-exp --challenge pwn1 --timeout 60
 mazuadm-cli exploit delete pwn1-exp --challenge pwn1
 mazuadm-cli exploit enable pwn1-exp --challenge pwn1
 mazuadm-cli exploit disable pwn1-exp --challenge pwn1
-mazuadm-cli exploit run pwn1-exp --challenge pwn1 --team team1
+mazuadm-cli exploit run pwn1-exp --challenge pwn1 --team team1 # enqueue into running round
 ```
 
 ### Exploit Run Management
@@ -88,7 +88,7 @@ mazuadm-cli round clean --db postgres://localhost/mazuadm
 
 ```bash
 mazuadm-cli job list --round 1
-mazuadm-cli job run 42
+mazuadm-cli job run 42 # enqueue into running round
 mazuadm-cli job stop 42
 mazuadm-cli job set-priority 42 100
 ```

@@ -95,7 +95,7 @@ Individual exploit executions within a round.
 | Column | Type | Nullable | Description |
 |--------|------|----------|-------------|
 | id | SERIAL | NO | Primary key |
-| round_id | INTEGER | YES | FK → rounds (CASCADE), NULL for ad-hoc jobs |
+| round_id | INTEGER | NO | FK → rounds (CASCADE) |
 | exploit_run_id | INTEGER | YES | FK → exploit_runs (SET NULL) |
 | team_id | INTEGER | NO | FK → teams (CASCADE) |
 | priority | INTEGER | NO | Computed priority |
@@ -115,7 +115,7 @@ Captured flags extracted from job output.
 |--------|------|----------|-------------|
 | id | SERIAL | NO | Primary key |
 | job_id | INTEGER | YES | FK → exploit_jobs (SET NULL) |
-| round_id | INTEGER | YES | FK → rounds (CASCADE), NULL for ad-hoc |
+| round_id | INTEGER | NO | FK → rounds (CASCADE) |
 | challenge_id | INTEGER | NO | FK → challenges (CASCADE) |
 | team_id | INTEGER | NO | FK → teams (CASCADE) |
 | flag_value | VARCHAR(512) | NO | The captured flag |
@@ -187,13 +187,10 @@ challenges ─┬─< challenge_team_relations >─┬─ teams
 7. `max_containers` caps active containers per exploit (0 = unlimited)
 8. Containers and affinities are restored from Docker labels on restart
 
-## Ad-hoc Jobs
+## Enqueued Jobs
 
-Jobs can be created without a round (round_id = NULL) for immediate execution:
-- Created via "play" button on Board or Rounds page
-- Created via CLI `exploit run` or `job run` commands
-- Bypass sequential_per_target, skip_on_flag, and concurrent_limit checks
-- Flags from ad-hoc jobs have round_id = NULL
+"Run now" actions enqueue jobs into the current running round. These jobs follow the same
+scheduler rules (sequential_per_target, skip_on_flag, concurrent_limit).
 
 ## Round Lifecycle
 

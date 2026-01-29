@@ -24,8 +24,8 @@ Risks/notes:
 - WebSocket handler uses tokio::select! between broadcast receiver and client socket.
 - Round execution is handled by a single SchedulerRunner background task.
 - Handlers enqueue scheduler commands and notify the runner.
-- Single job execution spawns a detached async task in run_job_internal.
- - Scheduler.run_round stops all running jobs immediately before scheduling a new round.
+- Scheduler.run_round stops all running jobs immediately before scheduling a new round.
+ - "Run now" enqueues jobs into the running round and lets the scheduler execute them.
 
 Risks/notes:
 - Detached tasks do not log errors on failure.

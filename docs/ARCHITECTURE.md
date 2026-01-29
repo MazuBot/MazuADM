@@ -127,7 +127,7 @@ pub struct JobResult {
 |--------|-------------|
 | `execute_job(job, exploit, conn)` | Run single container, capture output |
 | `extract_flags(output, pattern)` | Extract flags using regex |
-| `run_job_immediately(job_id)` | Execute an ad-hoc job immediately |
+| `run_job_immediately(job_id)` | Execute a pending job immediately (internal) |
 | `stop_job(job_id, reason)` | Stop a running job (kills exec PID only) |
 
 Container environment:
@@ -174,8 +174,8 @@ pub struct AppState {
 | `/api/rounds/{id}/schedule-unflagged` | POST | `schedule_unflagged_round` |
 | `/api/jobs` | GET | `list_jobs` |
 | `/api/jobs/reorder` | POST | `reorder_jobs` |
-| `/api/jobs/run` | POST | `run_single_job` |
-| `/api/jobs/{id}/run` | POST | `run_existing_job` |
+| `/api/jobs/enqueue` | POST | `enqueue_single_job` |
+| `/api/jobs/{id}/enqueue` | POST | `enqueue_existing_job` |
 | `/api/jobs/{id}/stop` | POST | `stop_job` |
 | `/api/flags` | GET | `list_flags` |
 | `/api/settings` | GET | `list_settings` |

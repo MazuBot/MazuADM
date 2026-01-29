@@ -233,8 +233,8 @@ Reorder jobs.
 [{ "id": "int", "priority": "int" }]
 ```
 
-### `POST /api/jobs/run`
-Run a single job (creates and executes).
+### `POST /api/jobs/enqueue`
+Enqueue a job into the current running round (fails if no round is running).
 
 **Body:**
 ```json
@@ -246,8 +246,10 @@ Run a single job (creates and executes).
 
 **Response:** `ExploitJob`
 
-### `POST /api/jobs/{id}/run`
-Re-run an existing job.
+### `POST /api/jobs/{id}/enqueue`
+Enqueue an existing job into the current running round (fails if no round is running).
+If the job is pending in the running round, its priority is bumped; otherwise a new
+job is created from the same exploit_run/team.
 
 **Response:** `ExploitJob`
 
