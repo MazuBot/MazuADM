@@ -88,7 +88,7 @@ impl Executor {
         
         // Broadcast job running
         if let Ok(updated_job) = self.db.get_job(job.id).await {
-            broadcast(&self.tx, "job_updated", &updated_job);
+            broadcast(&self.tx, "job_updated", &updated_job.without_logs());
         }
 
         let team = self.db.get_team(job.team_id).await?;
@@ -208,7 +208,7 @@ impl Executor {
         
         // Broadcast job finished
         if let Ok(updated_job) = self.db.get_job(job.id).await {
-            broadcast(&self.tx, "job_updated", &updated_job);
+            broadcast(&self.tx, "job_updated", &updated_job.without_logs());
         }
         lease.finish().await;
 
@@ -252,13 +252,13 @@ impl Executor {
             Err(e) => {
                 if let Ok(current) = self.db.get_job(ctx.job.id).await {
                     if current.status == "stopped" {
-                        broadcast(&self.tx, "job_updated", &current);
+                        broadcast(&self.tx, "job_updated", &current.without_logs());
                         return Err(e);
                     }
                 }
                 let _ = self.db.finish_job(ctx.job.id, "error", None, Some(&e.to_string()), 0).await;
                 if let Ok(updated) = self.db.get_job(ctx.job.id).await {
-                    broadcast(&self.tx, "job_updated", &updated);
+                    broadcast(&self.tx, "job_updated", &updated.without_logs());
                 }
                 Err(e)
             }
@@ -279,7 +279,7 @@ impl Executor {
 
         self.db.mark_job_stopped_with_reason(job_id, has_flag, reason).await?;
         let job = self.db.get_job(job_id).await?;
-        broadcast(&self.tx, "job_updated", &job);
+        broadcast(&self.tx, "job_updated", &job.without_logs());
         Ok(job)
     }
 
@@ -406,7 +406,7 @@ pub(crate) async fn finish_job_and_broadcast(
 ) {
     let _ = db.finish_job(job_id, status, stdout, stderr, duration_ms).await;
     if let Ok(j) = db.get_job(job_id).await {
-        broadcast(tx, "job_updated", &j);
+        broadcast(tx, "job_updated", &j.without_logs());
     }
 }
 

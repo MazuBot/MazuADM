@@ -16,6 +16,10 @@ fn broadcast<T: serde::Serialize>(s: &AppState, msg_type: &str, data: &T) {
     let _ = s.tx.send(WsMessage::new(msg_type, data));
 }
 
+fn broadcast_job(s: &AppState, msg_type: &str, job: &ExploitJob) {
+    broadcast(s, msg_type, &job.without_logs());
+}
+
 fn should_continue_ws(err: tokio::sync::broadcast::error::RecvError) -> bool {
     matches!(err, tokio::sync::broadcast::error::RecvError::Lagged(_))
 }
@@ -163,7 +167,7 @@ pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Expl
                 for run in &exploit_runs {
                     if let Ok(job) = s.db.create_job(round.id, run.id, run.team_id, 0).await {
                         inserted_jobs = true;
-                        broadcast(&s, "job_created", &job);
+                        broadcast_job(&s, "job_created", &job);
                     }
                 }
             }
@@ -285,6 +289,10 @@ pub async fn list_jobs(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<Exploit
     s.db.list_jobs(round_id).await.map(Json).map_err(err)
 }
 
+pub async fn get_job(State(s): S, Path(id): Path<i32>) -> R<ExploitJob> {
+    s.db.get_job(id).await.map(Json).map_err(err)
+}
+
 #[derive(Deserialize, serde::Serialize)]
 pub struct ReorderJobItem {
     pub id: i32,
@@ -295,7 +303,7 @@ pub async fn reorder_jobs(State(s): S, Json(items): Json<Vec<ReorderJobItem>>) -
     s.db.reorder_jobs(&items.iter().map(|i| (i.id, i.priority)).collect::<Vec<_>>()).await.map_err(err)?;
     for item in &items {
         if let Ok(job) = s.db.get_job(item.id).await {
-            broadcast(&s, "job_updated", &job);
+            broadcast_job(&s, "job_updated", &job);
             s.scheduler.send(SchedulerCommand::RefreshJob(job.id)).map_err(err)?;
         }
     }
@@ -318,7 +326,7 @@ pub async fn enqueue_single_job(State(s): S, Json(req): Json<EnqueueSingleJobReq
     let round_id = require_running_round_id(&s).await?;
     let max_priority = s.db.get_max_priority_for_round(round_id).await.map_err(err)?;
     let job = s.db.create_job(round_id, run.id, req.team_id, max_priority + 1).await.map_err(err)?;
-    broadcast(&s, "job_created", &job);
+    broadcast_job(&s, "job_created", &job);
     s.scheduler.send(SchedulerCommand::RefreshJob(job.id)).map_err(err)?;
     Ok(Json(job))
 }
@@ -331,14 +339,14 @@ pub async fn enqueue_existing_job(State(s): S, Path(job_id): Path<i32>) -> R<Exp
     if job.status == "pending" && job.round_id == round_id {
         s.db.update_job_priority(job_id, max_priority + 1).await.map_err(err)?;
         let job = s.db.get_job(job_id).await.map_err(err)?;
-        broadcast(&s, "job_updated", &job);
+        broadcast_job(&s, "job_updated", &job);
         s.scheduler.send(SchedulerCommand::RefreshJob(job.id)).map_err(err)?;
         return Ok(Json(job));
     }
 
     let run_id = job.exploit_run_id.ok_or_else(|| "Job has no exploit_run_id".to_string())?;
     let new_job = s.db.create_job(round_id, run_id, job.team_id, max_priority + 1).await.map_err(err)?;
-    broadcast(&s, "job_created", &new_job);
+    broadcast_job(&s, "job_created", &new_job);
     s.scheduler.send(SchedulerCommand::RefreshJob(new_job.id)).map_err(err)?;
     Ok(Json(new_job))
 }

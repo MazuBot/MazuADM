@@ -141,6 +141,15 @@ pub struct ExploitJob {
     pub created_at: DateTime<Utc>,
 }
 
+impl ExploitJob {
+    pub fn without_logs(&self) -> Self {
+        let mut job = self.clone();
+        job.stdout = None;
+        job.stderr = None;
+        job
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct Flag {
     pub id: i32,
@@ -217,6 +226,32 @@ mod tests {
 
     fn make_relation(addr: Option<&str>, port: Option<i32>) -> ChallengeTeamRelation {
         ChallengeTeamRelation { id: 1, challenge_id: 1, team_id: 1, addr: addr.map(String::from), port, created_at: Utc::now() }
+    }
+
+    #[test]
+    fn exploit_job_without_logs_clears_stdout_stderr() {
+        let now = Utc::now();
+        let job = ExploitJob {
+            id: 1,
+            round_id: 2,
+            exploit_run_id: Some(3),
+            team_id: 4,
+            priority: 5,
+            status: "running".to_string(),
+            container_id: Some("container".to_string()),
+            stdout: Some("stdout".to_string()),
+            stderr: Some("stderr".to_string()),
+            duration_ms: Some(123),
+            started_at: Some(now),
+            finished_at: None,
+            created_at: now,
+        };
+
+        let trimmed = job.without_logs();
+        assert!(trimmed.stdout.is_none());
+        assert!(trimmed.stderr.is_none());
+        assert_eq!(trimmed.id, job.id);
+        assert_eq!(trimmed.status, job.status);
     }
 
     #[test]

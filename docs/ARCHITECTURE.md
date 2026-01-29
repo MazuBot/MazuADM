@@ -173,6 +173,7 @@ pub struct AppState {
 | `/api/rounds/{id}/rerun` | POST | `rerun_round` |
 | `/api/rounds/{id}/rerun-unflagged` | POST | `rerun_unflagged_round` |
 | `/api/jobs` | GET | `list_jobs` |
+| `/api/jobs/{id}` | GET | `get_job` |
 | `/api/jobs/reorder` | POST | `reorder_jobs` |
 | `/api/jobs/enqueue` | POST | `enqueue_single_job` |
 | `/api/jobs/{id}/enqueue` | POST | `enqueue_existing_job` |

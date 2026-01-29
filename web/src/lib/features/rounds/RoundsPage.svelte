@@ -14,6 +14,10 @@
   }
 
   let selectedJob = $state(null);
+  let selectedJobDetail = $state(null);
+  let jobDetailLoading = $state(false);
+  let jobDetailError = $state('');
+  let jobDetailToken = 0;
   let draggingJob = $state(null);
   let challengeFilterId = $state('');
   let teamFilterId = $state('');
@@ -53,7 +57,33 @@
   }
 
   function closeModal() {
+    jobDetailToken += 1;
     selectedJob = null;
+    selectedJobDetail = null;
+    jobDetailLoading = false;
+    jobDetailError = '';
+  }
+
+  async function openJob(job) {
+    selectedJob = job;
+    selectedJobDetail = null;
+    jobDetailError = '';
+    const token = ++jobDetailToken;
+    jobDetailLoading = true;
+    try {
+      const detail = await api.job(job.id);
+      if (token === jobDetailToken) {
+        selectedJobDetail = detail;
+      }
+    } catch (err) {
+      if (token === jobDetailToken) {
+        jobDetailError = 'Failed to load logs.';
+      }
+    } finally {
+      if (token === jobDetailToken) {
+        jobDetailLoading = false;
+      }
+    }
   }
 
   function sortedJobs(list = jobs) {
@@ -172,7 +202,7 @@
             ondragover={(e) => e.preventDefault()}
             ondrop={(e) => onDrop(e, j)}
             ondragend={() => draggingJob = null}
-            onclick={() => (selectedJob = j)} 
+            onclick={() => openJob(j)} 
             style="cursor:pointer"
           >
             <td>{j.id}</td>
@@ -200,26 +230,36 @@
 </div>
 
 {#if selectedJob}
+  {@const modalJob = selectedJobDetail ?? selectedJob}
   <Modal wide onClose={closeModal}>
     <h3 class="job-modal-header">
-      <span>Job #{selectedJob.id}</span>
-      <span><code>{getChallengeName(challenges, getExploitRunInfo(selectedJob.exploit_run_id)?.challenge_id)}</code></span>
-      <span class={`job-status status-${selectedJob.status || 'unknown'}`}>{formatStatus(selectedJob.status)}</span>
+      <span>Job #{modalJob.id}</span>
+      <span><code>{getChallengeName(challenges, getExploitRunInfo(modalJob.exploit_run_id)?.challenge_id)}</code></span>
+      <span class={`job-status status-${modalJob.status || 'unknown'}`}>{formatStatus(modalJob.status)}</span>
     </h3>
     <div class="job-info">
-      <p><strong>Exploit:</strong> {getExploitName(exploits, getExploitRunInfo(selectedJob.exploit_run_id)?.exploit_id)}</p>
-      <p><strong>Team:</strong> <span class="truncate">{getTeamDisplay(teams, selectedJob.team_id)}</span></p>
-      <p><strong>Priority:</strong> {selectedJob.priority}</p>
-      <p><strong>Duration:</strong> {selectedJob.duration_ms ? `${selectedJob.duration_ms}ms` : '-'}</p>
-      {#if selectedJob.container_id}<p><strong>Container:</strong> <code>{selectedJob.container_id.slice(0, 12)}</code></p>{/if}
+      <p><strong>Exploit:</strong> {getExploitName(exploits, getExploitRunInfo(modalJob.exploit_run_id)?.exploit_id)}</p>
+      <p><strong>Team:</strong> <span class="truncate">{getTeamDisplay(teams, modalJob.team_id)}</span></p>
+      <p><strong>Priority:</strong> {modalJob.priority}</p>
+      <p><strong>Duration:</strong> {modalJob.duration_ms ? `${modalJob.duration_ms}ms` : '-'}</p>
+      {#if modalJob.container_id}<p><strong>Container:</strong> <code>{modalJob.container_id.slice(0, 12)}</code></p>{/if}
     </div>
-    {#if selectedJob.stdout}
-      <div class="modal-section-label">Stdout</div>
-      <pre class="log-output">{@html renderAnsi(selectedJob.stdout)}</pre>
-    {/if}
-    {#if selectedJob.stderr}
-      <div class="modal-section-label">Stderr</div>
-      <pre class="log-output stderr">{@html renderAnsi(selectedJob.stderr)}</pre>
+    {#if jobDetailLoading}
+      <p class="muted">Loading logs...</p>
+    {:else if jobDetailError}
+      <p class="muted">{jobDetailError}</p>
+    {:else}
+      {#if selectedJobDetail?.stdout}
+        <div class="modal-section-label">Stdout</div>
+        <pre class="log-output">{@html renderAnsi(selectedJobDetail.stdout)}</pre>
+      {/if}
+      {#if selectedJobDetail?.stderr}
+        <div class="modal-section-label">Stderr</div>
+        <pre class="log-output stderr">{@html renderAnsi(selectedJobDetail.stderr)}</pre>
+      {/if}
+      {#if !selectedJobDetail?.stdout && !selectedJobDetail?.stderr}
+        <p class="muted">No logs available.</p>
+      {/if}
     {/if}
     <div class="modal-actions">
       <button onclick={closeModal}>Close</button>

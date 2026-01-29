@@ -370,7 +370,10 @@ impl Database {
     }
 
     pub async fn list_jobs(&self, round_id: i32) -> Result<Vec<ExploitJob>> {
-        Ok(sqlx::query_as!(ExploitJob, "SELECT * FROM exploit_jobs WHERE round_id = $1 ORDER BY priority DESC", round_id).fetch_all(&self.pool).await?)
+        Ok(sqlx::query_as!(ExploitJob,
+            "SELECT id, round_id, exploit_run_id, team_id, priority, status, container_id, NULL::TEXT AS stdout, NULL::TEXT AS stderr, duration_ms, started_at, finished_at, created_at FROM exploit_jobs WHERE round_id = $1 ORDER BY priority DESC",
+            round_id
+        ).fetch_all(&self.pool).await?)
     }
 
     pub async fn get_job(&self, id: i32) -> Result<ExploitJob> {

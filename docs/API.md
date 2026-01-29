@@ -223,7 +223,12 @@ List jobs.
 
 **Query:** `round_id?: int`
 
-**Response:** `ExploitJob[]`
+**Response:** `ExploitJob[]` (stdout/stderr omitted)
+
+### `GET /api/jobs/{id}`
+Get job detail, including stdout/stderr logs.
+
+**Response:** `ExploitJob`
 
 ### `POST /api/jobs/reorder`
 Reorder jobs.
