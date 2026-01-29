@@ -157,6 +157,7 @@ pub struct ExploitJob {
     pub stdout: Option<String>,
     pub stderr: Option<String>,
     pub duration_ms: Option<i32>,
+    pub schedule_at: Option<DateTime<Utc>>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,

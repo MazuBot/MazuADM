@@ -263,6 +263,10 @@ impl SchedulerRunner {
         while self.semaphore.available_permits() > 0 {
             let Some(job) = self.queue.pop_next() else { break; };
 
+            if let Err(e) = self.scheduler.db.mark_job_scheduled(job.id).await {
+                tracing::error!("Failed to mark job {} scheduled: {}", job.id, e);
+            }
+
             let db = self.scheduler.db.clone();
             let tx = self.scheduler.tx.clone();
             let ctx = match build_job_context_or_finish(&db, &tx, job.id).await {
@@ -569,6 +573,7 @@ mod tests {
             stdout: None,
             stderr: None,
             duration_ms: None,
+            schedule_at: None,
             started_at: None,
             finished_at: None,
             created_at: Utc.timestamp_opt(0, 0).single().unwrap(),

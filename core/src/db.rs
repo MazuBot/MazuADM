@@ -298,14 +298,14 @@ impl Database {
     }
 
     pub async fn reset_jobs_for_round(&self, round_id: i32) -> Result<u64> {
-        let result = sqlx::query!("UPDATE exploit_jobs SET status = 'pending', started_at = NULL, finished_at = NULL, stdout = NULL, stderr = NULL, duration_ms = NULL WHERE round_id = $1", round_id)
+        let result = sqlx::query!("UPDATE exploit_jobs SET status = 'pending', schedule_at = NULL, started_at = NULL, finished_at = NULL, stdout = NULL, stderr = NULL, duration_ms = NULL WHERE round_id = $1", round_id)
             .execute(&self.pool).await?;
         Ok(result.rows_affected())
     }
 
     pub async fn reset_unflagged_jobs_for_round(&self, round_id: i32) -> Result<u64> {
         let result = sqlx::query!(
-            "UPDATE exploit_jobs SET status = 'pending', started_at = NULL, finished_at = NULL, stdout = NULL, stderr = NULL, duration_ms = NULL WHERE round_id = $1 AND status != 'flag'",
+            "UPDATE exploit_jobs SET status = 'pending', schedule_at = NULL, started_at = NULL, finished_at = NULL, stdout = NULL, stderr = NULL, duration_ms = NULL WHERE round_id = $1 AND status != 'flag'",
             round_id
         )
         .execute(&self.pool)
@@ -371,7 +371,7 @@ impl Database {
 
     pub async fn list_jobs(&self, round_id: i32) -> Result<Vec<ExploitJob>> {
         Ok(sqlx::query_as!(ExploitJob,
-            "SELECT id, round_id, exploit_run_id, team_id, priority, status, container_id, NULL::TEXT AS stdout, NULL::TEXT AS stderr, duration_ms, started_at, finished_at, created_at FROM exploit_jobs WHERE round_id = $1 ORDER BY priority DESC",
+            "SELECT id, round_id, exploit_run_id, team_id, priority, status, container_id, NULL::TEXT AS stdout, NULL::TEXT AS stderr, duration_ms, schedule_at, started_at, finished_at, created_at FROM exploit_jobs WHERE round_id = $1 ORDER BY priority DESC",
             round_id
         ).fetch_all(&self.pool).await?)
     }
@@ -405,6 +405,13 @@ impl Database {
         } else {
             sqlx::query!("UPDATE exploit_jobs SET status = $2 WHERE id = $1", id, status).execute(&self.pool).await?;
         }
+        Ok(())
+    }
+
+    pub async fn mark_job_scheduled(&self, id: i32) -> Result<()> {
+        sqlx::query!("UPDATE exploit_jobs SET schedule_at = NOW() WHERE id = $1", id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

@@ -104,6 +104,7 @@ Individual exploit executions within a round.
 | stdout | TEXT | YES | Container stdout |
 | stderr | TEXT | YES | Container stderr |
 | duration_ms | INTEGER | YES | Execution time in milliseconds |
+| schedule_at | TIMESTAMPTZ | YES | Job scheduled time (set when picked by scheduler) |
 | started_at | TIMESTAMPTZ | YES | Job start time |
 | finished_at | TIMESTAMPTZ | YES | Job completion time |
 | created_at | TIMESTAMPTZ | NO | Creation timestamp |

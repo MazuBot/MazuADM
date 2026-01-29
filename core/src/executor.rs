@@ -563,6 +563,7 @@ mod tests {
             stdout: None,
             stderr: None,
             duration_ms: None,
+            schedule_at: None,
             started_at: None,
             finished_at: None,
             created_at: Utc.timestamp_opt(0, 0).single().unwrap(),

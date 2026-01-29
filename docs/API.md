@@ -439,6 +439,7 @@ Update a relation.
   "stdout": "string?",
   "stderr": "string?",
   "duration_ms": "int?",
+  "schedule_at": "datetime?",
   "started_at": "datetime?",
   "finished_at": "datetime?",
   "created_at": "datetime"
