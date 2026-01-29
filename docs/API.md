@@ -438,6 +438,7 @@ Update a relation.
   "container_id": "string?",
   "stdout": "string?",
   "stderr": "string?",
+  "create_reason": "string?",
   "duration_ms": "int?",
   "schedule_at": "datetime?",
   "started_at": "datetime?",

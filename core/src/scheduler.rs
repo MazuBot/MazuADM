@@ -342,7 +342,7 @@ impl Scheduler {
         jobs.sort_by(|a, b| b.2.cmp(&a.2)); // Higher priority first
 
         for (run_id, team_id, priority) in jobs {
-            self.db.create_job(round.id, run_id, team_id, priority).await?;
+            self.db.create_job(round.id, run_id, team_id, priority, Some("new_round")).await?;
         }
 
         Ok(round.id)
@@ -572,6 +572,7 @@ mod tests {
             container_id: None,
             stdout: None,
             stderr: None,
+            create_reason: None,
             duration_ms: None,
             schedule_at: None,
             started_at: None,

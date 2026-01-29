@@ -165,7 +165,7 @@ pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Expl
             let exploit_runs: Vec<_> = runs.iter().filter(|r| r.exploit_id == exploit.id).collect();
             for round in rounds {
                 for run in &exploit_runs {
-                    if let Ok(job) = s.db.create_job(round.id, run.id, run.team_id, 0).await {
+                    if let Ok(job) = s.db.create_job(round.id, run.id, run.team_id, 0, Some("enqueue_exploit")).await {
                         inserted_jobs = true;
                         broadcast_job(&s, "job_created", &job);
                     }
@@ -325,7 +325,7 @@ pub async fn enqueue_single_job(State(s): S, Json(req): Json<EnqueueSingleJobReq
     let run = s.db.get_exploit_run(req.exploit_run_id).await.map_err(err)?;
     let round_id = require_running_round_id(&s).await?;
     let max_priority = s.db.get_max_priority_for_round(round_id).await.map_err(err)?;
-    let job = s.db.create_job(round_id, run.id, req.team_id, max_priority + 1).await.map_err(err)?;
+    let job = s.db.create_job(round_id, run.id, req.team_id, max_priority + 1, Some("enqueue_exploit")).await.map_err(err)?;
     broadcast_job(&s, "job_created", &job);
     s.scheduler.send(SchedulerCommand::RefreshJob(job.id)).map_err(err)?;
     Ok(Json(job))
@@ -345,7 +345,8 @@ pub async fn enqueue_existing_job(State(s): S, Path(job_id): Path<i32>) -> R<Exp
     }
 
     let run_id = job.exploit_run_id.ok_or_else(|| "Job has no exploit_run_id".to_string())?;
-    let new_job = s.db.create_job(round_id, run_id, job.team_id, max_priority + 1).await.map_err(err)?;
+    let create_reason = format!("rerun_existing:{}", job_id);
+    let new_job = s.db.create_job(round_id, run_id, job.team_id, max_priority + 1, Some(&create_reason)).await.map_err(err)?;
     broadcast_job(&s, "job_created", &new_job);
     s.scheduler.send(SchedulerCommand::RefreshJob(new_job.id)).map_err(err)?;
     Ok(Json(new_job))

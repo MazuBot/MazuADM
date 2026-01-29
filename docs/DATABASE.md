@@ -103,6 +103,7 @@ Individual exploit executions within a round.
 | container_id | VARCHAR(100) | YES | Docker container ID used |
 | stdout | TEXT | YES | Container stdout |
 | stderr | TEXT | YES | Container stderr |
+| create_reason | TEXT | YES | Reason the job was created (e.g., new_round, enqueue_exploit, rerun_existing:<id>, rerun_unflagged) |
 | duration_ms | INTEGER | YES | Execution time in milliseconds |
 | schedule_at | TIMESTAMPTZ | YES | Job scheduled time (set when picked by scheduler) |
 | started_at | TIMESTAMPTZ | YES | Job start time |

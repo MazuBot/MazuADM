@@ -562,6 +562,7 @@ mod tests {
             container_id: None,
             stdout: None,
             stderr: None,
+            create_reason: None,
             duration_ms: None,
             schedule_at: None,
             started_at: None,

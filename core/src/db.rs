@@ -362,16 +362,16 @@ impl Database {
     }
 
     // Jobs
-    pub async fn create_job(&self, round_id: i32, exploit_run_id: i32, team_id: i32, priority: i32) -> Result<ExploitJob> {
+    pub async fn create_job(&self, round_id: i32, exploit_run_id: i32, team_id: i32, priority: i32, create_reason: Option<&str>) -> Result<ExploitJob> {
         Ok(sqlx::query_as!(ExploitJob,
-            "INSERT INTO exploit_jobs (round_id, exploit_run_id, team_id, priority) VALUES ($1, $2, $3, $4) RETURNING *",
-            round_id, exploit_run_id, team_id, priority
+            "INSERT INTO exploit_jobs (round_id, exploit_run_id, team_id, priority, create_reason) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+            round_id, exploit_run_id, team_id, priority, create_reason
         ).fetch_one(&self.pool).await?)
     }
 
     pub async fn list_jobs(&self, round_id: i32) -> Result<Vec<ExploitJob>> {
         Ok(sqlx::query_as!(ExploitJob,
-            "SELECT id, round_id, exploit_run_id, team_id, priority, status, container_id, NULL::TEXT AS stdout, NULL::TEXT AS stderr, duration_ms, schedule_at, started_at, finished_at, created_at FROM exploit_jobs WHERE round_id = $1 ORDER BY priority DESC",
+            "SELECT id, round_id, exploit_run_id, team_id, priority, status, container_id, NULL::TEXT AS stdout, NULL::TEXT AS stderr, create_reason, duration_ms, schedule_at, started_at, finished_at, created_at FROM exploit_jobs WHERE round_id = $1 ORDER BY priority DESC",
             round_id
         ).fetch_all(&self.pool).await?)
     }
