@@ -33,7 +33,7 @@
 
     if (selectedId !== $selectedRoundId) selectedRoundId.set(selectedId)
     if (selectedId && routeId !== selectedId) {
-      goto(`/rounds/${selectedId}`, { replaceState: true, keepFocus: true, noScroll: true })
+      goto(`/jobs/${selectedId}`, { replaceState: true, keepFocus: true, noScroll: true })
     }
   }
 
@@ -44,13 +44,13 @@
 
   function selectRound(id) {
     selectedRoundId.set(id)
-    if (id) goto(`/rounds/${id}`)
-    else goto('/rounds')
+    if (id) goto(`/jobs/${id}`)
+    else goto('/jobs')
   }
 
   async function newRound() {
     const id = await createRound()
-    if (id) goto(`/rounds/${id}`)
+    if (id) goto(`/jobs/${id}`)
   }
 
   async function runRoundHandler(id) {

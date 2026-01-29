@@ -17,7 +17,7 @@
 
   function navHref(section) {
     if (section === 'board') return $selectedChallengeId ? `/board/${$selectedChallengeId}` : '/board'
-    if (section === 'rounds') return $selectedRoundId ? `/rounds/${$selectedRoundId}` : '/rounds'
+    if (section === 'jobs') return $selectedRoundId ? `/jobs/${$selectedRoundId}` : '/jobs'
     if (section === 'flags') return $selectedFlagRoundId ? `/flags/${$selectedFlagRoundId}` : '/flags'
     return `/${section}`
   }
@@ -36,7 +36,7 @@
       <a class:active={pathname.startsWith('/board')} href={navHref('board')}>Board</a>
       <a class:active={pathname.startsWith('/challenges')} href={navHref('challenges')}>Challenges</a>
       <a class:active={pathname.startsWith('/teams')} href={navHref('teams')}>Teams</a>
-      <a class:active={pathname.startsWith('/rounds')} href={navHref('rounds')}>Rounds</a>
+      <a class:active={pathname.startsWith('/jobs')} href={navHref('jobs')}>Jobs</a>
       <a class:active={pathname.startsWith('/flags')} href={navHref('flags')}>Flags</a>
       <a class:active={pathname.startsWith('/containers')} href={navHref('containers')}>Containers</a>
       <a class:active={pathname.startsWith('/settings')} href={navHref('settings')}>Settings</a>

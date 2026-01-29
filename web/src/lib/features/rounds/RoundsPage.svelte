@@ -86,8 +86,24 @@
     }
   }
 
+  function jobStartMs(job) {
+    if (!job.started_at) return null;
+    const ms = Date.parse(job.started_at);
+    return Number.isNaN(ms) ? null : ms;
+  }
+
   function sortedJobs(list = jobs) {
-    return [...list].sort((a, b) => b.priority - a.priority || a.id - b.id);
+    return [...list].sort((a, b) => {
+      const aStart = jobStartMs(a);
+      const bStart = jobStartMs(b);
+
+      if (aStart !== null && bStart !== null) {
+        return aStart - bStart || a.id - b.id;
+      }
+      if (aStart !== null) return -1;
+      if (bStart !== null) return 1;
+      return b.priority - a.priority || a.id - b.id;
+    });
   }
 
   function filterJobs() {
