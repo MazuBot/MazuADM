@@ -93,7 +93,7 @@
     }
   }
 
-  function jobStartMs(job) {
+  function jobScheduleMs(job) {
     if (!job.schedule_at) return null;
     const ms = Date.parse(job.schedule_at);
     return Number.isNaN(ms) ? null : ms;
@@ -101,14 +101,14 @@
 
   function sortedJobs(list = jobs) {
     return [...list].sort((a, b) => {
-      const aStart = jobStartMs(a);
-      const bStart = jobStartMs(b);
+      const aSchedule = jobScheduleMs(a);
+      const bSchedule = jobScheduleMs(b);
 
-      if (aStart !== null && bStart !== null) {
-        return aStart - bStart || a.id - b.id;
+      if (aSchedule !== null && bSchedule !== null) {
+        return aSchedule - bSchedule || a.id - b.id;
       }
-      if (aStart !== null) return -1;
-      if (bStart !== null) return 1;
+      if (aSchedule !== null) return -1;
+      if (bSchedule !== null) return 1;
       return b.priority - a.priority || a.id - b.id;
     });
   }
@@ -207,7 +207,7 @@
           <th>Challenge</th>
           <th>Exploit</th>
           <th>Team</th>
-          <th>Start Reason</th>
+          <th>Create Reason</th>
           <th>Container</th>
           <th>Priority</th>
           <th>Status</th>
