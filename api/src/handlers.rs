@@ -362,7 +362,7 @@ pub async fn enqueue_existing_job(State(s): S, Path(job_id): Path<i32>) -> R<Exp
     }
 
     let run_id = job.exploit_run_id.ok_or_else(|| "Job has no exploit_run_id".to_string())?;
-    let create_reason = format!("rerun_existing:{}", job_id);
+    let create_reason = format!("rerun_job:{}", job_id);
     let new_job = s.db.create_job(round_id, run_id, job.team_id, max_priority + 1, Some(&create_reason)).await.map_err(err)?;
     broadcast_job(&s, "job_created", &new_job);
     s.scheduler.send(SchedulerCommand::RefreshJob(new_job.id)).map_err(err)?;

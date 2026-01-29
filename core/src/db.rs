@@ -285,7 +285,7 @@ impl Database {
     pub async fn clone_unflagged_jobs_for_round(&self, round_id: i32) -> Result<u64> {
         let result = sqlx::query!(
             "INSERT INTO exploit_jobs (round_id, exploit_run_id, team_id, priority, create_reason)
-             SELECT $1, ej.exploit_run_id, ej.team_id, ej.priority, 'rerun_unflagged'
+             SELECT $1, ej.exploit_run_id, ej.team_id, ej.priority, 'rerun_flag:' || ej.id::text
              FROM exploit_jobs ej
              JOIN exploit_runs er ON er.id = ej.exploit_run_id
              WHERE ej.round_id = $1
