@@ -221,6 +221,17 @@ impl SchedulerRunner {
         Ok(())
     }
 
+    fn sync_semaphore(&self) {
+        let desired_available = self.concurrent_limit.saturating_sub(self.running_jobs);
+        let current_available = self.semaphore.available_permits();
+        if current_available < desired_available {
+            self.semaphore.add_permits(desired_available - current_available);
+        } else if current_available > desired_available {
+            let to_forget = current_available - desired_available;
+            let _ = self.semaphore.forget_permits(to_forget);
+        }
+    }
+
     async fn refresh_job(&mut self, job_id: i32) -> Result<()> {
         let job = self.scheduler.db.get_job(job_id).await?;
         if let Some(round_id) = self.round_id {
@@ -244,10 +255,8 @@ impl SchedulerRunner {
 
     fn update_settings(&mut self, settings: crate::settings::ExecutorSettings) {
         let concurrent_limit = settings.concurrent_limit.max(1);
-        if concurrent_limit > self.concurrent_limit {
-            self.semaphore.add_permits(concurrent_limit - self.concurrent_limit);
-        }
         self.concurrent_limit = concurrent_limit;
+        self.sync_semaphore();
         self.settings = Some(ScheduleSettings {
             worker_timeout: settings.worker_timeout,
             max_flags: settings.max_flags,
@@ -257,6 +266,7 @@ impl SchedulerRunner {
     }
 
     async fn schedule_more(&mut self) {
+        self.sync_semaphore();
         let Some(settings) = self.settings.clone() else { return; };
         let Some(round_id) = self.round_id else { return; };
 
