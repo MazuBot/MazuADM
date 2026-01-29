@@ -51,7 +51,7 @@
     const ids = containers.map((c) => c.id);
     markRestarting(ids);
     try {
-      await Promise.all(containers.map((c) => api.restartContainer(c.id)));
+      await api.restartAllContainers();
       await onLoadContainers();
     } finally {
       clearRestarting(ids);
@@ -61,7 +61,7 @@
   async function removeAllContainers() {
     if (!containers?.length) return;
     if (!confirm(`Remove all ${containers.length} containers?`)) return;
-    await Promise.all(containers.map((c) => api.deleteContainer(c.id)));
+    await api.removeAllContainers();
     await onLoadContainers();
   }
 </script>
@@ -83,7 +83,7 @@
   <div class="panel-header">
     <h2>Containers</h2>
     <div class="panel-actions">
-      <button class="small" onclick={reloadContainers} disabled={!hasContainers}>Reload</button>
+      <button class="small" onclick={reloadContainers}>Reload</button>
       <button class="small" onclick={restartAllContainers} disabled={!hasContainers || restarting.size > 0}>Restart All</button>
       <button class="small danger" onclick={removeAllContainers} disabled={!hasContainers}>Remove All</button>
     </div>

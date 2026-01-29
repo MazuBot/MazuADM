@@ -28,6 +28,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/flags", get(list_flags))
         .route("/api/settings", get(list_settings).post(update_setting))
         .route("/api/containers", get(list_containers))
+        .route("/api/containers/restart-all", post(restart_all_containers))
+        .route("/api/containers/remove-all", post(remove_all_containers))
         .route("/api/containers/{id}", delete(delete_container))
         .route("/api/containers/{id}/runners", get(get_container_runners))
         .route("/api/containers/{id}/restart", post(restart_container))

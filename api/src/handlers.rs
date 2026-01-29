@@ -1,7 +1,7 @@
 use crate::events::WsMessage;
 use crate::AppState;
 use axum::{extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade}}, Json, response::Response};
-use futures_util::StreamExt;
+use futures_util::{stream, StreamExt};
 use mazuadm_core::*;
 use mazuadm_core::scheduler::{select_running_round_id, SchedulerCommand};
 use std::sync::Arc;
@@ -402,6 +402,60 @@ pub async fn restart_container(State(s): S, Path(id): Path<String>) -> R<String>
     let cm = s.executor.container_manager.clone();
     cm.restart_container_by_id(&id).await.map_err(err)?;
     Ok(Json("ok".to_string()))
+}
+
+pub async fn restart_all_containers(State(s): S) -> R<String> {
+    let cm = s.executor.container_manager.clone();
+    let containers = cm.list_containers().await.map_err(err)?;
+    let ids: Vec<String> = containers.into_iter().map(|c| c.id).collect();
+    let results = stream::iter(ids)
+        .map(|id| {
+            let cm = cm.clone();
+            async move { (id.clone(), cm.restart_container_by_id(&id).await) }
+        })
+        .buffer_unordered(10)
+        .collect::<Vec<_>>()
+        .await;
+    let failures: Vec<String> = results
+        .into_iter()
+        .filter_map(|(id, res)| res.err().map(|e| format!("{}: {}", id, e)))
+        .collect();
+    if failures.is_empty() {
+        Ok(Json("ok".to_string()))
+    } else {
+        Err(format!(
+            "Failed to restart {} containers: {}",
+            failures.len(),
+            failures.join("; ")
+        ))
+    }
+}
+
+pub async fn remove_all_containers(State(s): S) -> R<String> {
+    let cm = s.executor.container_manager.clone();
+    let containers = cm.list_containers().await.map_err(err)?;
+    let ids: Vec<String> = containers.into_iter().map(|c| c.id).collect();
+    let results = stream::iter(ids)
+        .map(|id| {
+            let cm = cm.clone();
+            async move { (id.clone(), cm.destroy_container_by_id(&id).await) }
+        })
+        .buffer_unordered(10)
+        .collect::<Vec<_>>()
+        .await;
+    let failures: Vec<String> = results
+        .into_iter()
+        .filter_map(|(id, res)| res.err().map(|e| format!("{}: {}", id, e)))
+        .collect();
+    if failures.is_empty() {
+        Ok(Json("ok".to_string()))
+    } else {
+        Err(format!(
+            "Failed to remove {} containers: {}",
+            failures.len(),
+            failures.join("; ")
+        ))
+    }
 }
 
 // Relations

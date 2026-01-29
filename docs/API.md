@@ -311,6 +311,12 @@ List containers.
 Destroy a container.
 `id` is the Docker container ID.
 
+### `POST /api/containers/restart-all`
+Restart all managed containers.
+
+### `POST /api/containers/remove-all`
+Remove all managed containers.
+
 ### `GET /api/containers/{id}/runners`
 Get running jobs for a container.
 `id` is the Docker container ID.

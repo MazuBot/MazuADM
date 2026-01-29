@@ -182,6 +182,8 @@ pub struct AppState {
 | `/api/settings` | GET | `list_settings` |
 | `/api/settings` | POST | `update_setting` |
 | `/api/containers` | GET | `list_containers` |
+| `/api/containers/restart-all` | POST | `restart_all_containers` |
+| `/api/containers/remove-all` | POST | `remove_all_containers` |
 | `/api/containers/{id}` | DELETE | `delete_container` |
 | `/api/containers/{id}/runners` | GET | `get_container_runners` |
 | `/api/containers/{id}/restart` | POST | `restart_container` |
