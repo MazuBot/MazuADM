@@ -7,6 +7,7 @@ use bollard::query_parameters::{
     RemoveContainerOptions,
     InspectContainerOptions,
     ListContainersOptions,
+    RestartContainerOptions,
 };
 use bollard::exec::{CreateExecOptions, StartExecOptions};
 use bollard::secret::{ContainerCreateBody, HostConfig};
@@ -24,6 +25,7 @@ pub struct ContainerManager {
     spawn_gate: Arc<Semaphore>,
     spawn_limit: Arc<AtomicUsize>,
     registry: Arc<Mutex<ContainerRegistry>>,
+    restart_in_flight: Arc<Mutex<HashSet<String>>>,
 }
 
 const MAX_OUTPUT: usize = 256 * 1024; // 256KB limit
@@ -151,6 +153,7 @@ impl ContainerManager {
             spawn_gate: Arc::new(Semaphore::new(1)),
             spawn_limit: Arc::new(AtomicUsize::new(1)),
             registry: Arc::new(Mutex::new(ContainerRegistry::default())),
+            restart_in_flight: Arc::new(Mutex::new(HashSet::new())),
         })
     }
 
@@ -391,6 +394,20 @@ impl ContainerManager {
             }
         }
         Some(container)
+    }
+
+    async fn begin_restart(&self, container_id: &str) -> bool {
+        let mut guard = self.restart_in_flight.lock().await;
+        if guard.contains(container_id) {
+            return false;
+        }
+        guard.insert(container_id.to_string());
+        true
+    }
+
+    async fn end_restart(&self, container_id: &str) {
+        let mut guard = self.restart_in_flight.lock().await;
+        guard.remove(container_id);
     }
 
     async fn list_managed_containers(&self) -> Result<Vec<bollard::models::ContainerSummary>> {
@@ -640,28 +657,18 @@ impl ContainerManager {
 
     /// Restart a container by ID
     pub async fn restart_container_by_id(&self, container_id: &str) -> Result<()> {
-        let (exploit_id, affinity_runs) = {
-            let guard = self.registry.lock().await;
-            let exploit_id = guard.by_id.get(container_id).map(|c| c.exploit_id);
-            let runs = guard.reverse_affinity.get(container_id).map(sorted_run_ids);
-            (exploit_id, runs)
-        };
+        if !self.begin_restart(container_id).await {
+            return Ok(());
+        }
 
-        let (exploit_id, affinity_runs) = if let Some(exploit_id) = exploit_id {
-            let _ = self.detach_container(container_id).await;
-            (exploit_id, affinity_runs)
-        } else {
-            let info = self.docker.inspect_container(container_id, None::<InspectContainerOptions>).await?;
-            let labels = info.config.and_then(|c| c.labels).unwrap_or_default();
-            let exploit_id = parse_label_i32(&labels, LABEL_EXPLOIT_ID).ok_or_else(|| anyhow::anyhow!("Missing exploit_id label"))?;
-            let runs = labels.get(LABEL_AFFINITY_LIST).map(|v| parse_affinity_list(v));
-            (exploit_id, runs)
-        };
+        let result = self
+            .docker
+            .restart_container(container_id, Some(RestartContainerOptions { t: Some(5), signal: None }))
+            .await
+            .map_err(Into::into);
 
-        let _ = self.docker.remove_container(container_id, Some(RemoveContainerOptions { force: true, ..Default::default() })).await;
-        let exploit = self.db.get_exploit(exploit_id).await?;
-        let _ = self.spawn_container(&exploit, exploit.max_per_container.max(1) as usize, affinity_runs).await?;
-        Ok(())
+        self.end_restart(container_id).await;
+        result
     }
 
     /// Destroy all containers for an exploit

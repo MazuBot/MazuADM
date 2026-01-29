@@ -313,7 +313,7 @@ Get running jobs for a container.
 **Response:** `ExploitJob[]`
 
 ### `POST /api/containers/{id}/restart`
-Restart a container (destroys and recreates the container).
+Restart a container (Docker restart; preserves container ID and labels). Repeated requests while a restart is in-flight are ignored.
 `id` is the Docker container ID.
 
 ---
