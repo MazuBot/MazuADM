@@ -469,15 +469,58 @@
     }
   }
 
-  function onColumnDrop(e, teamId) {
+  async function onColumnDrop(e, teamId) {
     e.preventDefault();
     cleanupDragPreview();
     const exploitId = e.dataTransfer.getData('exploitId');
     if (exploitId) {
       addRun(+exploitId, teamId);
+      clearDragOver();
+      draggingCard = null;
+      return;
     }
+
+    if (!draggingCard || draggingCard.team_id !== teamId) {
+      clearDragOver();
+      draggingCard = null;
+      return;
+    }
+
+    const runs = getRunsForTeam(teamId);
+    const fromIdx = runs.findIndex(r => r.id === draggingCard.id);
+    if (fromIdx < 0) {
+      clearDragOver();
+      draggingCard = null;
+      return;
+    }
+    let targetIdx = dragOverTeamId === teamId ? (dragOverIndex ?? runs.length) : runs.length;
+    if (targetIdx === fromIdx) {
+      clearDragOver();
+      draggingCard = null;
+      return;
+    }
+
+    const reordered = [...runs];
+    reordered.splice(fromIdx, 1);
+    if (targetIdx > fromIdx) targetIdx -= 1;
+    const clampedIdx = Math.max(0, Math.min(reordered.length, targetIdx));
+    reordered.splice(clampedIdx, 0, draggingCard);
+
+    const updates = reordered
+      .map((r, i) => ({ id: r.id, sequence: i }))
+      .filter((u, i) => reordered[i].sequence !== u.sequence);
+    const runIds = reordered.map((r) => r.id);
+    setOptimisticOrder(reordered);
     clearDragOver();
     draggingCard = null;
+    try {
+      if (updates.length > 0) {
+        await api.reorderExploitRuns(updates);
+      }
+      await onRefresh();
+    } finally {
+      clearOptimisticOrder(runIds);
+    }
   }
 
   function onCardDragEnd() {
@@ -491,6 +534,31 @@
     const rect = e.currentTarget?.getBoundingClientRect?.();
     const midpoint = rect ? rect.top + rect.height / 2 : e.clientY;
     const targetIndex = e.clientY < midpoint ? baseIndex : baseIndex + 1;
+    if (dragOverIndex === targetIndex && dragOverTeamId === teamId) return;
+    dragOverIndex = targetIndex;
+    dragOverTeamId = teamId;
+  }
+
+  function onColumnDragOver(e, teamId) {
+    e.preventDefault();
+    if (!draggingCard || draggingCard.team_id !== teamId) return;
+    if (e.target?.closest?.('.card')) return;
+    const runs = getRunsForTeam(teamId);
+    const cards = e.currentTarget?.querySelectorAll?.('.card');
+    let targetIndex = runs.length;
+    if (cards?.length) {
+      const firstRect = cards[0].getBoundingClientRect();
+      const lastRect = cards[cards.length - 1].getBoundingClientRect();
+      const topMid = firstRect.top + firstRect.height / 2;
+      const bottomMid = lastRect.top + lastRect.height / 2;
+      if (e.clientY < topMid) {
+        targetIndex = 0;
+      } else if (e.clientY > bottomMid) {
+        targetIndex = runs.length;
+      }
+    } else {
+      targetIndex = 0;
+    }
     if (dragOverIndex === targetIndex && dragOverTeamId === teamId) return;
     dragOverIndex = targetIndex;
     dragOverTeamId = teamId;
@@ -578,7 +646,7 @@
         id={teamAnchor(team)}
         role="list"
         aria-label={`Runs for ${team.team_name}`}
-        ondragover={(e) => e.preventDefault()}
+        ondragover={(e) => onColumnDragOver(e, team.id)}
         ondrop={(e) => onColumnDrop(e, team.id)}
       >
         <h3>

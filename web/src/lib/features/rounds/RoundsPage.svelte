@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from 'svelte';
   import { AnsiUp } from 'ansi_up';
   import * as api from '$lib/data/api';
   import Modal from '$lib/ui/Modal.svelte';
@@ -20,6 +21,9 @@
   let jobDetailError = $state('');
   let jobDetailToken = 0;
   let draggingJob = $state(null);
+  let dragPreviewEl = $state(null);
+  let optimisticPriority = $state(null);
+  let dragPreviewPriority = $state(null);
   let challengeFilterId = $state('');
   let teamFilterId = $state('');
   let statusFilter = $state('');
@@ -112,7 +116,9 @@
       }
       if (aSchedule !== null) return -1;
       if (bSchedule !== null) return 1;
-      return b.priority - a.priority || a.id - b.id;
+      const aPriority = getJobPriority(a);
+      const bPriority = getJobPriority(b);
+      return bPriority - aPriority || a.id - b.id;
     });
   }
 
@@ -161,29 +167,123 @@
   let selectedRound = $derived(getSelectedRound());
   let isPendingRound = $derived(selectedRound?.status === 'pending');
 
+  onMount(() => {
+    const onKeydown = (e) => {
+      if (e.key === 'Escape' && draggingJob) {
+        e.preventDefault();
+        cancelDrag();
+      }
+    };
+    window.addEventListener('keydown', onKeydown);
+    return () => window.removeEventListener('keydown', onKeydown);
+  });
+
+  function getJobPriority(job) {
+    if (optimisticPriority?.id === job.id) return optimisticPriority.priority;
+    if (draggingJob?.id === job.id && dragPreviewPriority !== null) return dragPreviewPriority;
+    return job.priority;
+  }
+
+  function cleanupDragPreview() {
+    if (dragPreviewEl?.parentNode) {
+      dragPreviewEl.parentNode.removeChild(dragPreviewEl);
+    }
+    dragPreviewEl = null;
+  }
+
+  function clearDragOver() {
+    dragPreviewPriority = null;
+  }
+
+  function cancelDrag() {
+    cleanupDragPreview();
+    clearDragOver();
+    draggingJob = null;
+  }
+
   function onDragStart(e, job) {
     if (job.status !== 'pending') { e.preventDefault(); return; }
     draggingJob = job;
+    clearDragOver();
+    if (!e.dataTransfer) return;
     e.dataTransfer.effectAllowed = 'move';
+    cleanupDragPreview();
+    const rowEl = e.currentTarget;
+    if (!rowEl) return;
+    const previewTable = document.createElement('table');
+    const previewTbody = document.createElement('tbody');
+    const previewRow = rowEl.cloneNode(true);
+    previewTbody.appendChild(previewRow);
+    previewTable.appendChild(previewTbody);
+    previewTable.classList.add('drag-preview');
+    const rect = rowEl.getBoundingClientRect();
+    previewTable.style.width = `${rect.width}px`;
+    previewTable.style.position = 'absolute';
+    previewTable.style.top = '-1000px';
+    previewTable.style.left = '-1000px';
+    document.body.appendChild(previewTable);
+    dragPreviewEl = previewTable;
+    e.dataTransfer.setDragImage(previewTable, 16, 16);
+  }
+
+  function onRowDragOver(e, job) {
+    e.preventDefault();
+    if (!draggingJob || draggingJob.status !== 'pending') return;
+    if (job.status !== 'pending') return;
+    if (job.id === draggingJob.id) return;
+    const rect = e.currentTarget?.getBoundingClientRect?.();
+    const midpoint = rect ? rect.top + rect.height / 2 : e.clientY;
+    const baseTargetPriority = getJobPriority(job);
+    const targetPriority = Number.isFinite(baseTargetPriority) ? baseTargetPriority : 0;
+    const nextPriority = e.clientY < midpoint ? targetPriority + 1 : targetPriority - 1;
+    if (dragPreviewPriority === nextPriority) return;
+    dragPreviewPriority = nextPriority;
+  }
+
+  function getDisplayedJobs(list = filteredJobs) {
+    const sorted = sortedJobs(list);
+    if (!draggingJob || draggingJob.status !== 'pending') return sorted;
+    const pending = sorted.filter(j => j.status === 'pending');
+    if (dragPreviewPriority === null) return sorted;
+    const reordered = [...pending]
+      .map((job) => job.id === draggingJob.id ? { ...job, priority: dragPreviewPriority } : job)
+      .sort((a, b) => b.priority - a.priority || a.id - b.id);
+    let pendingIdx = 0;
+    return sorted.map((job) => job.status === 'pending' ? reordered[pendingIdx++] : job);
   }
 
   async function onDrop(e, targetJob) {
     e.preventDefault();
-    if (!draggingJob || draggingJob.id === targetJob.id) return;
-    if (draggingJob.status !== 'pending' || targetJob.status !== 'pending') return;
+    cleanupDragPreview();
+    if (!draggingJob || draggingJob.id === targetJob.id) { draggingJob = null; return; }
+    if (draggingJob.status !== 'pending' || targetJob.status !== 'pending') { draggingJob = null; return; }
 
-    const sorted = sortedJobs().filter(j => j.status === 'pending');
-    const fromIdx = sorted.findIndex(j => j.id === draggingJob.id);
-    const toIdx = sorted.findIndex(j => j.id === targetJob.id);
-    const reordered = [...sorted];
-    reordered.splice(fromIdx, 1);
-    reordered.splice(toIdx, 0, draggingJob);
-
-    const maxPrio = Math.max(...reordered.map(j => j.priority), 0);
-    const updates = reordered.map((j, i) => ({ id: j.id, priority: maxPrio - i }));
-    await api.reorderJobs(updates);
+    let newPriority = dragPreviewPriority;
+    if (newPriority === null || newPriority === undefined) {
+      const rect = e.currentTarget?.getBoundingClientRect?.();
+      const midpoint = rect ? rect.top + rect.height / 2 : e.clientY;
+      const baseTargetPriority = getJobPriority(targetJob);
+      const targetPriority = Number.isFinite(baseTargetPriority) ? baseTargetPriority : 0;
+      newPriority = e.clientY < midpoint ? targetPriority + 1 : targetPriority - 1;
+    }
+    if (newPriority === null || newPriority === undefined) { draggingJob = null; return; }
+    if (newPriority === draggingJob.priority) { draggingJob = null; return; }
+    optimisticPriority = { id: draggingJob.id, priority: newPriority };
+    const draggedId = draggingJob.id;
     draggingJob = null;
-    onRefresh?.();
+    clearDragOver();
+    try {
+      await api.reorderJobs([{ id: draggedId, priority: newPriority }]);
+    } finally {
+      await onRefresh?.();
+      optimisticPriority = null;
+    }
+  }
+
+  function onDragEnd() {
+    cleanupDragPreview();
+    clearDragOver();
+    draggingJob = null;
   }
 
   async function runJob(job, e) {
@@ -261,16 +361,16 @@
         </tr>
       </thead>
       <tbody>
-        {#each sortedJobs(filteredJobs) as j}
+        {#each getDisplayedJobs(filteredJobs) as j}
           <tr 
             class={j.status} 
             class:draggable={j.status === 'pending'}
             class:dragging={draggingJob?.id === j.id}
             draggable={j.status === 'pending'}
             ondragstart={(e) => onDragStart(e, j)}
-            ondragover={(e) => e.preventDefault()}
+            ondragover={(e) => onRowDragOver(e, j)}
             ondrop={(e) => onDrop(e, j)}
-            ondragend={() => draggingJob = null}
+            ondragend={onDragEnd}
             onclick={() => openJob(j)} 
             style="cursor:pointer"
           >
@@ -351,4 +451,6 @@
   .play-btn:disabled { cursor: not-allowed; opacity: 0.3; }
   .play-btn.stop { color: #ff6b6b; }
   .job-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  :global(.drag-preview) { pointer-events: none; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35); transform: rotate(-1deg); }
+  :global(.drag-preview .play-btn) { display: none; }
 </style>
