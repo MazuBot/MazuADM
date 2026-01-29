@@ -3,6 +3,7 @@
   import * as api from '$lib/data/api';
   import Modal from '$lib/ui/Modal.svelte';
   import FilterBar from '$lib/ui/FilterBar.svelte';
+  import Icon from '$lib/ui/Icon.svelte';
   import { buildStatusOptions } from '$lib/utils/filters.js';
   import { getChallengeName, getExploitName, getTeamDisplay } from '$lib/utils/lookup.js';
 
@@ -244,7 +245,7 @@
                 onclick={(e) => runJob(j, e)}
                 title={j.status === 'running' ? 'Stop now' : j.status === 'pending' ? 'Enqueue now' : 'Re-run'}
               >
-                {j.status === 'running' ? '⏹' : j.status === 'pending' ? '▶' : '↻'}
+                {#if j.status === 'running'}<Icon name="stop" />{:else if j.status === 'pending'}<Icon name="play" />{:else}<Icon name="rotate" />{/if}
               </button>
             </td>
           </tr>

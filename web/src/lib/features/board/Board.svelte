@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import * as api from '$lib/data/api';
   import Modal from '$lib/ui/Modal.svelte';
+  import Icon from '$lib/ui/Icon.svelte';
   import { getChallengeName, getExploitName, getTeamDisplay } from '$lib/utils/lookup.js';
 
   let { challenges, teams, exploits, exploitRuns, challengeId, onRefresh } = $props();
@@ -514,7 +515,7 @@
             aria-label={e.enabled ? 'Disable exploit' : 'Enable exploit'}
             onclick={(ev) => toggleExploitEnabled(e, ev)}
           >
-            {e.enabled ? '⏸' : '▶'}
+            {#if e.enabled}<Icon name="pause" />{:else}<Icon name="play" />{/if}
           </button>
           <button
             type="button"
@@ -523,7 +524,7 @@
             aria-label="Append to all teams"
             onclick={(ev) => appendExploitToAllTeams(e.id, ev)}
           >
-            +
+            <Icon name="plus" />
           </button>
           <button
             type="button"
@@ -532,7 +533,7 @@
             aria-label="Edit exploit"
             onclick={(ev) => editExploitFromList(e, ev)}
           >
-            ✎
+            <Icon name="pen" />
           </button>
           <button
             type="button"
@@ -541,7 +542,7 @@
             aria-label="Delete exploit"
             onclick={(ev) => deleteExploitFromList(e, ev)}
           >
-            ✕
+            <Icon name="xmark" />
           </button>
         </div>
       </div>
@@ -573,7 +574,7 @@
             aria-label={`Edit connection for ${team.team_name}`}
             onclick={(e) => { e.stopPropagation(); openRelationModal(team); }}
           >
-            ⚙️
+            <Icon name="gear" />
           </button>
         </h3>
         <div class="cards">
@@ -605,7 +606,7 @@
                   aria-label={run.enabled ? 'Disable run' : 'Enable run'}
                   onclick={(e) => toggleRunEnabled(run, e)}
                 >
-                  {run.enabled ? '⏸' : '▶'}
+                  {#if run.enabled}<Icon name="pause" />{:else}<Icon name="play" />{/if}
                 </button>
                 <button
                   type="button"
@@ -614,7 +615,7 @@
                   aria-label="Delete run"
                   onclick={(e) => deleteRunFromCard(run, e)}
                 >
-                  ✕
+                  <Icon name="xmark" />
                 </button>
               </div>
               <button
@@ -624,7 +625,7 @@
                 aria-label="Enqueue now"
                 onclick={(e) => runNow(run, e)}
               >
-                ▶
+                <Icon name="play" />
               </button>
             </div>
           {/each}
