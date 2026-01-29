@@ -87,6 +87,16 @@ impl Executor {
         let start = Instant::now();
         let stop_rx = self.stop_tx.subscribe();
         self.db.mark_job_running(job.id).await?;
+
+        tracing::info!(
+            "Executing job {} exploit {} run {} team {} challenge {} timeout {}s",
+            job.id,
+            exploit.id,
+            run.id,
+            job.team_id,
+            run.challenge_id,
+            timeout_secs
+        );
         
         // Broadcast job running
         if let Ok(updated_job) = self.db.get_job(job.id).await {
@@ -206,6 +216,13 @@ impl Executor {
         }
         lease.finish().await;
 
+        tracing::info!(
+            "Job {} completed status={} duration_ms={} flags={}",
+            job.id,
+            final_status,
+            duration_ms,
+            flags.len()
+        );
         Ok(JobResult { stdout, stderr, duration_ms, exit_code, flags })
     }
 

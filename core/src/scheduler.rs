@@ -339,6 +339,14 @@ impl SchedulerRunner {
 
             let Some((ctx, target_guard)) = selected else { break; };
 
+            tracing::info!(
+                "Scheduling job {} for round {} (challenge {}, team {}, priority {})",
+                ctx.job.id,
+                round_id,
+                ctx.challenge.id,
+                ctx.team.id,
+                ctx.job.priority
+            );
             if let Err(e) = self.scheduler.db.mark_job_scheduled(ctx.job.id).await {
                 tracing::error!("Failed to mark job {} scheduled: {}", ctx.job.id, e);
             }
@@ -465,6 +473,7 @@ impl Scheduler {
 
         // Mark round as running
         self.db.start_round(round_id).await?;
+        tracing::info!("Round {} started", round_id);
         if let Ok(round) = self.db.get_round(round_id).await {
             broadcast(&self.tx, "round_updated", &round);
         }
