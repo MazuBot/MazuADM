@@ -207,6 +207,7 @@
           <th>Challenge</th>
           <th>Exploit</th>
           <th>Team</th>
+          <th>Start Reason</th>
           <th>Container</th>
           <th>Priority</th>
           <th>Status</th>
@@ -232,6 +233,7 @@
             <td>{getChallengeName(challenges, getExploitRunInfo(j.exploit_run_id)?.challenge_id)}</td>
             <td>{getExploitName(exploits, getExploitRunInfo(j.exploit_run_id)?.exploit_id)}</td>
             <td><span class="truncate">{getTeamDisplay(teams, j.team_id)}</span></td>
+            <td><span class="truncate">{j.create_reason || '-'}</span></td>
             <td>{j.container_id ? j.container_id.slice(0, 12) : '-'}</td>
             <td>{j.priority}</td>
             <td>{formatStatus(j.status)}</td>
