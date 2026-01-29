@@ -224,9 +224,11 @@ mod tests {
     fn resolve_config_from_dir_uses_cwd_when_missing_dir_arg() {
         let dir = temp_dir();
         fs::write(dir.join("config.toml"), "listen_addr = \"127.0.0.1:3000\"\n").unwrap();
-        let _guard = set_cwd(&dir);
-        let path = resolve_config_from_dir(None).unwrap();
-        assert_eq!(path, Some(dir.join("config.toml")));
+        {
+            let _guard = set_cwd(&dir);
+            let path = resolve_config_from_dir(None).unwrap();
+            assert_eq!(path, Some(dir.join("config.toml")));
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -241,9 +243,11 @@ mod tests {
     #[test]
     fn resolve_config_from_dir_returns_none_when_missing_cwd() {
         let dir = temp_dir();
-        let _guard = set_cwd(&dir);
-        let path = resolve_config_from_dir(None).unwrap();
-        assert!(path.is_none());
+        {
+            let _guard = set_cwd(&dir);
+            let path = resolve_config_from_dir(None).unwrap();
+            assert!(path.is_none());
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 }
