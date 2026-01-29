@@ -511,6 +511,7 @@
         draggable="true"
         ondragstart={(ev) => ev.dataTransfer.setData('exploitId', e.id)}
         onclick={() => toggleExploitSelection(e.id)}
+        ondblclick={() => openEditExploit(e)}
         onkeydown={(ev) => onExploitKeydown(ev, e.id)}
       >
         <span class="exploit-name">{e.name}</span>
