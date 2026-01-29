@@ -3,6 +3,7 @@
   import { onMount } from 'svelte'
   import { page } from '$app/stores'
   import { app } from '$lib/data/stores/app.js'
+  import * as api from '$lib/data/api/index.js'
 
   const {
     selectedChallengeId,
@@ -15,6 +16,15 @@
 
   $: pathname = $page.url.pathname
 
+  let beVersion = ''
+  let feVersion = import.meta.env.DEV ? 'dev' : __BUILD_GIT_HASH__
+
+  function shortHash(hash) {
+    if (!hash) return ''
+    const short = hash.substring(0, 7)
+    return hash.includes('(Changed)') ? `${short} (Changed)` : short
+  }
+
   function navHref(section) {
     if (section === 'board') return $selectedChallengeId ? `/board/${$selectedChallengeId}` : '/board'
     if (section === 'jobs') return $selectedRoundId ? `/jobs/${$selectedRoundId}` : '/jobs'
@@ -25,13 +35,20 @@
   onMount(() => {
     start()
     loadAll()
+    api.version().then(v => beVersion = shortHash(v.git_hash))
     return () => stop()
   })
 </script>
 
 <main>
   <header>
-    <h1>MazuADM</h1>
+    <div class="title-wrapper">
+      <h1>MazuADM</h1>
+      <div class="version-info">
+        <span>BE: {beVersion}</span>
+        <span>FE: {feVersion}</span>
+      </div>
+    </div>
     <nav>
       <a class:active={pathname.startsWith('/board')} href={navHref('board')}>Board</a>
       <a class:active={pathname.startsWith('/challenges')} href={navHref('challenges')}>Challenges</a>
@@ -45,3 +62,19 @@
 
   <slot />
 </main>
+
+
+<style>
+  .title-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+  }
+  .version-info {
+    display: flex;
+    flex-direction: column;
+    font-size: 0.6em;
+    color: #888;
+    line-height: 1.2;
+  }
+</style>
