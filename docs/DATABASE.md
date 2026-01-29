@@ -137,6 +137,7 @@ Known settings:
 - `concurrent_create_limit` - Max concurrent container creations (default: 1)
 - `worker_timeout` - Container timeout override in seconds (default: 60)
 - `max_flags_per_job` - Max flags to extract per job (default: 50)
+- `past_flag_rounds` - Max number of past rounds allowed for manual flag submission (default: 5)
 - `sequential_per_target` - Run one job per target at a time (default: false)
 - `skip_on_flag` - Skip remaining jobs for target after flag (default: false)
 

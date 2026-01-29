@@ -275,7 +275,7 @@ List flags.
 **Response:** `Flag[]`
 
 ### `POST /api/flags`
-Submit a flag manually (status = `submitted`, `submitted_at` = now). If `round_id` is omitted, the running round is used.
+Submit a flag manually (status = `submitted`, `submitted_at` = now). If `round_id` is omitted, the running round is used. Requests are limited to the running round and up to `past_flag_rounds` rounds before it.
 
 **Body:**
 ```json
