@@ -432,7 +432,7 @@
       >
         <h3>
           <a class="team-link" href={`#${team.team_id}`} onclick={(e) => jumpToTeam(team, e)}>
-            <span class="truncate">{getTeamDisplay(teams, team.id)}{!team.enabled ? ' (disabled)' : ''}</span>
+            <span class="truncate">{getTeamDisplay(teams, team.id)}</span>
           </a>
           <button
             type="button"
