@@ -13,6 +13,7 @@ use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -140,7 +141,8 @@ async fn main() -> Result<()> {
     let app = routes::routes()
         .with_state(state)
         .layer(CorsLayer::permissive())
-        .layer(TraceLayer::new_for_http());
+        .layer(TraceLayer::new_for_http())
+        .layer(CompressionLayer::new());
 
     let addr = std::env::var("LISTEN_ADDR")
         .ok()
