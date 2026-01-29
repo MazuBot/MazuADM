@@ -11,12 +11,13 @@ use crate::executor::{
 use crate::executor::Executor;
 use crate::settings::{compute_timeout, load_executor_settings, load_job_settings};
 use anyhow::Result;
+use futures::future::BoxFuture;
+use futures::stream::{FuturesUnordered, StreamExt};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 use dashmap::DashMap;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex, Notify, OwnedMutexGuard, Semaphore};
-use tokio::task::JoinSet;
 use std::time::Duration;
 
 fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &str, data: &T) {
@@ -157,11 +158,10 @@ fn try_acquire_target_guard(
 
 pub struct SchedulerRunner {
     scheduler: Scheduler,
+    executor: Option<Executor>,
     notify: Arc<Notify>,
     rx: mpsc::UnboundedReceiver<SchedulerCommand>,
     queue: PendingQueue,
-    join_set: JoinSet<()>,
-    immediate_join_set: JoinSet<()>,
     semaphore: Arc<Semaphore>,
     concurrent_limit: usize,
     running_jobs: usize,
@@ -177,16 +177,15 @@ pub struct SchedulerHandle {
 }
 
 impl SchedulerRunner {
-    pub fn new(scheduler: Scheduler) -> (Self, SchedulerHandle) {
+    pub fn new(scheduler: Scheduler, executor: Executor) -> (Self, SchedulerHandle) {
         let (tx, rx) = mpsc::unbounded_channel();
         let notify = Arc::new(Notify::new());
         let runner = Self {
             scheduler,
+            executor: Some(executor),
             notify: notify.clone(),
             rx,
             queue: PendingQueue::default(),
-            join_set: JoinSet::new(),
-            immediate_join_set: JoinSet::new(),
             semaphore: Arc::new(Semaphore::new(1)),
             concurrent_limit: 1,
             running_jobs: 0,
@@ -199,93 +198,96 @@ impl SchedulerRunner {
     }
 
     pub async fn run(mut self) {
+        let executor = self.executor.take().expect("executor missing");
+        let mut in_flight: FuturesUnordered<BoxFuture<'_, ()>> = FuturesUnordered::new();
+        let mut immediate: FuturesUnordered<BoxFuture<'_, ()>> = FuturesUnordered::new();
+
         loop {
             tokio::select! {
                 cmd = self.rx.recv() => {
                     match cmd {
                         Some(cmd) => {
-                            if let Err(e) = self.handle_command(cmd).await {
+                            if let Err(e) = self.handle_command(cmd, &executor, &mut in_flight, &mut immediate).await {
                                 tracing::error!("Scheduler command failed: {}", e);
                             }
                         }
                         None => break,
                     }
                 }
-                Some(result) = self.join_set.join_next(), if self.running_jobs > 0 => {
+                Some(_) = in_flight.next(), if !in_flight.is_empty() => {
                     self.running_jobs = self.running_jobs.saturating_sub(1);
-                    if let Err(e) = result {
-                        tracing::error!("Job task failed: {}", e);
-                    }
-                    self.schedule_more().await;
+                    self.schedule_more(&executor, &mut in_flight).await;
                 }
-                Some(result) = self.immediate_join_set.join_next(), if !self.immediate_join_set.is_empty() => {
-                    if let Err(e) = result {
-                        tracing::error!("Immediate job task failed: {}", e);
-                    }
-                }
+                Some(_) = immediate.next(), if !immediate.is_empty() => {}
                 _ = self.notify.notified() => {
-                    self.schedule_more().await;
+                    self.schedule_more(&executor, &mut in_flight).await;
                 }
             }
         }
 
-        self.immediate_join_set.shutdown().await;
-        self.join_set.shutdown().await;
+        while in_flight.next().await.is_some() {}
+        while immediate.next().await.is_some() {}
     }
 
-    async fn handle_command(&mut self, cmd: SchedulerCommand) -> Result<()> {
+    async fn handle_command<'a>(
+        &mut self,
+        cmd: SchedulerCommand,
+        executor: &'a Executor,
+        in_flight: &mut FuturesUnordered<BoxFuture<'a, ()>>,
+        immediate: &mut FuturesUnordered<BoxFuture<'a, ()>>,
+    ) -> Result<()> {
         match cmd {
             SchedulerCommand::RunRound(id) => {
-                self.scheduler.run_round(id).await?;
-                self.reset_queue(id).await?;
+                self.scheduler.run_round(id, executor).await?;
+                self.reset_queue(id, executor).await?;
             }
             SchedulerCommand::RerunRound(id) => {
-                self.scheduler.rerun_round(id).await?;
-                self.reset_queue(id).await?;
+                self.scheduler.rerun_round(id, executor).await?;
+                self.reset_queue(id, executor).await?;
             }
             SchedulerCommand::RerunUnflagged(id) => {
-                self.scheduler.rerun_unflagged(id).await?;
-                self.reset_queue(id).await?;
+                self.scheduler.rerun_unflagged(id, executor).await?;
+                self.reset_queue(id, executor).await?;
             }
             SchedulerCommand::RunPending(id) => {
                 self.scheduler.run_pending_round(id).await?;
-                self.reset_queue(id).await?;
+                self.reset_queue(id, executor).await?;
             }
             SchedulerCommand::RefreshJob(id) => {
-                self.refresh_job(id).await?;
+                self.refresh_job(id, executor).await?;
             }
             SchedulerCommand::CreateRound { resp } => {
-                let res = self.scheduler.create_round().await;
+                let res = self.scheduler.create_round(executor).await;
                 let _ = resp.send(res);
             }
             SchedulerCommand::RunJobImmediately(job_id) => {
-                let executor = self.executor_static();
-                self.immediate_join_set.spawn(async move {
-                    if let Err(e) = executor.run_job_immediately(job_id).await {
+                let exec = executor;
+                immediate.push(Box::pin(async move {
+                    if let Err(e) = exec.run_job_immediately(job_id).await {
                         tracing::error!("Immediate job {} failed: {}", job_id, e);
                     }
-                });
+                }));
             }
             SchedulerCommand::StopJob { job_id, reason, resp } => {
-                let res = self.scheduler.executor.stop_job(job_id, &reason).await;
+                let res = executor.stop_job(job_id, &reason).await;
                 let _ = resp.send(res);
             }
             SchedulerCommand::EnsureContainers { exploit_id, resp } => {
-                let cm = self.scheduler.executor.container_manager.clone();
+                let cm = executor.container_manager.clone();
                 tokio::spawn(async move {
                     let res = cm.ensure_containers(exploit_id).await;
                     let _ = resp.send(res);
                 });
             }
             SchedulerCommand::DestroyExploitContainers { exploit_id, resp } => {
-                let cm = self.scheduler.executor.container_manager.clone();
+                let cm = executor.container_manager.clone();
                 tokio::spawn(async move {
                     let res = cm.destroy_exploit_containers(exploit_id).await;
                     let _ = resp.send(res);
                 });
             }
             SchedulerCommand::ListContainers { exploit_id, resp } => {
-                let res = self.scheduler.executor.container_manager.list_containers().await
+                let res = executor.container_manager.list_containers().await
                     .map(|mut containers| {
                         if let Some(id) = exploit_id {
                             containers.retain(|c| c.exploit_id == id);
@@ -295,34 +297,28 @@ impl SchedulerRunner {
                 let _ = resp.send(res);
             }
             SchedulerCommand::RestartContainer { id, resp } => {
-                let cm = self.scheduler.executor.container_manager.clone();
+                let cm = executor.container_manager.clone();
                 tokio::spawn(async move {
                     let res = cm.restart_container_by_id(&id).await;
                     let _ = resp.send(res);
                 });
             }
             SchedulerCommand::DestroyContainer { id, resp } => {
-                let cm = self.scheduler.executor.container_manager.clone();
+                let cm = executor.container_manager.clone();
                 tokio::spawn(async move {
                     let res = cm.destroy_container_by_id(&id).await;
                     let _ = resp.send(res);
                 });
             }
         }
-        self.schedule_more().await;
+        self.schedule_more(executor, in_flight).await;
         Ok(())
     }
 
-    fn executor_static(&self) -> &'static Executor {
-        // Safety: SchedulerRunner owns Scheduler for the lifetime of the runner task.
-        // We drain join sets before drop, so spawned tasks cannot outlive executor.
-        unsafe { std::mem::transmute::<&Executor, &'static Executor>(&self.scheduler.executor) }
-    }
-
-    async fn reset_queue(&mut self, round_id: i32) -> Result<()> {
+    async fn reset_queue(&mut self, round_id: i32, executor: &Executor) -> Result<()> {
         let settings = load_executor_settings(&self.scheduler.db).await;
-        self.scheduler.executor.container_manager.set_concurrent_create_limit(settings.concurrent_create_limit);
-        self.scheduler.executor.container_manager.health_check().await?;
+        executor.container_manager.set_concurrent_create_limit(settings.concurrent_create_limit);
+        executor.container_manager.health_check().await?;
         let jobs = self.scheduler.db.get_pending_jobs(round_id).await?;
         self.queue.reset(round_id, jobs);
         self.round_id = Some(round_id);
@@ -342,7 +338,7 @@ impl SchedulerRunner {
         }
     }
 
-    async fn refresh_job(&mut self, job_id: i32) -> Result<()> {
+    async fn refresh_job(&mut self, job_id: i32, executor: &Executor) -> Result<()> {
         let job = self.scheduler.db.get_job(job_id).await?;
         if let Some(round_id) = self.round_id {
             if job.round_id != round_id {
@@ -359,7 +355,7 @@ impl SchedulerRunner {
         if round.status != "running" {
             return Ok(());
         }
-        self.reset_queue(job.round_id).await?;
+        self.reset_queue(job.round_id, executor).await?;
         Ok(())
     }
 
@@ -375,7 +371,11 @@ impl SchedulerRunner {
         });
     }
 
-    async fn schedule_more(&mut self) {
+    async fn schedule_more<'a>(
+        &mut self,
+        executor: &'a Executor,
+        in_flight: &mut FuturesUnordered<BoxFuture<'a, ()>>,
+    ) {
         self.sync_semaphore();
         let Some(settings) = self.settings.clone() else { return; };
         let Some(round_id) = self.round_id else { return; };
@@ -436,14 +436,13 @@ impl SchedulerRunner {
             self.running_jobs += 1;
             let db = self.scheduler.db.clone();
             let tx = self.scheduler.tx.clone();
-            let executor = self.executor_static();
             let settings = settings.clone();
-
-            self.join_set.spawn(async move {
+            let exec = executor;
+            in_flight.push(Box::pin(async move {
                 let _permit = permit;
                 let _target_guard = target_guard;
-                execute_one_job(db, tx, executor, _target_guard, ctx, round_id, settings).await;
-            });
+                execute_one_job(db, tx, exec, _target_guard, ctx, round_id, settings).await;
+            }));
         }
 
         for job in deferred {
@@ -516,13 +515,12 @@ impl SchedulerHandle {
 
 pub struct Scheduler {
     db: Database,
-    executor: Executor,
     tx: broadcast::Sender<WsMessage>,
 }
 
 impl Scheduler {
-    pub fn new(db: Database, executor: Executor, tx: broadcast::Sender<WsMessage>) -> Self {
-        Self { db, executor, tx }
+    pub fn new(db: Database, tx: broadcast::Sender<WsMessage>) -> Self {
+        Self { db, tx }
     }
 
     pub fn calculate_priority(challenge_priority: i32, team_priority: i32, sequence: i32, override_priority: Option<i32>) -> i32 {
@@ -555,13 +553,13 @@ impl Scheduler {
         Ok(round.id)
     }
 
-    pub async fn create_round(&self) -> Result<i32> {
+    pub async fn create_round(&self, executor: &Executor) -> Result<i32> {
         let round_id = self.generate_round().await?;
         if let Ok(round) = self.db.get_round(round_id).await {
             broadcast(&self.tx, "round_created", &round);
         }
         let settings = load_executor_settings(&self.db).await;
-        let cm = self.executor.container_manager.clone();
+        let cm = executor.container_manager.clone();
         cm.set_concurrent_create_limit(settings.concurrent_create_limit);
         tokio::spawn(async move {
             if let Err(e) = cm.prewarm_for_round(settings.concurrent_limit).await {
@@ -571,9 +569,9 @@ impl Scheduler {
         Ok(round_id)
     }
 
-    pub async fn run_round(&self, round_id: i32) -> Result<()> {
+    pub async fn run_round(&self, round_id: i32, executor: &Executor) -> Result<()> {
         // Stop running jobs from older rounds and check for flags
-        self.stop_running_jobs_with_flag_check().await;
+        self.stop_running_jobs_with_flag_check(executor).await;
 
         // Skip older pending rounds and finish older running rounds
         if let Ok(rounds) = self.db.get_active_rounds().await {
@@ -612,8 +610,8 @@ impl Scheduler {
         Ok(())
     }
 
-    pub async fn rerun_round(&self, round_id: i32) -> Result<()> {
-        self.stop_running_jobs_with_flag_check().await;
+    pub async fn rerun_round(&self, round_id: i32, executor: &Executor) -> Result<()> {
+        self.stop_running_jobs_with_flag_check(executor).await;
 
         if let Ok(rounds) = self.db.list_rounds().await {
             for rid in rounds_to_reset_after(&rounds, round_id) {
@@ -631,11 +629,11 @@ impl Scheduler {
             broadcast(&self.tx, "round_updated", &r);
         }
 
-        self.run_round(round_id).await?;
+        self.run_round(round_id, executor).await?;
         Ok(())
     }
 
-    pub async fn rerun_unflagged(&self, round_id: i32) -> Result<()> {
+    pub async fn rerun_unflagged(&self, round_id: i32, executor: &Executor) -> Result<()> {
         let created = self.db.clone_unflagged_jobs_for_round(round_id).await?;
         if created > 0 {
             broadcast(&self.tx, "jobs_changed", &JobsChangedPayload { round_id, created });
@@ -644,13 +642,12 @@ impl Scheduler {
             broadcast(&self.tx, "round_updated", &r);
         }
 
-        self.run_round(round_id).await?;
+        self.run_round(round_id, executor).await?;
         Ok(())
     }
 
-    async fn stop_running_jobs_with_flag_check(&self) {
+    async fn stop_running_jobs_with_flag_check(&self, executor: &Executor) {
         let settings = load_job_settings(&self.db).await;
-        let executor = &self.executor;
         if let Ok(jobs) = self.db.kill_running_jobs().await {
             for job in jobs {
                 let stdout = job.stdout.as_deref().unwrap_or("");

@@ -144,8 +144,8 @@ async fn main() -> Result<()> {
         tracing::warn!("Reset {} stale running jobs to stopped status", reset);
     }
     
-    let scheduler = Scheduler::new(db.clone(), executor, tx.clone());
-    let (runner, scheduler_handle) = SchedulerRunner::new(scheduler);
+    let scheduler = Scheduler::new(db.clone(), tx.clone());
+    let (runner, scheduler_handle) = SchedulerRunner::new(scheduler, executor);
     tokio::spawn(runner.run());
 
     let state = Arc::new(AppState { db, tx, scheduler: scheduler_handle, ws_connections: Arc::new(DashMap::new()) });
