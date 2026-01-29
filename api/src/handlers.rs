@@ -165,7 +165,7 @@ pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Expl
             let exploit_runs: Vec<_> = runs.iter().filter(|r| r.exploit_id == exploit.id).collect();
             for round in rounds {
                 for run in &exploit_runs {
-                    if let Ok(job) = s.db.create_job(round.id, run.id, run.team_id, 0, Some("enqueue_exploit")).await {
+                    if let Ok(job) = s.db.create_job(round.id, run.id, run.team_id, 0, Some("new_exploit")).await {
                         inserted_jobs = true;
                         broadcast_job(&s, "job_created", &job);
                     }
