@@ -327,7 +327,16 @@ pub async fn enqueue_single_job(State(s): S, Json(req): Json<EnqueueSingleJobReq
     let max_priority = s.db.get_max_priority_for_round(round_id).await.map_err(err)?;
     let job = s.db.create_job(round_id, run.id, req.team_id, max_priority + 1, Some("enqueue_exploit")).await.map_err(err)?;
     broadcast_job(&s, "job_created", &job);
-    s.scheduler.send(SchedulerCommand::RefreshJob(job.id)).map_err(err)?;
+    if let Err(e) = s.db.mark_job_scheduled(job.id).await {
+        tracing::error!("Failed to mark job {} scheduled: {}", job.id, e);
+    }
+    let executor = s.executor.clone();
+    let job_id = job.id;
+    tokio::spawn(async move {
+        if let Err(e) = executor.run_job_immediately(job_id).await {
+            tracing::error!("Immediate job {} failed: {}", job_id, e);
+        }
+    });
     Ok(Json(job))
 }
 
