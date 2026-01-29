@@ -206,7 +206,7 @@ pub struct ChallengeTeamRelation {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct UpdateRelation {
+pub struct UpdateConnectionInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub addr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

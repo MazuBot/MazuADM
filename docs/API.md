@@ -7,7 +7,7 @@ Base URL: `http://localhost:3000`
 ### `GET /ws`
 Real-time event stream for UI updates.
 
-Events: `challenge_created`, `challenge_updated`, `challenge_deleted`, `team_created`, `team_updated`, `team_deleted`, `exploit_created`, `exploit_updated`, `exploit_deleted`, `exploit_run_created`, `exploit_run_updated`, `exploit_run_deleted`, `exploit_runs_reordered`, `round_created`, `round_updated`, `job_created`, `job_updated`, `flag_created`, `setting_updated`, `relation_updated`
+Events: `challenge_created`, `challenge_updated`, `challenge_deleted`, `team_created`, `team_updated`, `team_deleted`, `exploit_created`, `exploit_updated`, `exploit_deleted`, `exploit_run_created`, `exploit_run_updated`, `exploit_run_deleted`, `exploit_runs_reordered`, `round_created`, `round_updated`, `job_created`, `job_updated`, `flag_created`, `setting_updated`, `connection_info_updated`
 
 ---
 

@@ -486,14 +486,14 @@ pub async fn get_relation(State(s): S, Path((challenge_id, team_id)): Path<(i32,
 }
 
 #[derive(Deserialize)]
-pub struct UpdateRelation {
+pub struct UpdateConnectionInfo {
     pub addr: Option<String>,
     pub port: Option<i32>,
 }
 
-pub async fn update_relation(State(s): S, Path((challenge_id, team_id)): Path<(i32, i32)>, Json(u): Json<UpdateRelation>) -> R<ChallengeTeamRelation> {
-    let rel = s.db.update_relation(challenge_id, team_id, u.addr, u.port).await.map_err(err)?;
-    broadcast(&s, "relation_updated", &rel);
+pub async fn update_connection_info(State(s): S, Path((challenge_id, team_id)): Path<(i32, i32)>, Json(u): Json<UpdateConnectionInfo>) -> R<ChallengeTeamRelation> {
+    let rel = s.db.update_connection_info(challenge_id, team_id, u.addr, u.port).await.map_err(err)?;
+    broadcast(&s, "connection_info_updated", &rel);
     Ok(Json(rel))
 }
 

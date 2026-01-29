@@ -131,5 +131,5 @@ impl ApiClient {
     // Relations
     pub async fn list_relations(&self, challenge_id: i32) -> Result<Vec<ChallengeTeamRelation>> { self.get(&format!("/api/relations/{}", challenge_id)).await }
     pub async fn get_relation(&self, challenge_id: i32, team_id: i32) -> Result<Option<ChallengeTeamRelation>> { self.get(&format!("/api/relations/{}/{}", challenge_id, team_id)).await }
-    pub async fn update_relation(&self, challenge_id: i32, team_id: i32, u: UpdateRelation) -> Result<ChallengeTeamRelation> { self.put(&format!("/api/relations/{}/{}", challenge_id, team_id), &u).await }
+    pub async fn update_connection_info(&self, challenge_id: i32, team_id: i32, u: UpdateConnectionInfo) -> Result<ChallengeTeamRelation> { self.put(&format!("/api/relations/{}/{}", challenge_id, team_id), &u).await }
 }

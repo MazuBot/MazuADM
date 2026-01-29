@@ -100,7 +100,7 @@ impl Database {
         ).fetch_optional(&self.pool).await?)
     }
 
-    pub async fn update_relation(&self, challenge_id: i32, team_id: i32, addr: Option<String>, port: Option<i32>) -> Result<ChallengeTeamRelation> {
+    pub async fn update_connection_info(&self, challenge_id: i32, team_id: i32, addr: Option<String>, port: Option<i32>) -> Result<ChallengeTeamRelation> {
         Ok(sqlx::query_as!(ChallengeTeamRelation,
             "INSERT INTO challenge_team_relations (challenge_id, team_id, addr, port) VALUES ($1, $2, $3, $4) ON CONFLICT (challenge_id, team_id) DO UPDATE SET addr = $3, port = $4 RETURNING *",
             challenge_id, team_id, addr, port

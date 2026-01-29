@@ -290,7 +290,7 @@
   }
 
   async function saveRelation() {
-    await api.updateRelation(challengeId, editingRelation.id, {
+    await api.updateConnectionInfo(challengeId, editingRelation.id, {
       addr: relationForm.addr || null,
       port: relationForm.port ? Number(relationForm.port) : null
     });

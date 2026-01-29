@@ -106,7 +106,7 @@ function handleWsMessage(msg) {
         list.map((s) => (s.key === data.key ? { ...s, value: data.value } : s))
       )
       break
-    case 'relation_updated':
+    case 'connection_info_updated':
       break
   }
 }

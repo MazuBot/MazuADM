@@ -384,7 +384,7 @@ async fn main() -> Result<()> {
             RelationCmd::Update { challenge, team, ip, port } => {
                 let c = ctx.find_challenge(&challenge).await?;
                 let t = ctx.find_team(&team).await?;
-                ctx.api.update_relation(c.id, t.id, UpdateRelation { addr: ip, port }).await?;
+                ctx.api.update_connection_info(c.id, t.id, UpdateConnectionInfo { addr: ip, port }).await?;
                 println!("Updated");
             }
         },

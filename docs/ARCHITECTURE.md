@@ -188,7 +188,7 @@ pub struct AppState {
 | `/api/containers/{id}/runners` | GET | `get_container_runners` |
 | `/api/containers/{id}/restart` | POST | `restart_container` |
 | `/api/relations/{challenge_id}` | GET | `list_relations` |
-| `/api/relations/{challenge_id}/{team_id}` | GET/PUT | `get_relation` / `update_relation` |
+| `/api/relations/{challenge_id}/{team_id}` | GET/PUT | `get_relation` / `update_connection_info` |
 
 Query parameters: `challenge_id`, `team_id`, `round_id`
 
