@@ -4,6 +4,7 @@
   import { page } from '$app/stores'
   import { app } from '$lib/data/stores/app.js'
   import * as api from '$lib/data/api/index.js'
+  import ToastHost from '$lib/ui/ToastHost.svelte'
 
   const {
     selectedChallengeId,
@@ -62,6 +63,8 @@
 
   <slot />
 </main>
+
+<ToastHost />
 
 
 <style>

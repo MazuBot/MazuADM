@@ -4,6 +4,7 @@
   import Modal from '$lib/ui/Modal.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import { getChallengeName, getExploitName, getTeamDisplay } from '$lib/utils/lookup.js';
+  import { pushToast } from '$lib/ui/toastStore.js';
 
   let { challenges, teams, exploits, exploitRuns, challengeId, onRefresh } = $props();
 
@@ -46,11 +47,6 @@
   let dragPreviewEl = null;
   let optimisticSequences = $state(new Map());
   let enqueueingRuns = $state({});
-
-  let toasts = $state([]);
-  let nextToastId = 1;
-
-  const TOAST_TIMEOUT_MS = 4500;
 
   let filteredExploits = $derived(exploits.filter(e => e.challenge_id === challengeId));
 
@@ -173,23 +169,15 @@
     try {
       const job = await api.enqueueSingleJob(run.id, run.team_id);
       const teamName = getTeamDisplay(teams, run.team_id);
-      alert(`Enqueued job #${job.id}.`);
-      pushToast(`Job #${job.id} enqueued for ${teamName}.`, 'success');
+      const challengeName = getChallengeName(challenges, challengeId);
+      const exploitName = getExploitName(exploits, run.exploit_id);
+      alert(`Enqueued job #${job.id} for ${challengeName} / ${exploitName}.`);
+      pushToast(`Job #${job.id} enqueued for ${teamName}: ${challengeName} / ${exploitName}.`, 'success');
     } catch (error) {
       pushToast('Failed to enqueue job. Please try again.', 'error');
     } finally {
       enqueueingRuns[run.id] = false;
     }
-  }
-
-  function pushToast(message, variant = 'success') {
-    const id = nextToastId++;
-    toasts = [...toasts, { id, message, variant }];
-    setTimeout(() => removeToast(id), TOAST_TIMEOUT_MS);
-  }
-
-  function removeToast(id) {
-    toasts = toasts.filter((toast) => toast.id !== id);
   }
 
   function getSequence(run) {
@@ -751,18 +739,6 @@
   </div>
 </div>
 
-<div class="toast-stack" aria-live="polite">
-  {#each toasts as toast (toast.id)}
-    <div
-      class={`toast ${toast.variant}`}
-      role="status"
-      onclick={() => removeToast(toast.id)}
-    >
-      {toast.message}
-    </div>
-  {/each}
-</div>
-
 {#if showAddExploit}
   <Modal onClose={() => showAddExploit = false}>
     <form onsubmit={(e) => { e.preventDefault(); addExploit(); }}>
@@ -951,8 +927,4 @@
   .danger { background: #d9534f; }
   .modal-title { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
   .modal-title code { margin-left: auto; text-align: right; }
-  .toast-stack { position: fixed; right: 1.25rem; bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; z-index: 30; }
-  .toast { background: #1a1a2e; border: 1px solid #00d9ff; color: #f2fbff; padding: 0.65rem 0.9rem; border-radius: 8px; font-size: 0.85rem; box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35); max-width: 280px; cursor: pointer; }
-  .toast.success { border-color: #00d9ff; }
-  .toast.error { border-color: #ff6b6b; color: #ffecec; }
 </style>
