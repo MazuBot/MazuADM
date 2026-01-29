@@ -457,7 +457,7 @@ async fn require_running_round_id(s: &AppState) -> Result<i32, String> {
 
 fn min_allowed_round_id(running_round_id: i32, past_rounds: usize) -> i32 {
     let past_rounds = past_rounds.min(i32::MAX as usize) as i32;
-    running_round_id.saturating_sub(past_rounds)
+    running_round_id.saturating_sub(past_rounds).max(0)
 }
 
 fn round_within_history(target_round_id: i32, running_round_id: i32, past_rounds: usize) -> bool {

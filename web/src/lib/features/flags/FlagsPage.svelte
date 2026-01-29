@@ -1,5 +1,4 @@
 <script>
-  import FilterBar from '$lib/ui/FilterBar.svelte';
   import { buildStatusOptions } from '$lib/utils/filters.js';
   import { getChallengeName, getTeamDisplay } from '$lib/utils/lookup.js';
   import { formatApiError, pushToast } from '$lib/ui/toastStore.js';
@@ -84,6 +83,7 @@
 
   let filteredFlags = $derived(filterFlags());
   let availableStatuses = $derived(buildStatusOptions(flags));
+  let canResetFilters = $derived(Boolean(challengeFilterId || teamFilterId || statusFilter));
   let pastFlagRounds = $derived(parsePastFlagRounds());
   let runningRound = $derived(rounds.find((r) => r.status === 'running'));
   let allowedRounds = $derived(buildAllowedRounds());
@@ -154,20 +154,32 @@
       <option value={r.id}>Round {r.id}</option>
     {/each}
   </select>
-</div>
-<FilterBar
-  bind:challengeId={challengeFilterId}
-  bind:teamId={teamFilterId}
-  bind:status={statusFilter}
-  {challenges}
-  {teams}
-  statuses={availableStatuses}
-  onReset={() => {
+  <select bind:value={challengeFilterId}>
+    <option value="">All challenges</option>
+    {#each challenges as c}
+      <option value={c.id}>{c.name}</option>
+    {/each}
+  </select>
+  <select bind:value={teamFilterId}>
+    <option value="">All teams</option>
+    {#each teams as t}
+      <option value={t.id}>{getTeamDisplay(teams, t.id)}</option>
+    {/each}
+  </select>
+  <select bind:value={statusFilter}>
+    <option value="">All statuses</option>
+    {#each availableStatuses as entry}
+      <option value={entry}>{entry}</option>
+    {/each}
+  </select>
+  <button class="small" type="button" onclick={() => {
     challengeFilterId = '';
     teamFilterId = '';
     statusFilter = '';
-  }}
-/>
+  }} disabled={!canResetFilters}>
+    Reset Filters
+  </button>
+</div>
 
 <table>
   <thead>
