@@ -12,7 +12,7 @@ pub struct Executor {
     pub db: Database,
     pub container_manager: Arc<ContainerManager>,
     pub tx: broadcast::Sender<WsMessage>,
-    pid_map: Arc<DashMap<i32, JobPidState>>,
+    stop_tx: broadcast::Sender<StopSignal>,
     exploit_executors: DashMap<i32, ExploitExecutor>,
 }
 
@@ -25,11 +25,9 @@ pub(crate) struct JobContext {
     pub(crate) conn: ConnectionInfo,
 }
 
-#[derive(Debug, Clone)]
-struct JobPidState {
-    container_id: String,
-    pid: Option<i64>,
-    stop_requested: bool,
+#[derive(Clone, Debug)]
+struct StopSignal {
+    job_id: i32,
 }
 
 #[derive(Clone)]
@@ -54,11 +52,12 @@ fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &
 impl Executor {
     pub fn new(db: Database, tx: broadcast::Sender<WsMessage>) -> Result<Self> {
         let container_manager = Arc::new(ContainerManager::new(db.clone())?);
+        let (stop_tx, _stop_rx) = broadcast::channel::<StopSignal>(128);
         Ok(Self {
             db,
             container_manager,
             tx,
-            pid_map: Arc::new(DashMap::new()),
+            stop_tx,
             exploit_executors: DashMap::new(),
         })
     }
@@ -82,46 +81,9 @@ impl Executor {
         entry.clone()
     }
 
-    async fn register_container(&self, job_id: i32, container_id: String) {
-        if let Some(mut entry) = self.pid_map.get_mut(&job_id) {
-            if entry.container_id.is_empty() {
-                entry.container_id = container_id;
-            }
-            return;
-        }
-        self.pid_map.insert(job_id, JobPidState {
-            container_id,
-            pid: None,
-            stop_requested: false,
-        });
-    }
-
-    async fn request_stop(&self, job_id: i32, container_id: Option<String>) -> Option<(String, i64)> {
-        if let Some(mut entry) = self.pid_map.get_mut(&job_id) {
-            if let Some(pid) = entry.pid {
-                let cid = entry.container_id.clone();
-                drop(entry);
-                self.pid_map.remove(&job_id);
-                return Some((cid, pid));
-            }
-            entry.stop_requested = true;
-            return None;
-        }
-        let container_id = container_id.unwrap_or_default();
-        self.pid_map.insert(job_id, JobPidState {
-            container_id,
-            pid: None,
-            stop_requested: true,
-        });
-        None
-    }
-
-    async fn clear_pid(&self, job_id: i32) {
-        self.pid_map.remove(&job_id);
-    }
-
     pub async fn execute_job(&self, job: &ExploitJob, run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64, max_flags: usize) -> Result<JobResult> {
         let start = Instant::now();
+        let mut stop_rx = self.stop_tx.subscribe();
         self.db.update_job_status(job.id, "running", true).await?;
         
         // Broadcast job running
@@ -136,7 +98,6 @@ impl Executor {
         let lease = self.container_manager.lease_container(exploit, run.id).await?;
         drop(_guard);
         self.db.set_job_container(job.id, lease.container_id()).await?;
-        self.register_container(job.id, lease.container_id().to_string()).await;
 
         // Build command - use entrypoint or docker image default cmd
         let args = vec![conn.addr.clone(), conn.port.to_string(), team.team_id.clone()];
@@ -154,56 +115,52 @@ impl Executor {
             format!("TARGET_TEAM_ID={}", team.team_id),
         ];
 
-        let (pid_tx, pid_rx) = oneshot::channel::<i64>();
-        let pid_map = self.pid_map.clone();
-        let db = self.db.clone();
+        let (pid_tx, mut pid_rx) = oneshot::channel::<i64>();
+        let mut pid: Option<i64> = None;
+        let mut stop_requested = false;
+        let mut pid_pending = true;
+        let mut stop_rx_closed = false;
         let container_id = lease.container_id().to_string();
-        let container_id_for_task = container_id.clone();
-        let cm = self.container_manager.clone();
-        let job_id = job.id;
-
-        tokio::spawn(async move {
-            let Ok(pid) = pid_rx.await else { return; };
-            if let Ok(current) = db.get_job(job_id).await {
-                if current.status != "running" {
-                    return;
-                }
-            }
-
-            let mut kill_target: Option<(String, i64)> = None;
-            let mut remove_entry = false;
-            {
-                let mut entry = pid_map.entry(job_id).or_insert(JobPidState {
-                    container_id: container_id_for_task.clone(),
-                    pid: None,
-                    stop_requested: false,
-                });
-                if entry.container_id.is_empty() {
-                    entry.container_id = container_id_for_task.clone();
-                }
-                entry.pid = Some(pid);
-                if entry.stop_requested {
-                    kill_target = Some((entry.container_id.clone(), pid));
-                    remove_entry = true;
-                }
-            }
-            if remove_entry {
-                pid_map.remove(&job_id);
-            }
-
-            if let Some((cid, target_pid)) = kill_target {
-                let _ = cm.kill_process_in_container(&cid, target_pid).await;
-            }
-        });
 
         // Execute with timeout and PID tracking
-        let exec_result = self.container_manager.execute_in_container_with_timeout(
+        let exec_fut = self.container_manager.execute_in_container_with_timeout(
             &container_id, cmd, env, Duration::from_secs(timeout_secs), Some(pid_tx)
-        ).await;
+        );
+        tokio::pin!(exec_fut);
+
+        let exec_result = loop {
+            tokio::select! {
+                res = &mut exec_fut => break res,
+                recv = &mut pid_rx, if pid_pending => {
+                    pid_pending = false;
+                    if let Ok(found_pid) = recv {
+                        pid = Some(found_pid);
+                        if stop_requested {
+                            let _ = self.container_manager.kill_process_in_container(&container_id, found_pid).await;
+                        }
+                    }
+                }
+                msg = stop_rx.recv(), if !stop_rx_closed => {
+                    match msg {
+                        Ok(signal) => {
+                            if signal.job_id == job.id {
+                                stop_requested = true;
+                                if let Some(found_pid) = pid {
+                                    let _ = self.container_manager.kill_process_in_container(&container_id, found_pid).await;
+                                }
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(broadcast::error::RecvError::Closed) => {
+                            stop_rx_closed = true;
+                        }
+                    }
+                }
+            }
+        };
         let result = match exec_result {
             Ok(result) => result,
             Err(e) => {
-                self.clear_pid(job.id).await;
                 lease.finish().await;
                 return Err(e);
             }
@@ -253,7 +210,6 @@ impl Executor {
         if let Ok(updated_job) = self.db.get_job(job.id).await {
             broadcast(&self.tx, "job_updated", &updated_job);
         }
-        self.clear_pid(job.id).await;
         lease.finish().await;
 
         Ok(JobResult { stdout, stderr, duration_ms, exit_code, flags })
@@ -319,9 +275,7 @@ impl Executor {
             return Ok(job);
         }
 
-        if let Some((cid, pid)) = self.request_stop(job_id, job.container_id.clone()).await {
-            let _ = self.container_manager.kill_process_in_container(&cid, pid).await;
-        }
+        let _ = self.stop_tx.send(StopSignal { job_id });
 
         self.db.mark_job_stopped_with_reason(job_id, has_flag, reason).await?;
         let job = self.db.get_job(job_id).await?;
