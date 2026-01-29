@@ -440,6 +440,13 @@ impl Database {
         ).fetch_one(&self.pool).await?)
     }
 
+    pub async fn create_manual_flag(&self, round_id: i32, challenge_id: i32, team_id: i32, flag_value: &str) -> Result<Flag> {
+        Ok(sqlx::query_as!(Flag,
+            "INSERT INTO flags (job_id, round_id, challenge_id, team_id, flag_value, status, submitted_at) VALUES (NULL, $1, $2, $3, $4, 'submitted', NOW()) RETURNING *",
+            round_id, challenge_id, team_id, flag_value
+        ).fetch_one(&self.pool).await?)
+    }
+
     pub async fn has_flag_for(&self, round_id: i32, challenge_id: i32, team_id: i32) -> Result<bool> {
         let count = sqlx::query_scalar!("SELECT COUNT(*) FROM flags WHERE round_id = $1 AND challenge_id = $2 AND team_id = $3", round_id, challenge_id, team_id)
             .fetch_one(&self.pool).await?;

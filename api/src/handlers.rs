@@ -498,6 +498,34 @@ pub async fn stop_job(State(s): S, Path(job_id): Path<i32>) -> R<ExploitJob> {
 }
 
 // Flags
+#[derive(Deserialize)]
+pub struct SubmitFlagRequest {
+    pub round_id: Option<i32>,
+    pub challenge_id: i32,
+    pub team_id: i32,
+    pub flag_value: String,
+}
+
+pub async fn submit_flag(State(s): S, Json(req): Json<SubmitFlagRequest>) -> R<Flag> {
+    let flag_value = req.flag_value.trim();
+    if flag_value.is_empty() {
+        return Err("Flag value cannot be empty".to_string());
+    }
+    if flag_value.len() > 512 {
+        return Err("Flag value exceeds 512 characters".to_string());
+    }
+    let round_id = match req.round_id {
+        Some(id) => id,
+        None => require_running_round_id(&s).await?,
+    };
+    s.db.get_round(round_id).await.map_err(err)?;
+    s.db.get_challenge(req.challenge_id).await.map_err(err)?;
+    s.db.get_team(req.team_id).await.map_err(err)?;
+    let flag = s.db.create_manual_flag(round_id, req.challenge_id, req.team_id, flag_value).await.map_err(err)?;
+    broadcast(&s, "flag_created", &flag);
+    Ok(Json(flag))
+}
+
 pub async fn list_flags(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<Flag>> {
     s.db.list_flags(q.round_id).await.map(Json).map_err(err)
 }

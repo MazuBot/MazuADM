@@ -26,7 +26,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/jobs/enqueue", post(enqueue_single_job))
         .route("/api/jobs/{id}/enqueue", post(enqueue_existing_job))
         .route("/api/jobs/{id}/stop", post(stop_job))
-        .route("/api/flags", get(list_flags))
+        .route("/api/flags", get(list_flags).post(submit_flag))
         .route("/api/settings", get(list_settings).post(update_setting))
         .route("/api/containers", get(list_containers))
         .route("/api/containers/restart-all", post(restart_all_containers))
