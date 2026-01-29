@@ -98,7 +98,7 @@
 
   $effect(() => {
     if (!submitRoundId || allowedRounds.length === 0) return;
-    if (!allowedRounds.some((r) => String(r.id) === submitRoundId)) {
+    if (!allowedRounds.some((r) => String(r.id) === String(submitRoundId))) {
       submitRoundId = '';
     }
   });
@@ -112,7 +112,7 @@
     <select bind:value={submitRoundId} aria-label="Round for manual flag">
       <option value="">Running round</option>
       {#each allowedRounds as r}
-        <option value={r.id}>Round {r.id} ({r.status})</option>
+        <option value={String(r.id)}>Round {r.id} ({r.status})</option>
       {/each}
     </select>
     <select bind:value={submitChallengeId} aria-label="Challenge for manual flag">
