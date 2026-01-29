@@ -282,6 +282,30 @@ impl Database {
         Ok(result.rows_affected())
     }
 
+    pub async fn clone_unflagged_jobs_for_round(&self, round_id: i32) -> Result<u64> {
+        let result = sqlx::query!(
+            "INSERT INTO exploit_jobs (round_id, exploit_run_id, team_id, priority, create_reason)
+             SELECT $1, ej.exploit_run_id, ej.team_id, ej.priority, 'rerun_unflagged'
+             FROM exploit_jobs ej
+             JOIN exploit_runs er ON er.id = ej.exploit_run_id
+             WHERE ej.round_id = $1
+               AND ej.status NOT IN ('flag', 'skipped', 'pending')
+               AND ej.schedule_at IS NOT NULL
+               AND ej.exploit_run_id IS NOT NULL
+               AND NOT EXISTS (
+                 SELECT 1 FROM flags f
+                 WHERE f.round_id = $1
+                   AND f.challenge_id = er.challenge_id
+                   AND f.team_id = ej.team_id
+                 LIMIT 1
+               )",
+            round_id
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn kill_running_jobs(&self) -> Result<Vec<ExploitJob>> {
         let jobs = sqlx::query_as!(ExploitJob, "SELECT * FROM exploit_jobs WHERE status = 'running'")
             .fetch_all(&self.pool).await?;

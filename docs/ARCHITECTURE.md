@@ -95,7 +95,7 @@ pub struct SchedulerHandle {
 | `create_round()` | Create round and pre-warm containers |
 | `run_round(round_id)` | Execute all pending jobs in priority order |
 | `rerun_round(round_id)` | Reset round state and re-run |
-| `rerun_unflagged_round(round_id)` | Reset non-flag jobs for running round and execute |
+| `rerun_unflagged_round(round_id)` | Clone scheduled non-flag/non-skipped/non-pending jobs for running round and execute |
 
 Priority formula (when no override):
 ```

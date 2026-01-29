@@ -212,7 +212,7 @@ Start executing a round.
 Rerun a round (resets this round and all subsequent rounds, then executes).
 
 ### `POST /api/rounds/{id}/rerun-unflagged`
-Reset and execute all non-flag jobs for the **running** round (flagged jobs are preserved).
+Clone scheduled, non-flag, non-skipped, non-pending jobs for the **running** round (skips challenge/team pairs with a flag in the round), then execute.
 
 ---
 

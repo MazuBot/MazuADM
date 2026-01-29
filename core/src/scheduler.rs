@@ -440,8 +440,7 @@ impl Scheduler {
     pub async fn rerun_unflagged_round(&self, round_id: i32) -> Result<()> {
         self.stop_running_jobs_with_flag_check().await;
 
-        let _ = self.db.reset_unflagged_jobs_for_round(round_id).await;
-        let _ = self.db.reset_round(round_id).await;
+        let _ = self.db.clone_unflagged_jobs_for_round(round_id).await?;
         if let Ok(r) = self.db.get_round(round_id).await {
             broadcast(&self.tx, "round_updated", &r);
         }
