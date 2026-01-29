@@ -10,7 +10,7 @@ use crate::settings::{compute_timeout, load_job_settings};
 
 pub struct Executor {
     pub db: Database,
-    pub container_manager: ContainerManager,
+    pub container_manager: Arc<ContainerManager>,
     pub tx: broadcast::Sender<WsMessage>,
     pid_map: Arc<Mutex<HashMap<i32, JobPidState>>>,
     exploit_executors: Arc<Mutex<HashMap<i32, ExploitExecutor>>>,
@@ -53,7 +53,7 @@ fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &
 
 impl Executor {
     pub fn new(db: Database, tx: broadcast::Sender<WsMessage>) -> Result<Self> {
-        let container_manager = ContainerManager::new(db.clone())?;
+        let container_manager = Arc::new(ContainerManager::new(db.clone())?);
         Ok(Self {
             db,
             container_manager,
@@ -529,9 +529,9 @@ mod tests {
     }
 
     #[test]
-    fn container_manager_is_clone() {
+    fn container_manager_is_shared_via_arc() {
         fn assert_clone<T: Clone>() {}
-        assert_clone::<ContainerManager>();
+        assert_clone::<Arc<ContainerManager>>();
     }
 
     #[test]

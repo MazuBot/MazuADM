@@ -18,7 +18,6 @@ use std::time::Duration;
 use tokio::sync::{oneshot, Semaphore, Mutex};
 use tracing::{info, warn, error};
 
-#[derive(Clone)]
 pub struct ContainerManager {
     pub db: Database,
     pub docker: Docker,
@@ -59,7 +58,7 @@ struct ContainerRegistry {
 }
 
 pub struct ContainerLease {
-    manager: ContainerManager,
+    manager: Arc<ContainerManager>,
     container: Arc<ManagedContainer>,
     permit: tokio::sync::OwnedSemaphorePermit,
 }
@@ -247,7 +246,7 @@ impl ContainerManager {
         Ok(infos)
     }
 
-    pub async fn lease_container(&self, exploit: &Exploit, exploit_run_id: i32) -> Result<ContainerLease> {
+    pub async fn lease_container(self: &Arc<Self>, exploit: &Exploit, exploit_run_id: i32) -> Result<ContainerLease> {
         let max_execs = exploit.max_per_container.max(1) as usize;
         let exploit_id = exploit.id;
         let max_containers = exploit.max_containers;
@@ -313,7 +312,7 @@ impl ContainerManager {
         }
     }
 
-    async fn try_acquire_affinity(&self, exploit_id: i32, run_id: i32) -> Result<Option<ContainerLease>> {
+    async fn try_acquire_affinity(self: &Arc<Self>, exploit_id: i32, run_id: i32) -> Result<Option<ContainerLease>> {
         let container = {
             let mut guard = self.registry.lock().await;
             let Some(container_id) = guard.affinity.get(&run_id).cloned() else {
@@ -344,7 +343,7 @@ impl ContainerManager {
         Ok(Some(ContainerLease { manager: self.clone(), container, permit }))
     }
 
-    async fn try_acquire_from_bucket(&self, exploit_id: i32, bucket: &[i32], run_id: i32) -> Result<Option<ContainerLease>> {
+    async fn try_acquire_from_bucket(self: &Arc<Self>, exploit_id: i32, bucket: &[i32], run_id: i32) -> Result<Option<ContainerLease>> {
         let container = {
             let mut guard = self.registry.lock().await;
             let mut selected: Option<Arc<ManagedContainer>> = None;
