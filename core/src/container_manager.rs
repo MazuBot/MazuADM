@@ -13,6 +13,7 @@ use bollard::exec::{CreateExecOptions, StartExecOptions};
 use bollard::secret::{ContainerCreateBody, HostConfig};
 use chrono::{DateTime, TimeZone, Utc};
 use futures::{Stream, StreamExt};
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, atomic::{AtomicI32, AtomicUsize, Ordering}};
 use std::time::Duration;
@@ -51,6 +52,13 @@ struct ManagedContainer {
     running_execs: AtomicUsize,
     affinity_limit: usize,
     created_at: DateTime<Utc>,
+}
+
+#[derive(Serialize)]
+struct ContainerExecUpdate {
+    id: String,
+    running_execs: usize,
+    max_execs: usize,
 }
 
 fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &str, data: &T) {
@@ -318,6 +326,15 @@ impl ContainerManager {
         broadcast(&self.tx, "container_deleted", &container_id);
     }
 
+    fn broadcast_container_execs(&self, container: &Arc<ManagedContainer>, running_execs: usize) {
+        let payload = ContainerExecUpdate {
+            id: container.container_id.clone(),
+            running_execs,
+            max_execs: container.affinity_limit,
+        };
+        broadcast(&self.tx, "container_execs_updated", &payload);
+    }
+
     pub async fn lease_container(self: &Arc<Self>, exploit: &Exploit, exploit_run_id: i32) -> Result<ContainerLease> {
         let affinity_limit = exploit.max_per_container.max(1) as usize;
         let exploit_id = exploit.id;
@@ -357,12 +374,14 @@ impl ContainerManager {
             self.handle_exhausted_container(&container).await;
             return Err(anyhow::anyhow!("Container counter exhausted for exploit {}", exploit_id));
         }
-        container.running_execs.fetch_add(1, Ordering::SeqCst);
+        let running_execs = container.running_execs.fetch_add(1, Ordering::SeqCst) + 1;
+        self.broadcast_container_execs(&container, running_execs);
         Ok(ContainerLease { manager: self.clone(), container })
     }
 
     async fn release_container(&self, container: Arc<ManagedContainer>) {
-        decrement_running_execs(&container);
+        let running_execs = decrement_running_execs(&container);
+        self.broadcast_container_execs(&container, running_execs);
         if container.counter.load(Ordering::SeqCst) <= 0
             && container.running_execs.load(Ordering::SeqCst) == 0
         {
@@ -436,7 +455,8 @@ impl ContainerManager {
             self.handle_exhausted_container(&container).await;
             return Ok(AffinityAcquire::Exhausted);
         }
-        container.running_execs.fetch_add(1, Ordering::SeqCst);
+        let running_execs = container.running_execs.fetch_add(1, Ordering::SeqCst) + 1;
+        self.broadcast_container_execs(&container, running_execs);
         Ok(AffinityAcquire::Lease(ContainerLease { manager: self.clone(), container }))
     }
 
@@ -458,7 +478,8 @@ impl ContainerManager {
             return Ok(None);
         }
 
-        container.running_execs.fetch_add(1, Ordering::SeqCst);
+        let running_execs = container.running_execs.fetch_add(1, Ordering::SeqCst) + 1;
+        self.broadcast_container_execs(&container, running_execs);
         self.register_affinity(&container, &[run_id]).await;
         Ok(Some(ContainerLease { manager: self.clone(), container }))
     }
@@ -937,18 +958,18 @@ fn try_decrement_counter(container: &ManagedContainer) -> bool {
     }
 }
 
-fn decrement_running_execs(container: &ManagedContainer) {
+fn decrement_running_execs(container: &ManagedContainer) -> usize {
     loop {
         let current = container.running_execs.load(Ordering::SeqCst);
         if current == 0 {
-            break;
+            return 0;
         }
         if container
             .running_execs
             .compare_exchange(current, current - 1, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
         {
-            break;
+            return current - 1;
         }
     }
 }

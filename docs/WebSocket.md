@@ -29,7 +29,7 @@ The `user` parameter is mandatory. If missing or invalid, the server will:
 
 ### Available Prefixes
 
-`challenge`, `team`, `exploit`, `exploit_run`, `round`, `job`, `flag`, `setting`, `ws_connection`, `connection_info`
+`challenge`, `team`, `exploit`, `exploit_run`, `round`, `job`, `flag`, `setting`, `container`, `ws_connection`, `connection_info`
 
 ## Dynamic Subscription
 
@@ -101,6 +101,14 @@ Send JSON messages to change subscriptions:
 | Event | Data | Description |
 |-------|------|-------------|
 | `setting_updated` | `UpdateSetting` | Setting value changed |
+
+### Containers
+| Event | Data | Description |
+|-------|------|-------------|
+| `container_created` | `ContainerInfo` | New container created |
+| `container_updated` | `ContainerInfo` | Container updated |
+| `container_deleted` | `string` | Container ID deleted |
+| `container_execs_updated` | `{"id": string, "running_execs": int, "max_execs": int}` | Container exec count changed |
 
 ### WebSocket Connections
 | Event | Data | Description |

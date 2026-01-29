@@ -121,6 +121,15 @@ function handleWsMessage(msg) {
         return [...list, data]
       })
       break
+    case 'container_execs_updated':
+      containers.update((list) =>
+        list.map((c) =>
+          c.id === data.id
+            ? { ...c, running_execs: data.running_execs, max_execs: data.max_execs }
+            : c
+        )
+      )
+      break
     case 'container_deleted':
       containers.update((list) => list.filter((c) => c.id !== data))
       containerRunners.update((current) => {
