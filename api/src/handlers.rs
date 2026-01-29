@@ -4,6 +4,7 @@ use axum::{extract::{Path, Query, State, ws::{WebSocket, WebSocketUpgrade}}, Jso
 use futures_util::{stream, StreamExt};
 use mazuadm_core::*;
 use mazuadm_core::scheduler::{select_running_round_id, SchedulerCommand};
+use std::collections::HashSet;
 use std::sync::Arc;
 use serde::Deserialize;
 
@@ -29,20 +30,45 @@ fn should_refresh_scheduler(round_status: &str) -> bool {
 }
 
 // WebSocket handler
-pub async fn ws_handler(ws: WebSocketUpgrade, State(s): S) -> Response {
-    ws.on_upgrade(move |socket| handle_ws(socket, s))
+#[derive(Deserialize)]
+pub struct WsQuery {
+    pub events: Option<String>,
 }
 
-async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>) {
+fn parse_events(events: Option<String>) -> Option<HashSet<String>> {
+    events.map(|s| s.split(',').filter(|p| !p.is_empty()).map(|p| p.to_string()).collect())
+}
+
+fn matches_subscription(event_type: &str, subs: &Option<HashSet<String>>) -> bool {
+    match subs {
+        None => true,
+        Some(set) => set.iter().any(|prefix| event_type.starts_with(prefix)),
+    }
+}
+
+#[derive(Deserialize)]
+struct WsClientMsg {
+    action: String,
+    events: Vec<String>,
+}
+
+pub async fn ws_handler(ws: WebSocketUpgrade, Query(q): Query<WsQuery>, State(s): S) -> Response {
+    let subs = parse_events(q.events);
+    ws.on_upgrade(move |socket| handle_ws(socket, s, subs))
+}
+
+async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, mut subs: Option<HashSet<String>>) {
     let mut rx = state.tx.subscribe();
     loop {
         tokio::select! {
             msg = rx.recv() => {
                 match msg {
                     Ok(m) => {
-                        let text = serde_json::to_string(&m).unwrap_or_default();
-                        if socket.send(axum::extract::ws::Message::Text(text.into())).await.is_err() {
-                            break;
+                        if matches_subscription(&m.msg_type, &subs) {
+                            let text = serde_json::to_string(&m).unwrap_or_default();
+                            if socket.send(axum::extract::ws::Message::Text(text.into())).await.is_err() {
+                                break;
+                            }
                         }
                     }
                     Err(err) => {
@@ -54,7 +80,17 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>) {
             }
             msg = socket.next() => {
                 match msg {
-                    Some(Ok(_)) => {} // ignore client messages
+                    Some(Ok(axum::extract::ws::Message::Text(text))) => {
+                        if let Ok(cmd) = serde_json::from_str::<WsClientMsg>(&text) {
+                            let set = subs.get_or_insert_with(HashSet::new);
+                            match cmd.action.as_str() {
+                                "subscribe" => set.extend(cmd.events),
+                                "unsubscribe" => { for e in cmd.events { set.remove(&e); } }
+                                _ => {}
+                            }
+                        }
+                    }
+                    Some(Ok(_)) => {}
                     _ => break,
                 }
             }
