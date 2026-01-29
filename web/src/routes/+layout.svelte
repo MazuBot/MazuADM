@@ -4,6 +4,7 @@
   import { page } from '$app/stores'
   import { app } from '$lib/data/stores/app.js'
   import * as api from '$lib/data/api/index.js'
+  import { getUser, setUser, setOnAuthError } from '$lib/websocket.js'
   import ToastHost from '$lib/ui/ToastHost.svelte'
 
   const {
@@ -15,10 +16,12 @@
     stop
   } = app
 
-  $: pathname = $page.url.pathname
+  let pathname = $derived($page.url.pathname)
 
   let beVersion = ''
   let feVersion = import.meta.env.DEV ? 'dev' : __BUILD_GIT_HASH__
+  let showUserModal = $state(false)
+  let userInput = $state('')
 
   function shortHash(hash) {
     if (!hash) return ''
@@ -32,13 +35,55 @@
     return `/${section}`
   }
 
+  function isValidUser(u) {
+    return u.length >= 3 && u.length <= 16 && /^[a-zA-Z0-9]+$/.test(u)
+  }
+
+  function submitUser() {
+    const u = userInput.trim()
+    if (isValidUser(u)) {
+      setUser(u)
+      showUserModal = false
+      start()
+    }
+  }
+
   onMount(() => {
-    start()
+    setOnAuthError(() => {
+      userInput = ''
+      showUserModal = true
+    })
+    if (!getUser()) {
+      showUserModal = true
+    } else {
+      start()
+    }
     loadAll()
     api.version().then(v => beVersion = shortHash(v.git_hash))
     return () => stop()
   })
+
+  let userValid = $derived(isValidUser(userInput.trim()))
 </script>
+
+{#if showUserModal}
+  <div class="modal-overlay">
+    <div class="modal">
+      <h2>Enter Your Name</h2>
+      <p>3-16 alphanumeric characters (a-z, A-Z, 0-9)</p>
+      <input 
+        type="text" 
+        bind:value={userInput} 
+        placeholder="Your name" 
+        maxlength="16" 
+        pattern="[a-zA-Z0-9]+"
+        class:invalid={userInput.length > 0 && !userValid}
+        onkeydown={(e) => e.key === 'Enter' && userValid && submitUser()} 
+      />
+      <button onclick={submitUser} disabled={!userValid}>Continue</button>
+    </div>
+  </div>
+{/if}
 
 <main>
   <header>
@@ -79,5 +124,45 @@
     font-size: 0.6em;
     color: #888;
     line-height: 1.2;
+  }
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+  .modal {
+    background: #1e1e1e;
+    padding: 2rem;
+    border-radius: 8px;
+    max-width: 400px;
+    width: 90%;
+  }
+  .modal h2 {
+    margin-top: 0;
+  }
+  .modal input {
+    width: 100%;
+    padding: 0.5rem;
+    margin: 1rem 0;
+    box-sizing: border-box;
+  }
+  .modal input.invalid {
+    border-color: #e74c3c;
+    outline-color: #e74c3c;
+  }
+  .modal button {
+    width: 100%;
+    padding: 0.5rem;
+  }
+  .modal button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>

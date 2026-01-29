@@ -40,6 +40,7 @@
         <th>ID</th>
         <th>Client IP</th>
         <th>Client Name</th>
+        <th>User</th>
         <th>Subscribed Events</th>
         <th>Connected At</th>
         <th>Duration</th>
@@ -51,6 +52,7 @@
           <td>{c.id.slice(0, 8)}</td>
           <td>{c.client_ip}</td>
           <td>{c.client_name}</td>
+          <td>{c.user}</td>
           <td>{c.subscribed_events.length ? c.subscribed_events.join(', ') : '(all)'}</td>
           <td>{formatTime(c.connected_at)}</td>
           <td>{formatDuration(c.connected_at)}</td>

@@ -26,6 +26,7 @@ use uuid::Uuid;
 pub struct WsConnection {
     pub client_ip: SocketAddr,
     pub client_name: String,
+    pub user: String,
     pub subscribed_events: HashSet<String>,
     pub connected_at: DateTime<Utc>,
 }
