@@ -48,6 +48,12 @@ nav a,
   display: inline-block;
 }
 
+.challenge-tabs button.disabled:not(.active) {
+  background: #1a1a2e;
+  color: #666;
+  border: 1px solid #333;
+}
+
 nav a.active,
 .challenge-tabs button.active {
   background: #00d9ff;

@@ -7,7 +7,7 @@
 {#if challenges.length}
   <div class="challenge-tabs">
     {#each challenges as c}
-      <button class:active={selectedChallengeId === c.id} onclick={() => onSelectChallenge(c.id)}>
+      <button class:active={selectedChallengeId === c.id} class:disabled={!c.enabled} onclick={() => onSelectChallenge(c.id)}>
         {c.name}
       </button>
     {/each}
