@@ -36,8 +36,18 @@ nav {
   gap: 0.25rem;
 }
 
-nav a,
 .challenge-tabs button {
+  background: #252540;
+  border: 1px solid #333;
+  color: #aaa;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  text-decoration: none;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+nav a {
   background: #252540;
   border: none;
   color: #aaa;
