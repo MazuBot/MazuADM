@@ -2,7 +2,7 @@ import { get, writable } from 'svelte/store'
 import * as api from '$lib/data/api'
 import { connect, disconnect } from '$lib/websocket.js'
 import { challenges, exploits, exploitRuns, loadAllEntities, teams } from './entities.js'
-import { flags, loadFlags, selectedFlagRoundId } from './flags.js'
+import { flags, loadFlags, selectedFlagRoundId, submitFlag } from './flags.js'
 import { containers, containerRunners, loadContainers, loadRunners, resetContainers } from './containers.js'
 import { jobs, loadJobs, rounds, selectedRoundId, createRound, loadRounds, rerunRound, runRound, rerunUnflaggedRound } from './rounds.js'
 import { selectedChallengeId, ensureSelections } from './selections.js'
@@ -98,7 +98,7 @@ function handleWsMessage(msg) {
     case 'flag_created': {
       const currentFlagRoundId = get(selectedFlagRoundId)
       if (!currentFlagRoundId || data.round_id === currentFlagRoundId) {
-        flags.update((list) => [...list, data])
+        flags.update((list) => (list.some((f) => f.id === data.id) ? list : [...list, data]))
       }
       break
     }
@@ -192,6 +192,7 @@ export const app = {
   runRound,
   rerunRound,
   rerunUnflaggedRound,
+  submitFlag,
   start,
   restart,
   stop

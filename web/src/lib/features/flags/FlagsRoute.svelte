@@ -6,7 +6,7 @@
 
   export let routeId = null
 
-  const { ready, rounds, flags, teams, challenges, selectedFlagRoundId, loadFlags } = app
+  const { ready, rounds, flags, teams, challenges, selectedFlagRoundId, loadFlags, submitFlag } = app
 
   let lastFlagsRound = undefined
 
@@ -41,4 +41,5 @@
   challenges={$challenges}
   selectedFlagRoundId={$selectedFlagRoundId}
   onSelectFlagRound={selectFlagRound}
+  onSubmitFlag={submitFlag}
 />
