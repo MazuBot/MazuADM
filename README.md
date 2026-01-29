@@ -6,7 +6,7 @@ A Trello-like interface for managing CTF A/D exploits with persistent container 
 
 - Trello-style board for managing exploit runs per team
 - Persistent Docker containers with configurable lifetime counters
-- Parallel exploit execution with concurrency limits
+- Parallel exploit execution
 - ANSI color support in job output logs
 - Container management UI (view status, runners, restart/remove)
 
@@ -74,7 +74,7 @@ Environment variables provided:
 - `TARGET_TEAM_ID` - Target team identifier
 
 Container settings per exploit:
-- `max_per_container` - Max concurrent runners per container (default: 1)
+- `max_per_container` - Max affinity teams per container (default: 1)
 - `default_counter` - Lifetime counter for new containers (default: 999)
 
 Output flags to stdout. Default regex: `[A-Za-z0-9]{31}=`

@@ -55,7 +55,7 @@ Docker-based exploit definitions.
 | docker_image | VARCHAR(512) | NO | Docker image to run |
 | entrypoint | VARCHAR(512) | YES | Custom entrypoint |
 | timeout_secs | INTEGER | NO | Container timeout (default: 30) |
-| max_per_container | INTEGER | NO | Max runners per container (default: 1) |
+| max_per_container | INTEGER | NO | Max affinity teams per container (default: 1) |
 | max_containers | INTEGER | NO | Max active containers for exploit (default: 0 = unlimited) |
 | default_counter | INTEGER | NO | Container lifetime (default: 999) |
 | created_at | TIMESTAMPTZ | NO | Creation timestamp |
@@ -182,7 +182,7 @@ challenges ─┬─< challenge_team_relations >─┬─ teams
 
 1. Containers are pre-warmed when a round is created
 2. Each container has a `counter` (default 999) that decrements when a job lease is acquired
-3. Each container enforces `max_per_container` concurrent execs
+3. Each container caps affinity assignments at `max_per_container`
 4. Containers store `mazuadm.affinity` with a CSV list of dynamically assigned `exploit_run_id` values
 5. When counter reaches 0 and no execs remain, the container is destroyed
 6. Dead containers are removed and recreated on demand
