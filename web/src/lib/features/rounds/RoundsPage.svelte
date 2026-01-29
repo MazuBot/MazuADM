@@ -24,6 +24,7 @@
   let dragPreviewEl = $state(null);
   let optimisticPriority = $state(null);
   let dragPreviewPriority = $state(null);
+  let dragStartIndex = $state(null);
   let challengeFilterId = $state('');
   let teamFilterId = $state('');
   let statusFilter = $state('');
@@ -193,6 +194,7 @@
 
   function clearDragOver() {
     dragPreviewPriority = null;
+    dragStartIndex = null;
   }
 
   function cancelDrag() {
@@ -205,6 +207,8 @@
     if (job.status !== 'pending') { e.preventDefault(); return; }
     draggingJob = job;
     clearDragOver();
+    const pending = sortedJobs(filteredJobs).filter(j => j.status === 'pending');
+    dragStartIndex = pending.findIndex(j => j.id === job.id);
     if (!e.dataTransfer) return;
     e.dataTransfer.effectAllowed = 'move';
     cleanupDragPreview();
@@ -231,11 +235,21 @@
     if (!draggingJob || draggingJob.status !== 'pending') return;
     if (job.status !== 'pending') return;
     if (job.id === draggingJob.id) return;
-    const rect = e.currentTarget?.getBoundingClientRect?.();
-    const midpoint = rect ? rect.top + rect.height / 2 : e.clientY;
     const baseTargetPriority = getJobPriority(job);
     const targetPriority = Number.isFinite(baseTargetPriority) ? baseTargetPriority : 0;
-    const nextPriority = e.clientY < midpoint ? targetPriority + 1 : targetPriority - 1;
+    let nextPriority = null;
+    if (targetPriority === draggingJob.priority) {
+      const pending = sortedJobs(filteredJobs).filter(j => j.status === 'pending');
+      const targetIndex = pending.findIndex(j => j.id === job.id);
+      if (targetIndex < 0 || dragStartIndex === null || dragStartIndex < 0) return;
+      if (targetIndex === dragStartIndex) return;
+      nextPriority = targetIndex < dragStartIndex ? targetPriority + 1 : targetPriority - 1;
+    } else {
+      const rect = e.currentTarget?.getBoundingClientRect?.();
+      const midpoint = rect ? rect.top + rect.height / 2 : e.clientY;
+      nextPriority = e.clientY < midpoint ? targetPriority + 1 : targetPriority - 1;
+    }
+    if (nextPriority === null) return;
     if (dragPreviewPriority === nextPriority) return;
     dragPreviewPriority = nextPriority;
   }
