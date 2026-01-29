@@ -16,7 +16,7 @@
 
 ### Available Prefixes
 
-`challenge`, `team`, `exploit`, `exploit_run`, `round`, `job`, `flag`, `setting`, `connection_info`
+`challenge`, `team`, `exploit`, `exploit_run`, `round`, `job`, `flag`, `setting`, `container`, `connection_info`
 
 ### Dynamic Subscription
 
@@ -88,6 +88,13 @@ Send JSON messages to change subscriptions:
 | Event | Data | Description |
 |-------|------|-------------|
 | `setting_updated` | `UpdateSetting` | Setting value changed |
+
+### Containers
+| Event | Data | Description |
+|-------|------|-------------|
+| `container_created` | `ContainerInfo` | New container created |
+| `container_updated` | `ContainerInfo` | Container updated |
+| `container_deleted` | `string` | Container ID deleted |
 
 ### Relations
 | Event | Data | Description |

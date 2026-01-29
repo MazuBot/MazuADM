@@ -106,6 +106,28 @@ function handleWsMessage(msg) {
         list.map((s) => (s.key === data.key ? { ...s, value: data.value } : s))
       )
       break
+    case 'container_created':
+      containers.update((list) => {
+        const idx = list.findIndex((c) => c.id === data.id)
+        if (idx >= 0) return [...list.slice(0, idx), data, ...list.slice(idx + 1)]
+        return [...list, data]
+      })
+      break
+    case 'container_updated':
+      containers.update((list) => {
+        const idx = list.findIndex((c) => c.id === data.id)
+        if (idx >= 0) return [...list.slice(0, idx), data, ...list.slice(idx + 1)]
+        return [...list, data]
+      })
+      break
+    case 'container_deleted':
+      containers.update((list) => list.filter((c) => c.id !== data))
+      containerRunners.update((current) => {
+        if (!(data in current)) return current
+        const { [data]: _removed, ...rest } = current
+        return rest
+      })
+      break
     case 'connection_info_updated':
       break
   }

@@ -53,7 +53,7 @@ fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &
 
 impl Executor {
     pub fn new(db: Database, tx: broadcast::Sender<WsMessage>) -> Result<Self> {
-        let container_manager = Arc::new(ContainerManager::new(db.clone())?);
+        let container_manager = Arc::new(ContainerManager::new(db.clone(), tx.clone())?);
         let (stop_tx, _stop_rx) = broadcast::channel::<StopSignal>(128);
         Ok(Self {
             db,

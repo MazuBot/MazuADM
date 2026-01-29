@@ -1,4 +1,4 @@
-use crate::{ContainerInfo, Database, Exploit};
+use crate::{ContainerInfo, Database, Exploit, WsMessage};
 use anyhow::Result;
 use bollard::Docker;
 use bollard::query_parameters::{
@@ -16,13 +16,14 @@ use futures::{Stream, StreamExt};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, atomic::{AtomicI32, AtomicUsize, Ordering}};
 use std::time::Duration;
-use tokio::sync::{oneshot, Semaphore, Mutex};
+use tokio::sync::{broadcast, oneshot, Semaphore, Mutex};
 use tracing::{info, warn, error};
 use dashmap::DashSet;
 
 pub struct ContainerManager {
     pub db: Database,
     pub docker: Docker,
+    tx: broadcast::Sender<WsMessage>,
     spawn_gate: Arc<Semaphore>,
     spawn_limit: Arc<AtomicUsize>,
     registry: Arc<Mutex<ContainerRegistry>>,
@@ -50,6 +51,10 @@ struct ManagedContainer {
     running_execs: AtomicUsize,
     affinity_limit: usize,
     created_at: DateTime<Utc>,
+}
+
+fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &str, data: &T) {
+    let _ = tx.send(WsMessage::new(msg_type, data));
 }
 
 #[derive(Default)]
@@ -151,11 +156,12 @@ where
 }
 
 impl ContainerManager {
-    pub fn new(db: Database) -> Result<Self> {
+    pub fn new(db: Database, tx: broadcast::Sender<WsMessage>) -> Result<Self> {
         let docker = Docker::connect_with_local_defaults()?;
         Ok(Self {
             db,
             docker,
+            tx,
             spawn_gate: Arc::new(Semaphore::new(1)),
             spawn_limit: Arc::new(AtomicUsize::new(1)),
             registry: Arc::new(Mutex::new(ContainerRegistry::default())),
@@ -253,6 +259,63 @@ impl ContainerManager {
             });
         }
         Ok(infos)
+    }
+
+    async fn container_info(&self, container: &Arc<ManagedContainer>) -> ContainerInfo {
+        let status = match self
+            .docker
+            .inspect_container(&container.container_id, None::<InspectContainerOptions>)
+            .await
+        {
+            Ok(info) => info
+                .state
+                .and_then(|s| s.running)
+                .map(|r| if r { "running" } else { "dead" })
+                .unwrap_or("dead"),
+            Err(_) => "dead",
+        };
+        let running_execs = container.running_execs.load(Ordering::SeqCst);
+        let affinity_runs = {
+            let guard = self.registry.lock().await;
+            guard
+                .reverse_affinity
+                .get(&container.container_id)
+                .map(sorted_run_ids)
+                .unwrap_or_default()
+        };
+        ContainerInfo {
+            id: container.container_id.clone(),
+            exploit_id: container.exploit_id,
+            status: status.to_string(),
+            counter: container.counter.load(Ordering::SeqCst),
+            running_execs,
+            max_execs: container.affinity_limit,
+            created_at: container.created_at,
+            affinity_runs,
+        }
+    }
+
+    async fn container_info_by_id(&self, container_id: &str) -> Option<ContainerInfo> {
+        let container = {
+            let guard = self.registry.lock().await;
+            guard.by_id.get(container_id).cloned()
+        }?;
+        Some(self.container_info(&container).await)
+    }
+
+    async fn broadcast_container_created(&self, container: &Arc<ManagedContainer>) {
+        let info = self.container_info(container).await;
+        broadcast(&self.tx, "container_created", &info);
+    }
+
+    async fn broadcast_container_updated(&self, container_id: &str) {
+        if let Some(info) = self.container_info_by_id(container_id).await {
+            broadcast(&self.tx, "container_updated", &info);
+        }
+    }
+
+    fn broadcast_container_deleted(&self, container_id: &str) {
+        broadcast(&self.tx, "container_deleted", &container_id);
     }
 
     pub async fn lease_container(self: &Arc<Self>, exploit: &Exploit, exploit_run_id: i32) -> Result<ContainerLease> {
@@ -576,6 +639,7 @@ impl ContainerManager {
             self.register_affinity(&managed, &runs).await;
         }
 
+        self.broadcast_container_created(&managed).await;
         info!("Spawned container {} for exploit {}", resp.id, exploit.id);
         Ok(managed)
     }
@@ -731,6 +795,7 @@ impl ContainerManager {
         let _ = self.detach_container(container_id).await;
         let _ = self.docker.remove_container(container_id, Some(RemoveContainerOptions { force: true, ..Default::default() })).await;
         info!("Destroyed container {}", container_id);
+        self.broadcast_container_deleted(container_id);
         Ok(())
     }
 
@@ -747,6 +812,9 @@ impl ContainerManager {
             .map_err(Into::into);
 
         self.end_restart(container_id).await;
+        if result.is_ok() {
+            self.broadcast_container_updated(container_id).await;
+        }
         result
     }
 
