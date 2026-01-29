@@ -24,6 +24,7 @@
   let teamFilterId = $state('');
   let statusFilter = $state('');
   let reasonFilter = $state('');
+  let searchQuery = $state('');
 
   function getSelectedRound() {
     return rounds.find(r => r.id === selectedRoundId);
@@ -121,9 +122,18 @@
     return idx >= 0 ? reason.substring(0, idx) : reason;
   }
 
-  function filterJobs() {
+  function highlight(text) {
+    if (!text) return '-';
+    const q = searchQuery.trim();
+    if (q.length < 2) return text;
+    const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    return text.replace(regex, '<mark>$1</mark>');
+  }
+
+  let filteredJobs = $derived.by(() => {
     const teamId = teamFilterId ? Number(teamFilterId) : null;
     const challengeId = challengeFilterId ? Number(challengeFilterId) : null;
+    const query = searchQuery.toLowerCase().trim();
     return jobs.filter((job) => {
       if (statusFilter && job.status !== statusFilter) return false;
       if (reasonFilter && getReasonBase(job.create_reason) !== reasonFilter) return false;
@@ -132,11 +142,20 @@
         const run = getExploitRunInfo(job.exploit_run_id);
         if (!run || Number(run.challenge_id) !== challengeId) return false;
       }
+      if (query) {
+        const run = getExploitRunInfo(job.exploit_run_id);
+        const searchable = [
+          String(job.id),
+          getChallengeName(challenges, run?.challenge_id),
+          getExploitName(exploits, run?.exploit_id),
+          job.create_reason || '',
+          job.container_id ? job.container_id.slice(0, 12) : ''
+        ].join(' ').toLowerCase();
+        if (!searchable.includes(query)) return false;
+      }
       return true;
     });
-  }
-
-  let filteredJobs = $derived(filterJobs());
+  });
   let availableStatuses = $derived(buildStatusOptions(jobs));
   let availableReasons = $derived([...new Set(jobs.map(j => getReasonBase(j.create_reason)))].filter(Boolean).sort());
   let selectedRound = $derived(getSelectedRound());
@@ -211,6 +230,7 @@
     bind:teamId={teamFilterId}
     bind:status={statusFilter}
     bind:reason={reasonFilter}
+    bind:search={searchQuery}
     {challenges}
     {teams}
     statuses={availableStatuses}
@@ -220,6 +240,7 @@
       teamFilterId = '';
       statusFilter = '';
       reasonFilter = '';
+      searchQuery = '';
     }}
   />
 
@@ -253,12 +274,12 @@
             onclick={() => openJob(j)} 
             style="cursor:pointer"
           >
-            <td>{j.id}</td>
-            <td>{getChallengeName(challenges, getExploitRunInfo(j.exploit_run_id)?.challenge_id)}</td>
-            <td>{getExploitName(exploits, getExploitRunInfo(j.exploit_run_id)?.exploit_id)}</td>
+            <td>{@html highlight(String(j.id))}</td>
+            <td>{@html highlight(getChallengeName(challenges, getExploitRunInfo(j.exploit_run_id)?.challenge_id))}</td>
+            <td>{@html highlight(getExploitName(exploits, getExploitRunInfo(j.exploit_run_id)?.exploit_id))}</td>
             <td><span class="truncate">{getTeamDisplay(teams, j.team_id)}</span></td>
-            <td><span class="truncate">{j.create_reason || '-'}</span></td>
-            <td>{j.container_id ? j.container_id.slice(0, 12) : '-'}</td>
+            <td><span class="truncate">{@html highlight(j.create_reason || '-')}</span></td>
+            <td>{@html highlight(j.container_id ? j.container_id.slice(0, 12) : '-')}</td>
             <td>{j.priority}</td>
             <td>{formatStatus(j.status)}</td>
             <td>{j.duration_ms ? `${j.duration_ms}ms` : '-'}</td>

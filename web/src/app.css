@@ -108,12 +108,17 @@ button.danger {
   background: #d9534f;
 }
 
-select {
+select,
+input[type="text"] {
   background: #252540;
   color: #eee;
   border: 1px solid #444;
   padding: 0.5rem;
   border-radius: 4px;
+}
+
+input[type="text"]::placeholder {
+  color: #888;
 }
 
 table {

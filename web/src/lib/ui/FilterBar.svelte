@@ -4,6 +4,7 @@
     teamId = $bindable(''),
     status = $bindable(''),
     reason = $bindable(''),
+    search = $bindable(''),
     challenges = [],
     teams = [],
     statuses = [],
@@ -13,10 +14,11 @@
 
   let showStatus = $derived((statuses ?? []).length > 0);
   let showReason = $derived((reasons ?? []).length > 0);
-  let canReset = $derived(Boolean(challengeId || teamId || status || reason));
+  let canReset = $derived(Boolean(challengeId || teamId || status || reason || search));
 </script>
 
 <div class="controls">
+  <input type="text" bind:value={search} placeholder="Search..." class="search-input" />
   <select bind:value={challengeId}>
     <option value="">All challenges</option>
     {#each challenges as c}
@@ -49,3 +51,9 @@
     Reset Filters
   </button>
 </div>
+
+<style>
+  .search-input {
+    width: 150px;
+  }
+</style>
