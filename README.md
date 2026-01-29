@@ -22,7 +22,22 @@ The installer copies `config.toml` from your current directory to `/etc/mazuadm/
 ### Database
 ```bash
 createdb mazuadm
-psql mazuadm < core/migrations/001_initial.sql
+DATABASE_URL=postgres://localhost/mazuadm sqlx migrate run --source core/migrations
+```
+
+Notes:
+- Running only `001_initial.sql` leaves newer columns/tables missing (ex: settings, enabled flags).
+- Always apply all migrations from `core/migrations` to keep schema current.
+
+#### SQLX offline metadata (_sqlx db)
+If `cargo sqlx prepare` fails due to missing migrations or schema drift, recreate the
+scratch database and rerun migrations:
+
+```bash
+DATABASE_URL=postgres://localhost/mazuadm_sqlx sqlx database drop -y
+DATABASE_URL=postgres://localhost/mazuadm_sqlx sqlx database create
+DATABASE_URL=postgres://localhost/mazuadm_sqlx sqlx migrate run --source core/migrations
+DATABASE_URL=postgres://localhost/mazuadm_sqlx cargo sqlx prepare --workspace
 ```
 
 ### Build
