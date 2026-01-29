@@ -227,7 +227,7 @@ impl SchedulerRunner {
                 self.reset_queue(id).await?;
             }
             SchedulerCommand::RerunUnflagged(id) => {
-                self.scheduler.rerun_unflagged_round(id).await?;
+                self.scheduler.rerun_unflagged(id).await?;
                 self.reset_queue(id).await?;
             }
             SchedulerCommand::RunPending(id) => {
@@ -503,9 +503,7 @@ impl Scheduler {
         Ok(())
     }
 
-    pub async fn rerun_unflagged_round(&self, round_id: i32) -> Result<()> {
-        self.stop_running_jobs_with_flag_check().await;
-
+    pub async fn rerun_unflagged(&self, round_id: i32) -> Result<()> {
         let created = self.db.clone_unflagged_jobs_for_round(round_id).await?;
         if created > 0 {
             broadcast(&self.tx, "jobs_changed", &JobsChangedPayload { round_id, created });
