@@ -25,7 +25,8 @@ $SUDO systemctl stop mazuadm-api.service
 $SUDO mkdir -p "$BIN_DIR"
 $SUDO cp "$CLI_BIN" "$BIN_DIR/mazuadm-cli"
 $SUDO cp "$API_BIN" "$BIN_DIR/mazuadm-api"
-$SUDO chmod 0755 "$BIN_DIR/mazuadm-cli" "$BIN_DIR/mazuadm-api"
+$SUDO chmod 0755 "$BIN_DIR/mazuadm-cli"
+$SUDO chmod 0750 "$BIN_DIR/mazuadm-api"
 $SUDO systemctl start mazuadm-api.service 
 
 CONFIG_DIR='/etc/mazuadm'
@@ -44,6 +45,7 @@ $SUDO mkdir -p "$TEMPLATE_DST"
 $SUDO cp -R "$TEMPLATE_SRC/." "$TEMPLATE_DST/"
 if [ -f "$CONFIG_SRC" ]; then
   $SUDO cp "$CONFIG_SRC" "$CONFIG_DST"
+  $SUDO chmod 0750 "$CONFIG_DST"
 fi
 
 echo "Installed mazuadm-cli and mazuadm-api to $BIN_DIR."
