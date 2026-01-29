@@ -9,3 +9,4 @@ config.local.toml
 .sqlx/
 
 AGENTS.md
+.env
