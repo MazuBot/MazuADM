@@ -46,7 +46,11 @@ fn parse_events(events: Option<String>) -> Option<HashSet<String>> {
 fn matches_subscription(event_type: &str, subs: &Option<HashSet<String>>) -> bool {
     match subs {
         None => true,
-        Some(set) => set.iter().any(|prefix| event_type.starts_with(prefix)),
+        Some(set) => {
+            // Extract category: everything before the last underscore (e.g., "exploit_run" from "exploit_run_created")
+            let category = event_type.rsplit_once('_').map(|(cat, _)| cat).unwrap_or(event_type);
+            set.iter().any(|sub| category == sub || category.starts_with(&format!("{}_", sub)))
+        }
     }
 }
 
