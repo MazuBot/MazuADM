@@ -3,17 +3,19 @@ mod handlers;
 mod routes;
 
 use crate::events::WsMessage;
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use mazuadm_core::executor::Executor;
 use mazuadm_core::scheduler::{Scheduler, SchedulerCommand, SchedulerHandle, SchedulerRunner};
 use mazuadm_core::settings::load_executor_settings;
 use mazuadm_core::Database;
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::fs::OpenOptions;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
+use tracing_appender::non_blocking::WorkerGuard;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -25,6 +27,21 @@ pub struct AppState {
 
 fn should_resume_running_round(pending_count: usize) -> bool {
     pending_count > 0
+}
+
+fn init_logging(log_dir: &Path) -> Result<WorkerGuard> {
+    let log_path = log_dir.join("mazuadm-api.log");
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .with_context(|| format!("failed to open log {}", log_path.display()))?;
+    let (writer, guard) = tracing_appender::non_blocking(file);
+    tracing_subscriber::fmt()
+        .with_writer(writer)
+        .with_ansi(false)
+        .init();
+    Ok(guard)
 }
 
 fn parse_config_dir<I, T>(args: I) -> Result<Option<PathBuf>>
@@ -84,9 +101,12 @@ async fn resume_running_round_if_needed(state: &AppState) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
-
     let config_dir = parse_config_dir(std::env::args_os())?;
+    let log_dir = match &config_dir {
+        Some(dir) => dir.clone(),
+        None => std::env::current_dir()?,
+    };
+    let _log_guard = init_logging(&log_dir)?;
     let config_path = resolve_config_from_dir(config_dir)?;
     let config = match config_path {
         Some(path) => mazuadm_core::config::load_toml_config(&path)?,
