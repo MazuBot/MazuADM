@@ -5,6 +5,7 @@ use chrono::Utc;
 use futures_util::{stream, SinkExt, StreamExt};
 use mazuadm_core::*;
 use mazuadm_core::scheduler::{select_running_round_id, SchedulerCommand};
+use mazuadm_core::settings::parse_setting_usize;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -454,6 +455,16 @@ async fn require_running_round_id(s: &AppState) -> Result<i32, String> {
     select_running_round_id(&rounds).ok_or_else(|| "No running round".to_string())
 }
 
+fn min_allowed_round_id(running_round_id: i32, past_rounds: usize) -> i32 {
+    let past_rounds = past_rounds.min(i32::MAX as usize) as i32;
+    running_round_id.saturating_sub(past_rounds)
+}
+
+fn round_within_history(target_round_id: i32, running_round_id: i32, past_rounds: usize) -> bool {
+    let min_allowed = min_allowed_round_id(running_round_id, past_rounds);
+    target_round_id >= min_allowed && target_round_id <= running_round_id
+}
+
 async fn run_job_immediately(s: &AppState, job_id: i32) {
     if let Err(e) = s.db.mark_job_scheduled(job_id).await {
         tracing::error!("Failed to mark job {} scheduled: {}", job_id, e);
@@ -514,10 +525,16 @@ pub async fn submit_flag(State(s): S, Json(req): Json<SubmitFlagRequest>) -> R<F
     if flag_value.len() > 512 {
         return Err("Flag value exceeds 512 characters".to_string());
     }
-    let round_id = match req.round_id {
-        Some(id) => id,
-        None => require_running_round_id(&s).await?,
-    };
+    let running_round_id = require_running_round_id(&s).await?;
+    let past_rounds = parse_setting_usize(s.db.get_setting("past_flag_rounds").await.ok(), 5);
+    let round_id = req.round_id.unwrap_or(running_round_id);
+    if !round_within_history(round_id, running_round_id, past_rounds) {
+        let min_allowed = min_allowed_round_id(running_round_id, past_rounds);
+        return Err(format!(
+            "Round {} is outside allowed range ({}..={})",
+            round_id, min_allowed, running_round_id
+        ));
+    }
     s.db.get_round(round_id).await.map_err(err)?;
     s.db.get_challenge(req.challenge_id).await.map_err(err)?;
     s.db.get_team(req.team_id).await.map_err(err)?;
@@ -673,7 +690,7 @@ pub async fn list_ws_connections(State(s): S) -> Json<Vec<WsConnectionInfo>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{should_continue_ws, should_refresh_scheduler};
+    use super::{min_allowed_round_id, round_within_history, should_continue_ws, should_refresh_scheduler};
 
     #[test]
     fn should_continue_ws_only_on_lagged() {
@@ -686,5 +703,23 @@ mod tests {
         assert!(should_refresh_scheduler("running"));
         assert!(!should_refresh_scheduler("pending"));
         assert!(!should_refresh_scheduler("finished"));
+    }
+
+    #[test]
+    fn round_within_history_allows_running_and_past() {
+        assert!(round_within_history(10, 10, 0));
+        assert!(round_within_history(9, 10, 1));
+        assert!(round_within_history(8, 10, 2));
+    }
+
+    #[test]
+    fn round_within_history_blocks_future_and_too_old() {
+        assert!(!round_within_history(11, 10, 2));
+        assert!(!round_within_history(7, 10, 2));
+    }
+
+    #[test]
+    fn min_allowed_round_id_saturates() {
+        assert_eq!(min_allowed_round_id(2, 5), 0);
     }
 }
