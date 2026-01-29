@@ -101,6 +101,8 @@ fn broadcast_ws_connections(state: &AppState) {
 
 async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, mut subs: Option<HashSet<String>>, addr: SocketAddr, client_name: String, user: String) {
     let conn_id = Uuid::new_v4();
+    let mut rx = state.tx.subscribe();
+    
     state.ws_connections.insert(conn_id, WsConnection {
         client_ip: addr,
         client_name,
@@ -110,7 +112,6 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, mut subs: Option
     });
     broadcast_ws_connections(&state);
 
-    let mut rx = state.tx.subscribe();
     loop {
         tokio::select! {
             msg = rx.recv() => {
