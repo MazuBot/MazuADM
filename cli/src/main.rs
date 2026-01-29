@@ -324,7 +324,9 @@ async fn main() -> Result<()> {
             RoundCmd::ScheduleUnflagged { id } => { ctx.api.schedule_unflagged_round(id).await?; println!("Scheduled unflagged jobs for round {}", id); }
             RoundCmd::Clean { db } => {
                 let pool = sqlx::PgPool::connect(&db).await?;
-                sqlx::query("TRUNCATE flags, exploit_jobs, rounds RESTART IDENTITY CASCADE").execute(&pool).await?;
+                sqlx::query!("TRUNCATE flags, exploit_jobs, rounds RESTART IDENTITY CASCADE")
+                    .execute(&pool)
+                    .await?;
                 println!("Cleaned all round data");
             }
         },
