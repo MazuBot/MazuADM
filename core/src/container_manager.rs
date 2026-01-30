@@ -77,37 +77,24 @@ pub(crate) type ContainerRegistryHandle = Arc<Mutex<ContainerRegistry>>;
 pub struct ContainerLease<'a> {
     manager: &'a ContainerManager,
     registry: &'a ContainerRegistryHandle,
-    container: Option<Arc<ManagedContainer>>,
+    container: Arc<ManagedContainer>,
 }
 
 impl<'a> ContainerLease<'a> {
     pub fn container_id(&self) -> &str {
-        &self.container.as_ref().unwrap().container_id
+        &self.container.container_id
     }
 
     pub fn exploit_id(&self) -> i32 {
-        self.container.as_ref().unwrap().exploit_id
+        self.container.exploit_id
     }
 
     pub fn remaining(&self) -> i32 {
-        self.container.as_ref().unwrap().counter.load(Ordering::SeqCst)
+        self.container.counter.load(Ordering::SeqCst)
     }
 
-    pub async fn finish(mut self) {
-        if let Some(container) = self.container.take() {
-            self.manager.release_container(self.registry, container).await;
-        }
-    }
-}
-
-impl Drop for ContainerLease<'_> {
-    fn drop(&mut self) {
-        if let Some(container) = self.container.take() {
-            let running_execs = decrement_running_execs(&container);
-            self.manager.broadcast_container_execs(&container, running_execs);
-            // Note: async cleanup (destroy_container_by_id) skipped on drop
-            // Container will be cleaned up by health_check or next lease attempt
-        }
+    pub async fn finish(self) {
+        self.manager.release_container(self.registry, self.container).await;
     }
 }
 
@@ -402,7 +389,7 @@ impl ContainerManager {
         }
         let running_execs = container.running_execs.fetch_add(1, Ordering::SeqCst) + 1;
         self.broadcast_container_execs(&container, running_execs);
-        Ok(ContainerLease { manager: self, registry, container: Some(container) })
+        Ok(ContainerLease { manager: self, registry, container })
     }
 
     async fn release_container(&self, registry: &ContainerRegistryHandle, container: Arc<ManagedContainer>) {
@@ -488,7 +475,7 @@ impl ContainerManager {
         }
         let running_execs = container.running_execs.fetch_add(1, Ordering::SeqCst) + 1;
         self.broadcast_container_execs(&container, running_execs);
-        Ok(AffinityAcquire::Lease(ContainerLease { manager: self, registry, container: Some(container) }))
+        Ok(AffinityAcquire::Lease(ContainerLease { manager: self, registry, container }))
     }
 
     async fn try_acquire_best_available<'a>(
@@ -517,7 +504,7 @@ impl ContainerManager {
         let running_execs = container.running_execs.fetch_add(1, Ordering::SeqCst) + 1;
         self.broadcast_container_execs(&container, running_execs);
         self.register_affinity(registry, &container, &[run_id]).await;
-        Ok(Some(ContainerLease { manager: self, registry, container: Some(container) }))
+        Ok(Some(ContainerLease { manager: self, registry, container }))
     }
 
     async fn select_affinity_for_new_container(
