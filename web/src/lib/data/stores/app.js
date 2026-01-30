@@ -1,6 +1,7 @@
 import { get, writable } from 'svelte/store'
 import * as api from '$lib/data/api'
 import { connect, disconnect } from '$lib/websocket.js'
+import { pushToast } from '$lib/ui/toastStore.js'
 import { challenges, exploits, exploitRuns, loadAllEntities, teams } from './entities.js'
 import { flags, loadFlags, selectedFlagRoundId, submitFlag } from './flags.js'
 import { containers, containerRunners, loadContainers, loadRunners, resetContainers } from './containers.js'
@@ -66,15 +67,38 @@ function handleWsMessage(msg) {
       break
     case 'round_created':
       rounds.update((list) => [{ ...data, jobs_ready: false }, ...list])
+      pushToast(`Round #${data.id} created.`, 'success')
       break
     case 'round_updated':
-      rounds.update((list) => list.map((r) => (r.id === data.id ? { ...r, ...data } : r)))
+      {
+        let statusToast = null
+        rounds.update((list) =>
+          list.map((r) => {
+            if (r.id !== data.id) return r
+            const next = { ...r, ...data }
+            if (r.status && next.status && r.status !== next.status) {
+              if (next.status === 'running') statusToast = `Round #${next.id} started.`
+              else if (next.status === 'finished') statusToast = `Round #${next.id} finished.`
+            }
+            return next
+          })
+        )
+        if (statusToast) pushToast(statusToast, 'success')
+      }
       break
     case 'round_jobs_ready': {
       const currentRoundId = get(selectedRoundId)
       rounds.update((list) =>
         list.map((r) => (r.id === data.round_id ? { ...r, jobs_ready: true } : r))
       )
+      if (data?.round_id) {
+        if (data.success) {
+          const count = Number.isFinite(data.created) ? ` (${data.created})` : ''
+          pushToast(`Round #${data.round_id} jobs created${count}.`, 'success')
+        } else {
+          pushToast(`Round #${data.round_id} job creation failed.`, 'error')
+        }
+      }
       if (currentRoundId && data?.round_id === currentRoundId) {
         loadJobs(currentRoundId)
       }
