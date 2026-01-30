@@ -185,6 +185,7 @@
   <thead>
     <tr>
       <th>ID</th>
+      <th>Job</th>
       <th>Round</th>
       <th>Challenge</th>
       <th>Team</th>
@@ -196,6 +197,7 @@
     {#each filteredFlags as f}
       <tr>
         <td>{f.id}</td>
+        <td>{f.job_id ?? '-'}</td>
         <td>{f.round_id}</td>
         <td>{getChallengeName(challenges, f.challenge_id)}</td>
         <td><span class="truncate">{getTeamDisplay(teams, f.team_id)}</span></td>
