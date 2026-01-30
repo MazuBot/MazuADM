@@ -123,6 +123,7 @@ impl Executor {
             .await?;
         drop(_guard);
         self.db.set_job_container(job.id, lease.container_id()).await?;
+        tracing::info!("Job {} using container {}", job.id, lease.container_id());
 
         // Build command - use entrypoint or docker image default cmd
         let args = vec![conn.addr.clone(), conn.port.to_string(), team.team_id.clone()];
