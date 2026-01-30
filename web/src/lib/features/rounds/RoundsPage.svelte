@@ -80,9 +80,7 @@
 
   function formatStatus(status) {
     if (!status) return 'unknown';
-    if (status === 'flag') return '🚩 FLAG';
-    const [base, detail] = status.split(':');
-    return detail ? `${base} (${detail})` : status;
+    return status;
   }
 
   function statusClass(status) {
@@ -451,7 +449,6 @@
           <th>Exploit</th>
           <th>Team</th>
           <th>Create Reason</th>
-          <th>Container</th>
           <th>Priority</th>
           <th>Status</th>
           <th>Duration</th>
@@ -477,7 +474,6 @@
             <td>{@html highlight(getExploitName(exploits, getExploitRunInfo(j.exploit_run_id)?.exploit_id))}</td>
             <td><span class="truncate">{getTeamDisplay(teams, j.team_id)}</span></td>
             <td><span class="truncate">{@html highlight(j.create_reason || '-')}</span></td>
-            <td>{@html highlight(j.container_id ? j.container_id.slice(0, 12) : '-')}</td>
             <td>{j.priority}</td>
             <td>{formatStatus(j.status)}</td>
             <td>{j.duration_ms ? `${j.duration_ms}ms` : '-'}</td>
