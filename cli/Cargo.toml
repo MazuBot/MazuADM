@@ -14,3 +14,5 @@ tabled = "0.20"
 toml = { workspace = true }
 chrono = { workspace = true }
 sqlx = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

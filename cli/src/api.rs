@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use reqwest::Client;
+use tracing::debug;
 use crate::models::*;
 
 pub struct ApiClient {
@@ -21,7 +22,9 @@ impl ApiClient {
         if !resp.status().is_success() {
             return Err(anyhow!("{}: {}", resp.status(), resp.text().await?));
         }
-        Ok(resp.json().await?)
+        let text = resp.text().await?;
+        debug!("GET {} response: {}", path, text);
+        Ok(serde_json::from_str(&text)?)
     }
 
     async fn post<T: serde::de::DeserializeOwned, B: serde::Serialize>(&self, path: &str, body: &B) -> Result<T> {
@@ -29,7 +32,9 @@ impl ApiClient {
         if !resp.status().is_success() {
             return Err(anyhow!("{}: {}", resp.status(), resp.text().await?));
         }
-        Ok(resp.json().await?)
+        let text = resp.text().await?;
+        debug!("POST {} response: {}", path, text);
+        Ok(serde_json::from_str(&text)?)
     }
 
     async fn post_empty<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
@@ -37,7 +42,9 @@ impl ApiClient {
         if !resp.status().is_success() {
             return Err(anyhow!("{}: {}", resp.status(), resp.text().await?));
         }
-        Ok(resp.json().await?)
+        let text = resp.text().await?;
+        debug!("POST {} response: {}", path, text);
+        Ok(serde_json::from_str(&text)?)
     }
 
     async fn put<T: serde::de::DeserializeOwned, B: serde::Serialize>(&self, path: &str, body: &B) -> Result<T> {
@@ -45,7 +52,9 @@ impl ApiClient {
         if !resp.status().is_success() {
             return Err(anyhow!("{}: {}", resp.status(), resp.text().await?));
         }
-        Ok(resp.json().await?)
+        let text = resp.text().await?;
+        debug!("PUT {} response: {}", path, text);
+        Ok(serde_json::from_str(&text)?)
     }
 
     async fn delete(&self, path: &str) -> Result<()> {
@@ -61,7 +70,9 @@ impl ApiClient {
         if !resp.status().is_success() {
             return Err(anyhow!("{}: {}", resp.status(), resp.text().await?));
         }
-        Ok(resp.json().await?)
+        let text = resp.text().await?;
+        debug!("PATCH {} response: {}", path, text);
+        Ok(serde_json::from_str(&text)?)
     }
 
     // Challenges
