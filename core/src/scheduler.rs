@@ -158,7 +158,7 @@ fn try_acquire_target_guard(
 
 pub struct SchedulerRunner {
     scheduler: Scheduler,
-    executor: Executor,
+    executor: Option<Executor>,
     notify: Arc<Notify>,
     rx: mpsc::UnboundedReceiver<SchedulerCommand>,
     queue: PendingQueue,
@@ -182,7 +182,7 @@ impl SchedulerRunner {
         let notify = Arc::new(Notify::new());
         let runner = Self {
             scheduler,
-            executor,
+            executor: Some(executor),
             notify: notify.clone(),
             rx,
             queue: PendingQueue::default(),
@@ -198,6 +198,7 @@ impl SchedulerRunner {
     }
 
     pub async fn run(mut self) {
+        let executor = self.executor.take().expect("executor missing");
         let mut in_flight: FuturesUnordered<BoxFuture<'_, ()>> = FuturesUnordered::new();
         let mut immediate: FuturesUnordered<BoxFuture<'_, ()>> = FuturesUnordered::new();
 
@@ -206,20 +207,7 @@ impl SchedulerRunner {
                 cmd = self.rx.recv() => {
                     match cmd {
                         Some(cmd) => {
-                            if let Err(e) = handle_command(
-                                &self.scheduler,
-                                &self.executor,
-                                &mut self.queue,
-                                &self.semaphore,
-                                &mut self.concurrent_limit,
-                                &mut self.running_jobs,
-                                &mut self.settings,
-                                &mut self.round_id,
-                                &mut self.target_locks,
-                                cmd,
-                                &mut in_flight,
-                                &mut immediate,
-                            ).await {
+                            if let Err(e) = self.handle_command(cmd, &executor, &mut in_flight, &mut immediate).await {
                                 tracing::error!("Scheduler command failed: {}", e);
                             }
                         }
@@ -228,33 +216,11 @@ impl SchedulerRunner {
                 }
                 Some(_) = in_flight.next(), if !in_flight.is_empty() => {
                     self.running_jobs = self.running_jobs.saturating_sub(1);
-                    schedule_more(
-                        &self.scheduler,
-                        &self.executor,
-                        &mut self.queue,
-                        &self.semaphore,
-                        self.concurrent_limit,
-                        &mut self.running_jobs,
-                        &self.settings,
-                        &mut self.round_id,
-                        &self.target_locks,
-                        &mut in_flight,
-                    ).await;
+                    self.schedule_more(&executor, &mut in_flight).await;
                 }
                 Some(_) = immediate.next(), if !immediate.is_empty() => {}
                 _ = self.notify.notified() => {
-                    schedule_more(
-                        &self.scheduler,
-                        &self.executor,
-                        &mut self.queue,
-                        &self.semaphore,
-                        self.concurrent_limit,
-                        &mut self.running_jobs,
-                        &self.settings,
-                        &mut self.round_id,
-                        &self.target_locks,
-                        &mut in_flight,
-                    ).await;
+                    self.schedule_more(&executor, &mut in_flight).await;
                 }
             }
         }
@@ -262,388 +228,250 @@ impl SchedulerRunner {
         while in_flight.next().await.is_some() {}
         while immediate.next().await.is_some() {}
     }
-}
 
-async fn handle_command<'a>(
-    scheduler: &Scheduler,
-    executor: &'a Executor,
-    queue: &mut PendingQueue,
-    semaphore: &Arc<Semaphore>,
-    concurrent_limit: &mut usize,
-    running_jobs: &mut usize,
-    settings: &mut Option<ScheduleSettings>,
-    round_id: &mut Option<i32>,
-    target_locks: &mut DashMap<(i32, i32), Arc<Mutex<()>>>,
-    cmd: SchedulerCommand,
-    in_flight: &mut FuturesUnordered<BoxFuture<'a, ()>>,
-    immediate: &mut FuturesUnordered<BoxFuture<'a, ()>>,
-) -> Result<()> {
-    match cmd {
-        SchedulerCommand::RunRound(id) => {
-            scheduler.run_round(id, executor).await?;
-            reset_queue(
-                scheduler,
-                executor,
-                queue,
-                semaphore,
-                concurrent_limit,
-                running_jobs,
-                settings,
-                round_id,
-                target_locks,
-                id,
-            )
-            .await?;
-        }
-        SchedulerCommand::RerunRound(id) => {
-            scheduler.rerun_round(id, executor).await?;
-            reset_queue(
-                scheduler,
-                executor,
-                queue,
-                semaphore,
-                concurrent_limit,
-                running_jobs,
-                settings,
-                round_id,
-                target_locks,
-                id,
-            )
-            .await?;
-        }
-        SchedulerCommand::RerunUnflagged(id) => {
-            scheduler.rerun_unflagged(id, executor).await?;
-            reset_queue(
-                scheduler,
-                executor,
-                queue,
-                semaphore,
-                concurrent_limit,
-                running_jobs,
-                settings,
-                round_id,
-                target_locks,
-                id,
-            )
-            .await?;
-        }
-        SchedulerCommand::RunPending(id) => {
-            scheduler.run_pending_round(id).await?;
-            reset_queue(
-                scheduler,
-                executor,
-                queue,
-                semaphore,
-                concurrent_limit,
-                running_jobs,
-                settings,
-                round_id,
-                target_locks,
-                id,
-            )
-            .await?;
-        }
-        SchedulerCommand::RefreshJob(id) => {
-            refresh_job(
-                scheduler,
-                executor,
-                queue,
-                semaphore,
-                concurrent_limit,
-                running_jobs,
-                settings,
-                round_id,
-                target_locks,
-                id,
-            )
-            .await?;
-        }
-        SchedulerCommand::CreateRound { resp } => {
-            let res = scheduler.create_round().await;
-            if let Ok(_round_id) = res {
-                let exec_settings = load_executor_settings(&scheduler.db).await;
-                executor
-                    .container_manager
-                    .set_concurrent_create_limit(exec_settings.concurrent_create_limit);
-                let cm = &executor.container_manager;
-                let registry = &executor.container_registry;
+    async fn handle_command<'a>(
+        &mut self,
+        cmd: SchedulerCommand,
+        executor: &'a Executor,
+        in_flight: &mut FuturesUnordered<BoxFuture<'a, ()>>,
+        immediate: &mut FuturesUnordered<BoxFuture<'a, ()>>,
+    ) -> Result<()> {
+        match cmd {
+            SchedulerCommand::RunRound(id) => {
+                self.scheduler.run_round(id, executor).await?;
+                self.reset_queue(id, executor).await?;
+            }
+            SchedulerCommand::RerunRound(id) => {
+                self.scheduler.rerun_round(id, executor).await?;
+                self.reset_queue(id, executor).await?;
+            }
+            SchedulerCommand::RerunUnflagged(id) => {
+                self.scheduler.rerun_unflagged(id, executor).await?;
+                self.reset_queue(id, executor).await?;
+            }
+            SchedulerCommand::RunPending(id) => {
+                self.scheduler.run_pending_round(id).await?;
+                self.reset_queue(id, executor).await?;
+            }
+            SchedulerCommand::RefreshJob(id) => {
+                self.refresh_job(id, executor).await?;
+            }
+            SchedulerCommand::CreateRound { resp } => {
+                let res = self.scheduler.create_round().await;
+                if let Ok(_round_id) = res {
+                    let settings = load_executor_settings(&self.scheduler.db).await;
+                    executor
+                        .container_manager
+                        .set_concurrent_create_limit(settings.concurrent_create_limit);
+                    let cm = &executor.container_manager;
+                    let registry = &executor.container_registry;
+                    immediate.push(Box::pin(async move {
+                        if let Err(e) = cm.prewarm_for_round(registry, settings.concurrent_limit).await {
+                            tracing::error!("Prewarm failed: {}", e);
+                        }
+                    }));
+                }
+                let _ = resp.send(res);
+            }
+            SchedulerCommand::RunJobImmediately(job_id) => {
+                let exec = executor;
                 immediate.push(Box::pin(async move {
-                    if let Err(e) = cm.prewarm_for_round(registry, exec_settings.concurrent_limit).await {
-                        tracing::error!("Prewarm failed: {}", e);
+                    if let Err(e) = exec.run_job_immediately(job_id).await {
+                        tracing::error!("Immediate job {} failed: {}", job_id, e);
                     }
                 }));
             }
-            let _ = resp.send(res);
-        }
-        SchedulerCommand::RunJobImmediately(job_id) => {
-            let exec = executor;
-            immediate.push(Box::pin(async move {
-                if let Err(e) = exec.run_job_immediately(job_id).await {
-                    tracing::error!("Immediate job {} failed: {}", job_id, e);
-                }
-            }));
-        }
-        SchedulerCommand::StopJob { job_id, reason, resp } => {
-            let res = executor.stop_job(job_id, &reason).await;
-            let _ = resp.send(res);
-        }
-        SchedulerCommand::EnsureContainers { exploit_id, resp } => {
-            let cm = &executor.container_manager;
-            let registry = &executor.container_registry;
-            immediate.push(Box::pin(async move {
-                let res = cm.ensure_containers(registry, exploit_id).await;
+            SchedulerCommand::StopJob { job_id, reason, resp } => {
+                let res = executor.stop_job(job_id, &reason).await;
                 let _ = resp.send(res);
-            }));
-        }
-        SchedulerCommand::DestroyExploitContainers { exploit_id, resp } => {
-            let cm = &executor.container_manager;
-            let registry = &executor.container_registry;
-            immediate.push(Box::pin(async move {
-                let res = cm.destroy_exploit_containers(registry, exploit_id).await;
+            }
+            SchedulerCommand::EnsureContainers { exploit_id, resp } => {
+                let cm = &executor.container_manager;
+                let registry = &executor.container_registry;
+                immediate.push(Box::pin(async move {
+                    let res = cm.ensure_containers(registry, exploit_id).await;
+                    let _ = resp.send(res);
+                }));
+            }
+            SchedulerCommand::DestroyExploitContainers { exploit_id, resp } => {
+                let cm = &executor.container_manager;
+                let registry = &executor.container_registry;
+                immediate.push(Box::pin(async move {
+                    let res = cm.destroy_exploit_containers(registry, exploit_id).await;
+                    let _ = resp.send(res);
+                }));
+            }
+            SchedulerCommand::ListContainers { exploit_id, resp } => {
+                let res = executor.container_manager.list_containers(&executor.container_registry).await
+                    .map(|mut containers| {
+                        if let Some(id) = exploit_id {
+                            containers.retain(|c| c.exploit_id == id);
+                        }
+                        containers
+                    });
                 let _ = resp.send(res);
-            }));
+            }
+            SchedulerCommand::RestartContainer { id, resp } => {
+                let cm = &executor.container_manager;
+                let registry = &executor.container_registry;
+                immediate.push(Box::pin(async move {
+                    let res = cm.restart_container_by_id(registry, &id).await;
+                    let _ = resp.send(res);
+                }));
+            }
+            SchedulerCommand::DestroyContainer { id, resp } => {
+                let cm = &executor.container_manager;
+                let registry = &executor.container_registry;
+                immediate.push(Box::pin(async move {
+                    let res = cm.destroy_container_by_id(registry, &id).await;
+                    let _ = resp.send(res);
+                }));
+            }
         }
-        SchedulerCommand::ListContainers { exploit_id, resp } => {
-            let res = executor
-                .container_manager
-                .list_containers(&executor.container_registry)
-                .await
-                .map(|mut containers| {
-                    if let Some(id) = exploit_id {
-                        containers.retain(|c| c.exploit_id == id);
-                    }
-                    containers
-                });
-            let _ = resp.send(res);
-        }
-        SchedulerCommand::RestartContainer { id, resp } => {
-            let cm = &executor.container_manager;
-            let registry = &executor.container_registry;
-            immediate.push(Box::pin(async move {
-                let res = cm.restart_container_by_id(registry, &id).await;
-                let _ = resp.send(res);
-            }));
-        }
-        SchedulerCommand::DestroyContainer { id, resp } => {
-            let cm = &executor.container_manager;
-            let registry = &executor.container_registry;
-            immediate.push(Box::pin(async move {
-                let res = cm.destroy_container_by_id(registry, &id).await;
-                let _ = resp.send(res);
-            }));
+        self.schedule_more(executor, in_flight).await;
+        Ok(())
+    }
+
+    async fn reset_queue(&mut self, round_id: i32, executor: &Executor) -> Result<()> {
+        let settings = load_executor_settings(&self.scheduler.db).await;
+        executor.container_manager.set_concurrent_create_limit(settings.concurrent_create_limit);
+        executor
+            .container_manager
+            .health_check(&executor.container_registry)
+            .await?;
+        let jobs = self.scheduler.db.get_pending_jobs(round_id).await?;
+        self.queue.reset(round_id, jobs);
+        self.round_id = Some(round_id);
+        self.target_locks = DashMap::new();
+        self.update_settings(settings);
+        Ok(())
+    }
+
+    fn sync_semaphore(&self) {
+        let desired_available = self.concurrent_limit.saturating_sub(self.running_jobs);
+        let current_available = self.semaphore.available_permits();
+        if current_available < desired_available {
+            self.semaphore.add_permits(desired_available - current_available);
+        } else if current_available > desired_available {
+            let to_forget = current_available - desired_available;
+            let _ = self.semaphore.forget_permits(to_forget);
         }
     }
 
-    schedule_more(
-        scheduler,
-        executor,
-        queue,
-        semaphore,
-        *concurrent_limit,
-        running_jobs,
-        settings,
-        round_id,
-        target_locks,
-        in_flight,
-    )
-    .await;
-    Ok(())
-}
-
-async fn reset_queue(
-    scheduler: &Scheduler,
-    executor: &Executor,
-    queue: &mut PendingQueue,
-    semaphore: &Arc<Semaphore>,
-    concurrent_limit: &mut usize,
-    running_jobs: &mut usize,
-    settings: &mut Option<ScheduleSettings>,
-    round_id: &mut Option<i32>,
-    target_locks: &mut DashMap<(i32, i32), Arc<Mutex<()>>>,
-    new_round_id: i32,
-) -> Result<()> {
-    let exec_settings = load_executor_settings(&scheduler.db).await;
-    executor
-        .container_manager
-        .set_concurrent_create_limit(exec_settings.concurrent_create_limit);
-    executor
-        .container_manager
-        .health_check(&executor.container_registry)
-        .await?;
-    let jobs = scheduler.db.get_pending_jobs(new_round_id).await?;
-    queue.reset(new_round_id, jobs);
-    *round_id = Some(new_round_id);
-    *target_locks = DashMap::new();
-    update_settings(
-        settings,
-        semaphore,
-        concurrent_limit,
-        running_jobs,
-        exec_settings,
-    );
-    Ok(())
-}
-
-fn sync_semaphore(semaphore: &Arc<Semaphore>, concurrent_limit: usize, running_jobs: usize) {
-    let desired_available = concurrent_limit.saturating_sub(running_jobs);
-    let current_available = semaphore.available_permits();
-    if current_available < desired_available {
-        semaphore.add_permits(desired_available - current_available);
-    } else if current_available > desired_available {
-        let to_forget = current_available - desired_available;
-        let _ = semaphore.forget_permits(to_forget);
-    }
-}
-
-async fn refresh_job(
-    scheduler: &Scheduler,
-    executor: &Executor,
-    queue: &mut PendingQueue,
-    semaphore: &Arc<Semaphore>,
-    concurrent_limit: &mut usize,
-    running_jobs: &mut usize,
-    settings: &mut Option<ScheduleSettings>,
-    round_id: &mut Option<i32>,
-    target_locks: &mut DashMap<(i32, i32), Arc<Mutex<()>>>,
-    job_id: i32,
-) -> Result<()> {
-    let job = scheduler.db.get_job(job_id).await?;
-    if let Some(active_round_id) = *round_id {
-        if job.round_id != active_round_id {
+    async fn refresh_job(&mut self, job_id: i32, executor: &Executor) -> Result<()> {
+        let job = self.scheduler.db.get_job(job_id).await?;
+        if let Some(round_id) = self.round_id {
+            if job.round_id != round_id {
+                return Ok(());
+            }
+            self.queue.upsert(job);
             return Ok(());
         }
-        queue.upsert(job);
-        return Ok(());
+
+        if job.status != "pending" {
+            return Ok(());
+        }
+        let round = self.scheduler.db.get_round(job.round_id).await?;
+        if round.status != "running" {
+            return Ok(());
+        }
+        self.reset_queue(job.round_id, executor).await?;
+        Ok(())
     }
 
-    if job.status != "pending" {
-        return Ok(());
+    fn update_settings(&mut self, settings: crate::settings::ExecutorSettings) {
+        let concurrent_limit = settings.concurrent_limit.max(1);
+        self.concurrent_limit = concurrent_limit;
+        self.sync_semaphore();
+        self.settings = Some(ScheduleSettings {
+            worker_timeout: settings.worker_timeout,
+            max_flags: settings.max_flags,
+            skip_on_flag: settings.skip_on_flag,
+            sequential_per_target: settings.sequential_per_target,
+        });
     }
-    let round = scheduler.db.get_round(job.round_id).await?;
-    if round.status != "running" {
-        return Ok(());
-    }
-    reset_queue(
-        scheduler,
-        executor,
-        queue,
-        semaphore,
-        concurrent_limit,
-        running_jobs,
-        settings,
-        round_id,
-        target_locks,
-        job.round_id,
-    )
-    .await?;
-    Ok(())
-}
 
-fn update_settings(
-    settings_store: &mut Option<ScheduleSettings>,
-    semaphore: &Arc<Semaphore>,
-    concurrent_limit: &mut usize,
-    running_jobs: &mut usize,
-    settings: crate::settings::ExecutorSettings,
-) {
-    let desired_limit = settings.concurrent_limit.max(1);
-    *concurrent_limit = desired_limit;
-    sync_semaphore(semaphore, *concurrent_limit, *running_jobs);
-    *settings_store = Some(ScheduleSettings {
-        worker_timeout: settings.worker_timeout,
-        max_flags: settings.max_flags,
-        skip_on_flag: settings.skip_on_flag,
-        sequential_per_target: settings.sequential_per_target,
-    });
-}
+    async fn schedule_more<'a>(
+        &mut self,
+        executor: &'a Executor,
+        in_flight: &mut FuturesUnordered<BoxFuture<'a, ()>>,
+    ) {
+        self.sync_semaphore();
+        let Some(settings) = self.settings.clone() else { return; };
+        let Some(round_id) = self.round_id else { return; };
+        let mut deferred = Vec::new();
 
-async fn schedule_more<'a>(
-    scheduler: &Scheduler,
-    executor: &'a Executor,
-    queue: &mut PendingQueue,
-    semaphore: &Arc<Semaphore>,
-    concurrent_limit: usize,
-    running_jobs: &mut usize,
-    settings: &Option<ScheduleSettings>,
-    round_id: &mut Option<i32>,
-    target_locks: &DashMap<(i32, i32), Arc<Mutex<()>>>,
-    in_flight: &mut FuturesUnordered<BoxFuture<'a, ()>>,
-) {
-    sync_semaphore(semaphore, concurrent_limit, *running_jobs);
-    let Some(settings) = settings.clone() else { return; };
-    let Some(active_round_id) = *round_id else { return; };
-    let mut deferred = Vec::new();
+        while self.semaphore.available_permits() > 0 {
+            let mut scanned = 0;
+            let max_scan = self.queue.len();
+            let mut selected: Option<(JobContext, Option<OwnedMutexGuard<()>>)> = None;
 
-    while semaphore.available_permits() > 0 {
-        let mut scanned = 0;
-        let max_scan = queue.len();
-        let mut selected: Option<(JobContext, Option<OwnedMutexGuard<()>>)> = None;
+            while scanned < max_scan {
+                let Some(job) = self.queue.pop_next() else { break; };
+                scanned += 1;
 
-        while scanned < max_scan {
-            let Some(job) = queue.pop_next() else { break; };
-            scanned += 1;
+                let db = self.scheduler.db.clone();
+                let tx = self.scheduler.tx.clone();
+                let ctx = match build_job_context_or_finish(&db, &tx, job.id).await {
+                    Some(ctx) => ctx,
+                    None => continue,
+                };
 
-            let db = scheduler.db.clone();
-            let tx = scheduler.tx.clone();
-            let ctx = match build_job_context_or_finish(&db, &tx, job.id).await {
-                Some(ctx) => ctx,
-                None => continue,
+                let target_guard = match try_acquire_target_guard(
+                    &self.target_locks,
+                    settings.sequential_per_target,
+                    (ctx.challenge.id, ctx.team.id),
+                ) {
+                    TargetLockOutcome::NoLock => None,
+                    TargetLockOutcome::Acquired(guard) => Some(guard),
+                    TargetLockOutcome::Busy => {
+                        deferred.push(ctx.job);
+                        continue;
+                    }
+                };
+
+                selected = Some((ctx, target_guard));
+                break;
+            }
+
+            let Some((ctx, target_guard)) = selected else { break; };
+
+            tracing::info!(
+                "Scheduling job {} for round {} (challenge {}, team {}, priority {})",
+                ctx.job.id,
+                round_id,
+                ctx.challenge.id,
+                ctx.team.id,
+                ctx.job.priority
+            );
+            if let Err(e) = self.scheduler.db.mark_job_scheduled(ctx.job.id).await {
+                tracing::error!("Failed to mark job {} scheduled: {}", ctx.job.id, e);
+            }
+
+            let permit = match self.semaphore.clone().acquire_owned().await {
+                Ok(permit) => permit,
+                Err(_) => break,
             };
 
-            let target_guard = match try_acquire_target_guard(
-                target_locks,
-                settings.sequential_per_target,
-                (ctx.challenge.id, ctx.team.id),
-            ) {
-                TargetLockOutcome::NoLock => None,
-                TargetLockOutcome::Acquired(guard) => Some(guard),
-                TargetLockOutcome::Busy => {
-                    deferred.push(ctx.job);
-                    continue;
-                }
-            };
-
-            selected = Some((ctx, target_guard));
-            break;
+            self.running_jobs += 1;
+            let db = self.scheduler.db.clone();
+            let tx = self.scheduler.tx.clone();
+            let settings = settings.clone();
+            let exec = executor;
+            in_flight.push(Box::pin(async move {
+                let _permit = permit;
+                let _target_guard = target_guard;
+                execute_one_job(db, tx, exec, _target_guard, ctx, round_id, settings).await;
+            }));
         }
 
-        let Some((ctx, target_guard)) = selected else { break; };
-
-        tracing::info!(
-            "Scheduling job {} for round {} (challenge {}, team {}, priority {})",
-            ctx.job.id,
-                active_round_id,
-            ctx.challenge.id,
-            ctx.team.id,
-            ctx.job.priority
-        );
-        if let Err(e) = scheduler.db.mark_job_scheduled(ctx.job.id).await {
-            tracing::error!("Failed to mark job {} scheduled: {}", ctx.job.id, e);
+        for job in deferred {
+            self.queue.upsert(job);
         }
 
-        let permit = match semaphore.clone().acquire_owned().await {
-            Ok(permit) => permit,
-            Err(_) => break,
-        };
-
-        *running_jobs += 1;
-        let db = scheduler.db.clone();
-        let tx = scheduler.tx.clone();
-        let settings = settings.clone();
-        let exec = executor;
-        in_flight.push(Box::pin(async move {
-            let _permit = permit;
-            let _target_guard = target_guard;
-            execute_one_job(db, tx, exec, _target_guard, ctx, active_round_id, settings).await;
-        }));
-    }
-
-    for job in deferred {
-        queue.upsert(job);
-    }
-
-    if *running_jobs == 0 && queue.is_empty() {
-        *round_id = None;
+        if self.running_jobs == 0 && self.queue.is_empty() {
+            self.round_id = None;
+        }
     }
 }
 
