@@ -62,9 +62,15 @@
     const ids = containers.map((c) => c.id);
     markRestarting(ids);
     try {
-      await api.restartAllContainers();
+      const result = await api.restartAllContainers();
       await onLoadContainers();
-      pushToast(`Restarted ${containers.length} containers.`, 'success');
+      const total = result?.total ?? containers.length;
+      const success = result?.success ?? 0;
+      const failed = result?.failed ?? 0;
+      const message = failed > 0
+        ? `Restarted ${success}/${total} containers (${failed} failed).`
+        : `Restarted ${success} containers.`;
+      pushToast(message, failed > 0 ? 'error' : 'success');
     } catch (error) {
       pushToast(formatApiError(error, 'Failed to restart all containers.'), 'error');
     } finally {
@@ -76,9 +82,15 @@
     if (!containers?.length) return;
     if (!confirm(`Remove all ${containers.length} containers?`)) return;
     try {
-      await api.removeAllContainers();
+      const result = await api.removeAllContainers();
       await onLoadContainers();
-      pushToast(`Removed ${containers.length} containers.`, 'success');
+      const total = result?.total ?? containers.length;
+      const success = result?.success ?? 0;
+      const failed = result?.failed ?? 0;
+      const message = failed > 0
+        ? `Removed ${success}/${total} containers (${failed} failed).`
+        : `Removed ${success} containers.`;
+      pushToast(message, failed > 0 ? 'error' : 'success');
     } catch (error) {
       pushToast(formatApiError(error, 'Failed to remove all containers.'), 'error');
     }
