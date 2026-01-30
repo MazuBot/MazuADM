@@ -108,6 +108,7 @@ Send JSON messages to change subscriptions:
 |-------|------|-------------|
 | `container_created` | `ContainerInfo` | New container created |
 | `container_updated` | `ContainerInfo` | Container updated |
+| `container_affinity_updated` | `ContainerInfo` | Container affinity runs changed |
 | `container_deleted` | `string` | Container ID deleted |
 | `container_execs_updated` | `{"id": string, "running_execs": int, "max_execs": int}` | Container exec count changed |
 

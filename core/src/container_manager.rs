@@ -355,6 +355,12 @@ impl ContainerManager {
         }
     }
 
+    async fn broadcast_container_affinity_updated(&self, registry: &ContainerRegistryHandle, container_id: &str) {
+        if let Some(info) = self.container_info_by_id(registry, container_id).await {
+            broadcast(&self.tx, "container_affinity_updated", &info);
+        }
+    }
+
     fn broadcast_container_deleted(&self, container_id: &str) {
         broadcast(&self.tx, "container_deleted", &container_id);
     }
@@ -469,7 +475,9 @@ impl ContainerManager {
             return;
         }
         let mut bound = Vec::new();
+        let mut prior_container_ids = HashSet::new();
         for run_id in runs.iter().take(remaining) {
+            let prior_container = guard.affinity.get(run_id).cloned();
             let already_bound = guard
                 .affinity
                 .get(run_id)
@@ -485,6 +493,11 @@ impl ContainerManager {
                 .insert(*run_id);
             if !already_bound {
                 bound.push(*run_id);
+            }
+            if let Some(prior_container) = prior_container {
+                if prior_container != container_id {
+                    prior_container_ids.insert(prior_container);
+                }
             }
         }
         drop(guard);
@@ -512,6 +525,12 @@ impl ContainerManager {
                 "Affinity bound runs {:?} to container {} (exploit {}, team_ids {:?})",
                 bound, container_id, exploit_id, team_ids
             );
+        }
+        if !bound.is_empty() {
+            self.broadcast_container_affinity_updated(registry, &container_id).await;
+        }
+        for prior_container_id in prior_container_ids {
+            self.broadcast_container_affinity_updated(registry, &prior_container_id).await;
         }
     }
 
@@ -673,6 +692,7 @@ impl ContainerManager {
                 warn!("Failed to clear exploit runners for container {}: {}", container_id, e);
             }
         }
+        self.broadcast_container_affinity_updated(registry, container_id).await;
     }
 
     async fn detach_container(&self, registry: &ContainerRegistryHandle, container_id: &str) -> Option<Arc<ManagedContainer>> {
