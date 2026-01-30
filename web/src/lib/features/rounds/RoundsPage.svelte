@@ -406,7 +406,6 @@
         </option>
       {/each}
     </select>
-    <span class="hint">* jobs still creating</span>
     <button onclick={handleRunClick} disabled={!selectedRoundId}>Run</button>
     <button
       onclick={handleRerunUnflaggedClick}
