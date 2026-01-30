@@ -81,6 +81,7 @@
 
   function formatStatus(status) {
     if (!status) return 'unknown';
+    if (status === 'flag') return '🚩 FLAG';
     return status;
   }
 
