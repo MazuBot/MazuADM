@@ -60,15 +60,36 @@ fn init_console_logging() {
 #[cfg(not(debug_assertions))]
 fn init_console_logging() {}
 
+fn default_log_level() -> &'static str {
+    if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "info"
+    }
+}
+
+#[cfg(debug_assertions)]
+fn ensure_default_rust_log() {
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", default_log_level());
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn ensure_default_rust_log() {}
+
 fn should_resume_running_round(pending_count: usize) -> bool {
     pending_count > 0
 }
 
 fn init_logging(log_dir: &Path) -> Result<Option<WorkerGuard>> {
+    ensure_default_rust_log();
     if console_enabled() {
         init_console_logging();
         return Ok(None);
     }
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_log_level()));
     let log_path = log_dir.join("mazuadm-api.log");
     let file = OpenOptions::new()
         .create(true)
@@ -78,6 +99,7 @@ fn init_logging(log_dir: &Path) -> Result<Option<WorkerGuard>> {
     let (writer, guard) = tracing_appender::non_blocking(file);
     tracing_subscriber::fmt()
         .with_writer(writer)
+        .with_env_filter(env_filter)
         .with_ansi(false)
         .init();
     Ok(Some(guard))
