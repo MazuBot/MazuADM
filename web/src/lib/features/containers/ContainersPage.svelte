@@ -5,10 +5,20 @@
 
   let { exploits, exploitRuns, challenges, teams, containers, selectedChallengeId, onSelectChallenge, onLoadContainers } = $props();
 
-  let hasContainers = $derived((containers ?? []).length > 0);
   let filteredExploits = $derived(
     selectedChallengeId ? exploits.filter((exploit) => exploit.challenge_id === selectedChallengeId) : exploits
   );
+  let selectedChallenge = $derived(
+    selectedChallengeId ? challenges.find((challenge) => challenge.id === selectedChallengeId) : null
+  );
+  function computeTargetContainers() {
+    if (!containers?.length) return [];
+    if (!selectedChallengeId) return containers;
+    const exploitIds = new Set(filteredExploits.map((exploit) => exploit.id));
+    return containers.filter((container) => exploitIds.has(container.exploit_id));
+  }
+  let targetContainers = $derived(computeTargetContainers());
+  let hasContainers = $derived(targetContainers.length > 0);
   let restarting = $state(new Set());
 
   function markRestarting(ids) {
@@ -52,19 +62,16 @@
     }
   }
 
-  async function reloadContainers() {
-    await onLoadContainers();
-  }
-
   async function restartAllContainers() {
-    if (!containers?.length) return;
-    if (!confirm(`Restart all ${containers.length} containers?`)) return;
-    const ids = containers.map((c) => c.id);
+    if (!targetContainers.length) return;
+    const challengeLabel = selectedChallenge ? ` for ${selectedChallenge.name}` : '';
+    if (!confirm(`Restart ${targetContainers.length} containers${challengeLabel}?`)) return;
+    const ids = targetContainers.map((c) => c.id);
     markRestarting(ids);
     try {
-      const result = await api.restartAllContainers();
+      const result = await api.restartAllContainers({ challenge_id: selectedChallengeId });
       await onLoadContainers();
-      const total = result?.total ?? containers.length;
+      const total = result?.total ?? targetContainers.length;
       const success = result?.success ?? 0;
       const failed = result?.failed ?? 0;
       const message = failed > 0
@@ -79,12 +86,13 @@
   }
 
   async function removeAllContainers() {
-    if (!containers?.length) return;
-    if (!confirm(`Remove all ${containers.length} containers?`)) return;
+    if (!targetContainers.length) return;
+    const challengeLabel = selectedChallenge ? ` for ${selectedChallenge.name}` : '';
+    if (!confirm(`Remove ${targetContainers.length} containers${challengeLabel}?`)) return;
     try {
-      const result = await api.removeAllContainers();
+      const result = await api.removeAllContainers({ challenge_id: selectedChallengeId });
       await onLoadContainers();
-      const total = result?.total ?? containers.length;
+      const total = result?.total ?? targetContainers.length;
       const success = result?.success ?? 0;
       const failed = result?.failed ?? 0;
       const message = failed > 0
@@ -114,9 +122,12 @@
   <div class="panel-header">
     <h2>Containers</h2>
     <div class="panel-actions">
-      <button class="small" onclick={reloadContainers}>Reload</button>
-      <button class="small" onclick={restartAllContainers} disabled={!hasContainers || restarting.size > 0}>Restart All</button>
-      <button class="small danger" onclick={removeAllContainers} disabled={!hasContainers}>Remove All</button>
+      <button class="small" onclick={restartAllContainers} disabled={!hasContainers || restarting.size > 0}>
+        {selectedChallenge ? 'Restart Challenge' : 'Restart All'}
+      </button>
+      <button class="small danger" onclick={removeAllContainers} disabled={!hasContainers}>
+        {selectedChallenge ? 'Remove Challenge' : 'Remove All'}
+      </button>
     </div>
   </div>
   {#each filteredExploits as exploit}
