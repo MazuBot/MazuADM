@@ -22,6 +22,13 @@ mazuadm-cli [OPTIONS] <COMMAND>
 
 ## Commands
 
+### Version
+
+```bash
+mazuadm-cli version api    # show API server version
+mazuadm-cli version cli    # show CLI version
+```
+
 ### Challenge Management
 
 ```bash
@@ -74,6 +81,7 @@ mazuadm-cli run update 1 --priority 200 --sequence 1
 mazuadm-cli run delete 1
 mazuadm-cli run enable 1
 mazuadm-cli run disable 1
+mazuadm-cli run reorder 1:0 2:1 3:2              # reorder runs by id:sequence
 mazuadm-cli run append-all --exploit pwn1-exp --challenge pwn1
 mazuadm-cli run prepend-all --exploit pwn1-exp --challenge pwn1
 ```
@@ -83,6 +91,7 @@ mazuadm-cli run prepend-all --exploit pwn1-exp --challenge pwn1
 ```bash
 mazuadm-cli round new
 mazuadm-cli round list
+mazuadm-cli round current                        # show current running round
 mazuadm-cli round run 1
 mazuadm-cli round rerun 1
 mazuadm-cli round rerun-unflagged 1 # only for running rounds
@@ -93,6 +102,7 @@ mazuadm-cli round clean --db postgres://localhost/mazuadm
 
 ```bash
 mazuadm-cli job list --round 1
+mazuadm-cli job get 42                           # show job details with stdout/stderr
 mazuadm-cli job run 42 # enqueue into running round
 mazuadm-cli job stop 42
 mazuadm-cli job set-priority 42 100
@@ -105,6 +115,8 @@ mazuadm-cli flag list
 mazuadm-cli flag list --round 1
 mazuadm-cli flag submit --round 1 --challenge pwn1 --team team01 "FLAG{...}"
 mazuadm-cli flag submit --challenge pwn1 --team team01 "FLAG{...}" # uses running round
+mazuadm-cli flag update 1:submitted 2:submitted  # update flag status (id:status)
+mazuadm-cli flag update --force 1:pending        # force update even if already submitted
 ```
 
 ### Settings Management
@@ -122,6 +134,14 @@ mazuadm-cli container list
 mazuadm-cli container runners <container_id>
 mazuadm-cli container delete <container_id>
 mazuadm-cli container restart <container_id>
+mazuadm-cli container restart-all
+mazuadm-cli container remove-all
+```
+
+### WebSocket Connections
+
+```bash
+mazuadm-cli ws list
 ```
 
 ### Relation Management

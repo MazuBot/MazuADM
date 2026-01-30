@@ -14,6 +14,8 @@ impl ApiClient {
 
     fn url(&self, path: &str) -> String { format!("{}{}", self.base_url, path) }
 
+    pub async fn get_version(&self) -> Result<String> { self.get("/api/version").await }
+
     async fn get<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
         let resp = self.client.get(self.url(path)).send().await?;
         if !resp.status().is_success() {
@@ -52,6 +54,14 @@ impl ApiClient {
             return Err(anyhow!("{}: {}", resp.status(), resp.text().await?));
         }
         Ok(())
+    }
+
+    async fn patch<T: serde::de::DeserializeOwned, B: serde::Serialize>(&self, path: &str, body: &B) -> Result<T> {
+        let resp = self.client.patch(self.url(path)).json(body).send().await?;
+        if !resp.status().is_success() {
+            return Err(anyhow!("{}: {}", resp.status(), resp.text().await?));
+        }
+        Ok(resp.json().await?)
     }
 
     // Challenges
@@ -93,10 +103,12 @@ impl ApiClient {
     }
     pub async fn create_exploit_run(&self, r: CreateExploitRun) -> Result<ExploitRun> { self.post("/api/exploit-runs", &r).await }
     pub async fn update_exploit_run(&self, id: i32, u: UpdateExploitRun) -> Result<ExploitRun> { self.put(&format!("/api/exploit-runs/{}", id), &u).await }
+    pub async fn reorder_exploit_runs(&self, items: Vec<ReorderExploitRunItem>) -> Result<()> { let _: String = self.post("/api/exploit-runs/reorder", &items).await?; Ok(()) }
     pub async fn delete_exploit_run(&self, id: i32) -> Result<()> { self.delete(&format!("/api/exploit-runs/{}", id)).await }
 
     // Rounds
     pub async fn list_rounds(&self) -> Result<Vec<Round>> { self.get("/api/rounds").await }
+    pub async fn get_current_round(&self) -> Result<Option<Round>> { self.get("/api/rounds/current").await }
     pub async fn create_round(&self) -> Result<i32> { self.post_empty("/api/rounds").await }
     pub async fn run_round(&self, id: i32) -> Result<()> { let _: String = self.post_empty(&format!("/api/rounds/{}/run", id)).await?; Ok(()) }
     pub async fn rerun_round(&self, id: i32) -> Result<()> { let _: String = self.post_empty(&format!("/api/rounds/{}/rerun", id)).await?; Ok(()) }
@@ -104,6 +116,7 @@ impl ApiClient {
 
     // Jobs
     pub async fn list_jobs(&self, round_id: i32) -> Result<Vec<ExploitJob>> { self.get(&format!("/api/jobs?round_id={}", round_id)).await }
+    pub async fn get_job(&self, id: i32) -> Result<ExploitJob> { self.get(&format!("/api/jobs/{}", id)).await }
     pub async fn enqueue_single_job(&self, req: EnqueueSingleJobRequest) -> Result<ExploitJob> { self.post("/api/jobs/enqueue", &req).await }
     pub async fn enqueue_existing_job(&self, id: i32) -> Result<ExploitJob> { self.post_empty(&format!("/api/jobs/{}/enqueue", id)).await }
     pub async fn stop_job(&self, id: i32) -> Result<ExploitJob> { self.post_empty(&format!("/api/jobs/{}/stop", id)).await }
@@ -122,6 +135,11 @@ impl ApiClient {
         self.post("/api/flags", &req).await
     }
 
+    pub async fn update_flags(&self, items: Vec<UpdateFlagRequest>, force: bool) -> Result<Vec<bool>> {
+        let path = if force { "/api/flags?force=true" } else { "/api/flags" };
+        self.patch(path, &items).await
+    }
+
     // Settings
     pub async fn list_settings(&self) -> Result<Vec<Setting>> { self.get("/api/settings").await }
     pub async fn update_setting(&self, s: UpdateSetting) -> Result<()> { let _: String = self.post("/api/settings", &s).await?; Ok(()) }
@@ -131,6 +149,11 @@ impl ApiClient {
     pub async fn get_container_runners(&self, id: &str) -> Result<Vec<ExploitJob>> { self.get(&format!("/api/containers/{}/runners", id)).await }
     pub async fn delete_container(&self, id: &str) -> Result<()> { self.delete(&format!("/api/containers/{}", id)).await }
     pub async fn restart_container(&self, id: &str) -> Result<()> { let _: String = self.post_empty(&format!("/api/containers/{}/restart", id)).await?; Ok(()) }
+    pub async fn restart_all_containers(&self) -> Result<()> { let _: String = self.post_empty("/api/containers/restart-all").await?; Ok(()) }
+    pub async fn remove_all_containers(&self) -> Result<()> { let _: String = self.post_empty("/api/containers/remove-all").await?; Ok(()) }
+
+    // WebSocket connections
+    pub async fn list_ws_connections(&self) -> Result<Vec<WsConnection>> { self.get("/api/ws-connections").await }
 
     // Relations
     pub async fn list_relations(&self, challenge_id: i32) -> Result<Vec<ChallengeTeamRelation>> { self.get(&format!("/api/relations/{}", challenge_id)).await }

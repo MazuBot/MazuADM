@@ -20,6 +20,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    Version { #[command(subcommand)] cmd: VersionCmd },
     Challenge { #[command(subcommand)] cmd: ChallengeCmd },
     Team { #[command(subcommand)] cmd: TeamCmd },
     Exploit { #[command(subcommand)] cmd: ExploitCmd },
@@ -30,7 +31,11 @@ enum Cmd {
     Setting { #[command(subcommand)] cmd: SettingCmd },
     Container { #[command(subcommand)] cmd: ContainerCmd },
     Relation { #[command(subcommand)] cmd: RelationCmd },
+    Ws { #[command(subcommand)] cmd: WsCmd },
 }
+
+#[derive(Subcommand)]
+enum VersionCmd { Api, Cli }
 
 #[derive(Subcommand)]
 enum ChallengeCmd {
@@ -72,14 +77,22 @@ enum RunCmd {
     Delete { id: i32 },
     Enable { id: i32 },
     Disable { id: i32 },
+    Reorder { #[arg(value_parser = parse_reorder_run)] items: Vec<(i32, i32)> },
     AppendAll { #[arg(long)] exploit: String, #[arg(long)] challenge: String, #[arg(long)] priority: Option<i32> },
     PrependAll { #[arg(long)] exploit: String, #[arg(long)] challenge: String, #[arg(long)] priority: Option<i32> },
+}
+
+fn parse_reorder_run(s: &str) -> Result<(i32, i32), String> {
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() != 2 { return Err("format: id:sequence".into()); }
+    Ok((parts[0].parse().map_err(|_| "invalid id")?, parts[1].parse().map_err(|_| "invalid sequence")?))
 }
 
 #[derive(Subcommand)]
 enum RoundCmd {
     New,
     List,
+    Current,
     Run { id: i32 },
     Rerun { id: i32 },
     RerunUnflagged { id: i32 },
@@ -87,7 +100,7 @@ enum RoundCmd {
 }
 
 #[derive(Subcommand)]
-enum JobCmd { List { #[arg(long)] round: i32 }, Run { id: i32 }, Stop { id: i32 }, SetPriority { id: i32, priority: i32 } }
+enum JobCmd { List { #[arg(long)] round: i32 }, Get { id: i32 }, Run { id: i32 }, Stop { id: i32 }, SetPriority { id: i32, priority: i32 } }
 
 #[derive(Subcommand)]
 enum FlagCmd {
@@ -98,13 +111,23 @@ enum FlagCmd {
         #[arg(long)] team: String,
         flag: String,
     },
+    Update { #[arg(long)] force: bool, #[arg(value_parser = parse_flag_update)] items: Vec<(i32, String)> },
+}
+
+fn parse_flag_update(s: &str) -> Result<(i32, String), String> {
+    let parts: Vec<&str> = s.splitn(2, ':').collect();
+    if parts.len() != 2 { return Err("format: id:status".into()); }
+    Ok((parts[0].parse().map_err(|_| "invalid id")?, parts[1].to_string()))
 }
 
 #[derive(Subcommand)]
 enum SettingCmd { List, Set { key: String, value: String } }
 
 #[derive(Subcommand)]
-enum ContainerCmd { List, Runners { id: String }, Delete { id: String }, Restart { id: String } }
+enum ContainerCmd { List, Runners { id: String }, Delete { id: String }, Restart { id: String }, RestartAll, RemoveAll }
+
+#[derive(Subcommand)]
+enum WsCmd { List }
 
 #[derive(Subcommand)]
 enum RelationCmd { List { challenge: String }, Get { challenge: String, team: String }, Update { challenge: String, team: String, #[arg(long)] ip: Option<String>, #[arg(long)] port: Option<i32> } }
@@ -120,6 +143,7 @@ enum RelationCmd { List { challenge: String }, Get { challenge: String, team: St
 #[derive(Tabled)] struct ContainerRow { id: String, exploit: i32, status: String, counter: i32, execs: String, affinity: String }
 #[derive(Tabled)] struct RunnerRow { id: i32, run: String, team_id: String, team_name: String, status: String }
 #[derive(Tabled)] struct RelationRow { challenge: i32, team_id: String, team_name: String, addr: String, port: String }
+#[derive(Tabled)] struct WsRow { id: String, addr: String, connected: String }
 
 struct Ctx { api: ApiClient, challenges: Option<Vec<Challenge>>, teams: Option<Vec<Team>>, exploits: Option<Vec<Exploit>> }
 
@@ -187,6 +211,10 @@ async fn main() -> Result<()> {
     let mut ctx = Ctx::new(ApiClient::new(&cli.api));
 
     match cli.cmd {
+        Cmd::Version { cmd } => match cmd {
+            VersionCmd::Api => { println!("{}", ctx.api.get_version().await?); }
+            VersionCmd::Cli => { println!("{}", env!("CARGO_PKG_VERSION")); }
+        },
         Cmd::Challenge { cmd } => match cmd {
             ChallengeCmd::Add { name, port, priority, flag_regex } => {
                 let c = ctx.api.create_challenge(CreateChallenge { name, enabled: Some(true), default_port: port, priority, flag_regex }).await?;
@@ -309,6 +337,10 @@ async fn main() -> Result<()> {
             RunCmd::Delete { id } => { ctx.api.delete_exploit_run(id).await?; println!("Deleted"); }
             RunCmd::Enable { id } => { ctx.api.update_exploit_run(id, UpdateExploitRun { priority: None, sequence: None, enabled: Some(true) }).await?; println!("Enabled"); }
             RunCmd::Disable { id } => { ctx.api.update_exploit_run(id, UpdateExploitRun { priority: None, sequence: None, enabled: Some(false) }).await?; println!("Disabled"); }
+            RunCmd::Reorder { items } => {
+                ctx.api.reorder_exploit_runs(items.into_iter().map(|(id, sequence)| ReorderExploitRunItem { id, sequence }).collect()).await?;
+                println!("Reordered");
+            }
             RunCmd::AppendAll { exploit, challenge, priority } => {
                 let c = ctx.find_challenge(&challenge).await?;
                 let e = ctx.find_exploit(c.id, &exploit).await?;
@@ -338,6 +370,12 @@ async fn main() -> Result<()> {
                 let rows: Vec<_> = ctx.api.list_rounds().await?.into_iter().map(|r| RoundRow { id: r.id, status: r.status, started: r.started_at.format("%H:%M:%S").to_string() }).collect();
                 println!("{}", Table::new(rows));
             }
+            RoundCmd::Current => {
+                match ctx.api.get_current_round().await? {
+                    Some(r) => println!("Round {} ({})", r.id, r.status),
+                    None => println!("No running round"),
+                }
+            }
             RoundCmd::Run { id } => { ctx.api.run_round(id).await?; println!("Started round {}", id); }
             RoundCmd::Rerun { id } => { ctx.api.rerun_round(id).await?; println!("Rerunning round {}", id); }
             RoundCmd::RerunUnflagged { id } => { ctx.api.rerun_unflagged_round(id).await?; println!("Reran unflagged jobs for round {}", id); }
@@ -355,6 +393,12 @@ async fn main() -> Result<()> {
                 let rows: Vec<_> = ctx.api.list_jobs(round).await?.into_iter().map(|j| { let (tid, tn) = ctx.team_label(j.team_id); JobRow { id: j.id, run: j.exploit_run_id.map(|r| r.to_string()).unwrap_or("-".into()), team_id: tid, team_name: tn, priority: j.priority, status: j.status } }).collect();
                 println!("{}", Table::new(rows));
             }
+            JobCmd::Get { id } => {
+                let j = ctx.api.get_job(id).await?;
+                println!("Job {} ({})", j.id, j.status);
+                if let Some(out) = j.stdout { if !out.is_empty() { println!("--- stdout ---\n{}", out); } }
+                if let Some(err) = j.stderr { if !err.is_empty() { println!("--- stderr ---\n{}", err); } }
+            }
             JobCmd::Run { id } => { let j = ctx.api.enqueue_existing_job(id).await?; println!("Enqueued job {}", j.id); }
             JobCmd::Stop { id } => { ctx.api.stop_job(id).await?; println!("Stopped job {}", id); }
             JobCmd::SetPriority { id, priority } => { ctx.api.reorder_jobs(vec![ReorderJobItem { id, priority }]).await?; println!("Set priority"); }
@@ -370,6 +414,11 @@ async fn main() -> Result<()> {
                 let t = ctx.find_team(&team).await?;
                 let f = ctx.api.submit_flag(SubmitFlagRequest { round_id: round, challenge_id: c.id, team_id: t.id, flag_value: flag }).await?;
                 println!("Submitted flag {} for round {}", f.id, f.round_id);
+            }
+            FlagCmd::Update { force, items } => {
+                let reqs: Vec<_> = items.into_iter().map(|(id, status)| UpdateFlagRequest { id, status }).collect();
+                let results = ctx.api.update_flags(reqs, force).await?;
+                println!("Updated {} flags", results.iter().filter(|&&r| r).count());
             }
         },
         Cmd::Setting { cmd } => match cmd {
@@ -391,6 +440,14 @@ async fn main() -> Result<()> {
             }
             ContainerCmd::Delete { id } => { ctx.api.delete_container(&id).await?; println!("Deleted"); }
             ContainerCmd::Restart { id } => { ctx.api.restart_container(&id).await?; println!("Restarted"); }
+            ContainerCmd::RestartAll => { ctx.api.restart_all_containers().await?; println!("Restarted all"); }
+            ContainerCmd::RemoveAll => { ctx.api.remove_all_containers().await?; println!("Removed all"); }
+        },
+        Cmd::Ws { cmd } => match cmd {
+            WsCmd::List => {
+                let rows: Vec<_> = ctx.api.list_ws_connections().await?.into_iter().map(|w| WsRow { id: w.id, addr: w.addr, connected: w.connected_at.format("%H:%M:%S").to_string() }).collect();
+                println!("{}", Table::new(rows));
+            }
         },
         Cmd::Relation { cmd } => match cmd {
             RelationCmd::List { challenge } => {

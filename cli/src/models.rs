@@ -239,6 +239,25 @@ pub struct ReorderJobItem {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ReorderExploitRunItem {
+    pub id: i32,
+    pub sequence: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateFlagRequest {
+    pub id: i32,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WsConnection {
+    pub id: String,
+    pub addr: String,
+    pub connected_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct EnqueueSingleJobRequest {
     pub exploit_run_id: i32,
     pub team_id: i32,
