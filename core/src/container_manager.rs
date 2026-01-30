@@ -69,6 +69,7 @@ pub(crate) struct ContainerRegistry {
     pools: HashMap<i32, Vec<Arc<ManagedContainer>>>,
     affinity: HashMap<i32, String>,
     reverse_affinity: HashMap<String, HashSet<i32>>,
+    pending_affinity: HashSet<i32>,
 }
 
 pub(crate) type ContainerRegistryHandle = Arc<Mutex<ContainerRegistry>>;
@@ -416,11 +417,66 @@ impl ContainerManager {
             .into_iter()
             .map(|r| r.id)
             .collect::<Vec<_>>();
-        let assigned = self
+        let mut assigned = self
             .select_affinity_for_new_container(registry, exploit_run_id, &run_ids, affinity_limit)
             .await;
+        if assigned.is_empty() {
+            for _ in 0..40 {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                let affinity_result = self
+                    .try_acquire_affinity(registry, exploit_id, exploit_run_id)
+                    .await?;
+                match affinity_result {
+                    AffinityAcquire::Lease(lease) => return Ok(lease),
+                    AffinityAcquire::Exhausted => {}
+                    AffinityAcquire::None => {
+                        if let Some(lease) = self
+                            .try_acquire_best_available(registry, exploit_id, exploit_run_id)
+                            .await?
+                        {
+                            return Ok(lease);
+                        }
+                    }
+                }
+                assigned = self
+                    .select_affinity_for_new_container(registry, exploit_run_id, &run_ids, affinity_limit)
+                    .await;
+                if !assigned.is_empty() {
+                    break;
+                }
+            }
+        }
+        if assigned.is_empty() {
+            warn!(
+                "Pending affinity for run {} still active; forcing new container selection",
+                exploit_run_id
+            );
+            {
+                let mut guard = registry.lock().await;
+                clear_pending_affinity(&mut guard.pending_affinity, &[exploit_run_id]);
+            }
+            assigned = self
+                .select_affinity_for_new_container(registry, exploit_run_id, &run_ids, affinity_limit)
+                .await;
+        }
+        if assigned.is_empty() {
+            return Err(anyhow::anyhow!(
+                "Failed to reserve affinity for run {} (exploit {})",
+                exploit_run_id,
+                exploit_id
+            ));
+        }
         let affinity_runs = if assigned.is_empty() { None } else { Some(assigned.clone()) };
-        let container = self.spawn_container(registry, exploit, affinity_limit, affinity_runs).await?;
+        let container = match self.spawn_container(registry, exploit, affinity_limit, affinity_runs).await {
+            Ok(container) => container,
+            Err(e) => {
+                if !assigned.is_empty() {
+                    let mut guard = registry.lock().await;
+                    clear_pending_affinity(&mut guard.pending_affinity, &assigned);
+                }
+                return Err(e);
+            }
+        };
         if !try_decrement_counter(&container) {
             self.handle_exhausted_container(registry, &container).await;
             return Err(anyhow::anyhow!("Container counter exhausted for exploit {}", exploit_id));
@@ -465,6 +521,7 @@ impl ContainerManager {
         let container_id = container.container_id.clone();
         let exploit_id = container.exploit_id;
         let mut guard = registry.lock().await;
+        clear_pending_affinity(&mut guard.pending_affinity, runs);
         let current_len = guard
             .reverse_affinity
             .get(&container_id)
@@ -654,9 +711,16 @@ impl ContainerManager {
                 to_unmap.push(*id);
             }
         }
+        let pending = guard.pending_affinity.clone();
+        let selection = build_affinity_for_new_container_with_pending(run_id, &ids, &mapped, &pending, affinity_limit);
         for id in &to_unmap {
             let registry = &mut *guard;
             drop_affinity_for_run(&mut registry.affinity, &mut registry.reverse_affinity, *id);
+        }
+        if let Some(assigned) = &selection {
+            for id in assigned {
+                guard.pending_affinity.insert(*id);
+            }
         }
         drop(guard);
         for id in to_unmap {
@@ -664,7 +728,7 @@ impl ContainerManager {
                 warn!("Failed to clear exploit runner for run {}: {}", id, e);
             }
         }
-        build_affinity_for_new_container(run_id, &ids, &mapped, affinity_limit)
+        selection.unwrap_or_default()
     }
 
     async fn handle_exhausted_container(&self, registry: &ContainerRegistryHandle, container: &Arc<ManagedContainer>) {
@@ -679,9 +743,15 @@ impl ContainerManager {
 
     async fn unmap_exhausted_container(&self, registry: &ContainerRegistryHandle, container_id: &str) {
         let mut guard = registry.lock().await;
+        let pending_runs: Vec<i32> = guard
+            .reverse_affinity
+            .get(container_id)
+            .map(|set| set.iter().copied().collect())
+            .unwrap_or_default();
         let mut reverse = std::mem::take(&mut guard.reverse_affinity);
         drop_affinity_for_container(&mut guard.affinity, &mut reverse, container_id);
         guard.reverse_affinity = reverse;
+        clear_pending_affinity(&mut guard.pending_affinity, &pending_runs);
         let exploit_container_id = guard
             .by_id
             .get(container_id)
@@ -697,9 +767,15 @@ impl ContainerManager {
 
     async fn detach_container(&self, registry: &ContainerRegistryHandle, container_id: &str) -> Option<Arc<ManagedContainer>> {
         let mut guard = registry.lock().await;
+        let pending_runs: Vec<i32> = guard
+            .reverse_affinity
+            .get(container_id)
+            .map(|set| set.iter().copied().collect())
+            .unwrap_or_default();
         let mut reverse = std::mem::take(&mut guard.reverse_affinity);
         drop_affinity_for_container(&mut guard.affinity, &mut reverse, container_id);
         guard.reverse_affinity = reverse;
+        clear_pending_affinity(&mut guard.pending_affinity, &pending_runs);
         let container = guard.by_id.remove(container_id)?;
         if let Some(pool) = guard.pools.get_mut(&container.exploit_id) {
             pool.retain(|c| c.container_id != container_id);
@@ -770,11 +846,21 @@ impl ContainerManager {
                 let assigned = self
                     .select_affinity_for_new_container(registry, primary, &run_ids, affinity_limit)
                     .await;
-                if assigned.is_empty() { None } else { Some(assigned) }
+                if assigned.is_empty() {
+                    return Ok(());
+                }
+                Some(assigned)
             };
-            let _ = self
-                .spawn_container(registry, &exploit, affinity_limit, affinity)
-                .await?;
+            if let Err(e) = self
+                .spawn_container(registry, &exploit, affinity_limit, affinity.clone())
+                .await
+            {
+                if let Some(assigned) = affinity {
+                    let mut guard = registry.lock().await;
+                    clear_pending_affinity(&mut guard.pending_affinity, &assigned);
+                }
+                return Err(e);
+            }
         }
         Ok(())
     }
@@ -1092,6 +1178,9 @@ impl ContainerManager {
                     let mut unmapped = Vec::new();
                     let mut to_unmap = Vec::new();
                     for run_id in &ids {
+                        if guard.pending_affinity.contains(run_id) {
+                            continue;
+                        }
                         if let Some(container_id) = guard.affinity.get(run_id) {
                             let is_active = guard
                                 .by_id
@@ -1231,6 +1320,21 @@ fn build_affinity_for_new_container(run_id: i32, run_ids: &[i32], mapped: &HashS
     result
 }
 
+fn build_affinity_for_new_container_with_pending(
+    run_id: i32,
+    run_ids: &[i32],
+    mapped: &HashSet<i32>,
+    pending: &HashSet<i32>,
+    max_per_container: usize,
+) -> Option<Vec<i32>> {
+    if pending.contains(&run_id) {
+        return None;
+    }
+    let mut combined = mapped.clone();
+    combined.extend(pending.iter().copied());
+    Some(build_affinity_for_new_container(run_id, run_ids, &combined, max_per_container))
+}
+
 fn sorted_run_ids(set: &HashSet<i32>) -> Vec<i32> {
     let mut ids: Vec<i32> = set.iter().copied().collect();
     ids.sort_unstable();
@@ -1306,6 +1410,12 @@ fn drop_affinity_for_container(
     }
 }
 
+fn clear_pending_affinity(pending: &mut HashSet<i32>, runs: &[i32]) {
+    for run_id in runs {
+        pending.remove(run_id);
+    }
+}
+
 fn parse_label_i32(labels: &HashMap<String, String>, key: &str) -> Option<i32> {
     labels.get(key).and_then(|v| v.parse::<i32>().ok())
 }
@@ -1328,6 +1438,8 @@ mod tests {
     use super::{
         build_affinity_from_runners,
         build_affinity_for_new_container,
+        build_affinity_for_new_container_with_pending,
+        clear_pending_affinity,
         collect_exec_output,
         drop_affinity_for_container,
         drop_affinity_for_run,
@@ -1470,6 +1582,32 @@ mod tests {
         let mapped = HashSet::from([2, 4]);
         let result = build_affinity_for_new_container(3, &run_ids, &mapped, 2);
         assert_eq!(result, vec![3, 1]);
+    }
+
+    #[test]
+    fn build_affinity_for_new_container_with_pending_skips_reserved() {
+        let run_ids = vec![1, 2, 3];
+        let mapped = HashSet::new();
+        let pending = HashSet::from([2]);
+        let result = build_affinity_for_new_container_with_pending(1, &run_ids, &mapped, &pending, 3)
+            .expect("selection");
+        assert_eq!(result, vec![1, 3]);
+    }
+
+    #[test]
+    fn build_affinity_for_new_container_with_pending_returns_none_when_primary_pending() {
+        let run_ids = vec![5, 6];
+        let mapped = HashSet::new();
+        let pending = HashSet::from([5]);
+        let result = build_affinity_for_new_container_with_pending(5, &run_ids, &mapped, &pending, 2);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn clear_pending_affinity_removes_runs() {
+        let mut pending = HashSet::from([1, 2, 3]);
+        clear_pending_affinity(&mut pending, &[2, 4]);
+        assert_eq!(pending, HashSet::from([1, 3]));
     }
 
     #[test]
