@@ -116,6 +116,7 @@ Create an exploit.
   "max_concurrent_jobs": "int? (0 = unlimited)",
   "timeout_secs": "int?",
   "default_counter": "int?",
+  "ignore_connection_info": "boolean?",
   "auto_add": "string? (start|end)",
   "insert_into_rounds": "boolean?"
 }
@@ -137,7 +138,8 @@ Update an exploit.
   "max_containers": "int? (0 = unlimited)",
   "max_concurrent_jobs": "int? (0 = unlimited)",
   "timeout_secs": "int?",
-  "default_counter": "int?"
+  "default_counter": "int?",
+  "ignore_connection_info": "boolean?"
 }
 ```
 
@@ -503,6 +505,7 @@ List active WebSocket connections.
   "entrypoint": "string?",
   "timeout_secs": "int",
   "default_counter": "int",
+  "ignore_connection_info": "boolean",
   "created_at": "datetime"
 }
 ```

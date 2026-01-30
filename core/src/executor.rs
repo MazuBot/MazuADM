@@ -362,7 +362,11 @@ pub(crate) async fn build_job_context(db: &Database, job_id: i32) -> std::result
     let team = db.get_team(job.team_id).await.map_err(JobContextError::Db)?;
 
     let rel = db.get_relation(challenge.id, team.id).await.map_err(JobContextError::Db)?;
-    let conn = rel.and_then(|r| r.connection_info(&challenge, &team)).ok_or(JobContextError::MissingConnectionInfo)?;
+    let conn = if exploit.ignore_connection_info {
+        ConnectionInfo { addr: String::new(), port: 0 }
+    } else {
+        rel.and_then(|r| r.connection_info(&challenge, &team)).ok_or(JobContextError::MissingConnectionInfo)?
+    };
 
     Ok(JobContext { job, run, exploit, challenge, team, conn })
 }

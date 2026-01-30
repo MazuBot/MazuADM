@@ -206,7 +206,7 @@ impl Database {
     pub async fn create_exploit(&self, e: CreateExploit) -> Result<Exploit> {
         let exploit = sqlx::query_as!(
             Exploit,
-            "INSERT INTO exploits (name, challenge_id, docker_image, entrypoint, enabled, max_per_container, max_containers, max_concurrent_jobs, timeout_secs, default_counter) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *",
+            "INSERT INTO exploits (name, challenge_id, docker_image, entrypoint, enabled, max_per_container, max_containers, max_concurrent_jobs, timeout_secs, default_counter, ignore_connection_info) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *",
             e.name,
             e.challenge_id,
             e.docker_image,
@@ -217,6 +217,7 @@ impl Database {
             e.max_concurrent_jobs.unwrap_or(0),
             e.timeout_secs.unwrap_or(30),
             e.default_counter.unwrap_or(999),
+            e.ignore_connection_info.unwrap_or(false),
         )
         .fetch_one(&self.pool)
         .await?;
@@ -256,7 +257,7 @@ impl Database {
     pub async fn update_exploit(&self, id: i32, e: UpdateExploit) -> Result<Exploit> {
         let exploit = sqlx::query_as!(
             Exploit,
-            "UPDATE exploits SET name = $2, docker_image = $3, entrypoint = $4, enabled = COALESCE($5, enabled), max_per_container = COALESCE($6, max_per_container), max_containers = COALESCE($7, max_containers), max_concurrent_jobs = COALESCE($8, max_concurrent_jobs), timeout_secs = COALESCE($9, timeout_secs), default_counter = COALESCE($10, default_counter) WHERE id = $1 RETURNING *",
+            "UPDATE exploits SET name = $2, docker_image = $3, entrypoint = $4, enabled = COALESCE($5, enabled), max_per_container = COALESCE($6, max_per_container), max_containers = COALESCE($7, max_containers), max_concurrent_jobs = COALESCE($8, max_concurrent_jobs), timeout_secs = COALESCE($9, timeout_secs), default_counter = COALESCE($10, default_counter), ignore_connection_info = COALESCE($11, ignore_connection_info) WHERE id = $1 RETURNING *",
             id,
             e.name,
             e.docker_image,
@@ -266,7 +267,8 @@ impl Database {
             e.max_containers,
             e.max_concurrent_jobs,
             e.timeout_secs,
-            e.default_counter
+            e.default_counter,
+            e.ignore_connection_info
         )
         .fetch_one(&self.pool)
         .await?;

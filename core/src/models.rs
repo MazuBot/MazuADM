@@ -66,6 +66,7 @@ pub struct Exploit {
     pub entrypoint: Option<String>,
     pub timeout_secs: i32,
     pub default_counter: i32,
+    pub ignore_connection_info: bool,
     pub created_at: DateTime<Utc>,
 }
 
@@ -81,6 +82,7 @@ pub struct CreateExploit {
     pub max_concurrent_jobs: Option<i32>,
     pub timeout_secs: Option<i32>,
     pub default_counter: Option<i32>,
+    pub ignore_connection_info: Option<bool>,
     pub auto_add: Option<String>,
     pub insert_into_rounds: Option<bool>,
 }
@@ -96,6 +98,7 @@ pub struct UpdateExploit {
     pub max_concurrent_jobs: Option<i32>,
     pub timeout_secs: Option<i32>,
     pub default_counter: Option<i32>,
+    pub ignore_connection_info: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]

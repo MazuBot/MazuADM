@@ -18,6 +18,7 @@
       max_concurrent_jobs: 0,
       default_counter: 999,
       timeout_secs: 0,
+      ignore_connection_info: false,
       auto_add: 'end',
       insert_into_rounds: true
     };
@@ -35,7 +36,7 @@
   let editFormInitial = $state(null);
 
   let editingExploit = $state(null);
-  let exploitForm = $state({ name: '', docker_image: '', entrypoint: '', max_per_container: 1, max_containers: 0, max_concurrent_jobs: 0, default_counter: 999, timeout_secs: 0, enabled: true });
+  let exploitForm = $state({ name: '', docker_image: '', entrypoint: '', max_per_container: 1, max_containers: 0, max_concurrent_jobs: 0, default_counter: 999, timeout_secs: 0, ignore_connection_info: false, enabled: true });
   let exploitFormInitial = $state(null);
 
   let editingRelation = $state(null);
@@ -222,6 +223,7 @@
         max_concurrent_jobs: newExploit.max_concurrent_jobs,
         default_counter: newExploit.default_counter,
         timeout_secs: newExploit.timeout_secs || 0,
+        ignore_connection_info: newExploit.ignore_connection_info,
         auto_add: newExploit.auto_add,
         insert_into_rounds: newExploit.insert_into_rounds
       });
@@ -246,13 +248,13 @@
   function duplicateExploit(e, ev) {
     ev.stopPropagation();
     showAddExploit = true;
-    newExploit = { name: e.name + ' (copy)', docker_image: e.docker_image, entrypoint: e.entrypoint || '', max_per_container: e.max_per_container, max_containers: e.max_containers, max_concurrent_jobs: e.max_concurrent_jobs, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, auto_add: 'end', insert_into_rounds: true };
+    newExploit = { name: e.name + ' (copy)', docker_image: e.docker_image, entrypoint: e.entrypoint || '', max_per_container: e.max_per_container, max_containers: e.max_containers, max_concurrent_jobs: e.max_concurrent_jobs, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, ignore_connection_info: e.ignore_connection_info || false, auto_add: 'end', insert_into_rounds: true };
     newExploitInitial = { ...newExploit };
   }
 
   function openEditExploit(e) {
     editingExploit = e;
-    exploitForm = { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint || '', max_per_container: e.max_per_container, max_containers: e.max_containers, max_concurrent_jobs: e.max_concurrent_jobs, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, enabled: e.enabled };
+    exploitForm = { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint || '', max_per_container: e.max_per_container, max_containers: e.max_containers, max_concurrent_jobs: e.max_concurrent_jobs, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, ignore_connection_info: e.ignore_connection_info || false, enabled: e.enabled };
     exploitFormInitial = { ...exploitForm };
   }
 
@@ -894,6 +896,9 @@
       <label class:field-changed={isNewExploitChanged('timeout_secs')}>
         Timeout (secs) <input bind:value={newExploit.timeout_secs} type="number" placeholder="0 = use global" />
       </label>
+      <label class="checkbox" class:field-changed={isNewExploitChanged('ignore_connection_info')}>
+        <input type="checkbox" bind:checked={newExploit.ignore_connection_info} /> Ignore connection info
+      </label>
       <label class:field-changed={isNewExploitChanged('auto_add')}>
         Auto-add to teams
         <select bind:value={newExploit.auto_add}>
@@ -974,6 +979,9 @@
       </label>
       <label class:field-changed={isExploitFieldChanged('timeout_secs')}>
         Timeout (secs) <input bind:value={exploitForm.timeout_secs} type="number" placeholder="0 = use global" />
+      </label>
+      <label class="checkbox" class:field-changed={isExploitFieldChanged('ignore_connection_info')}>
+        <input type="checkbox" bind:checked={exploitForm.ignore_connection_info} /> Ignore connection info
       </label>
       <label class="checkbox" class:field-changed={isExploitFieldChanged('enabled')}>
         <input type="checkbox" bind:checked={exploitForm.enabled} /> Enabled
