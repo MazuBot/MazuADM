@@ -225,9 +225,11 @@
   });
 
   $effect(() => {
-    if ($roundCreatedAt && $roundCreatedAt !== lastRoundCreatedAt) {
-      lastRoundCreatedAt = $roundCreatedAt;
-      startNewRoundCooldown(NEW_ROUND_COOLDOWN_MS);
+    if (!$roundCreatedAt || $roundCreatedAt === lastRoundCreatedAt) return;
+    lastRoundCreatedAt = $roundCreatedAt;
+    const age = Date.now() - $roundCreatedAt;
+    if (age < NEW_ROUND_COOLDOWN_MS) {
+      startNewRoundCooldown(NEW_ROUND_COOLDOWN_MS - age);
     }
   });
 
