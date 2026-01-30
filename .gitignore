@@ -11,3 +11,4 @@ config.local.toml
 AGENTS.md
 .env
 backup_*.sql
+*.swp
