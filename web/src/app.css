@@ -126,6 +126,15 @@ table {
   border-collapse: collapse;
 }
 
+table tbody tr {
+  background-color: var(--row-bg, transparent);
+}
+
+table tbody tr:nth-child(even) {
+  background-image: linear-gradient(rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.08));
+  background-blend-mode: multiply;
+}
+
 .truncate {
   display: inline-block;
   max-width: 220px;
@@ -152,22 +161,22 @@ td {
 }
 
 tr.success {
-  background: #1a3a1a;
+  --row-bg: #1a3a1a;
 }
 
 tr.flag {
-  background: #2a4a2a;
+  --row-bg: #2a4a2a;
 }
 
 tr.failed,
 tr.error,
 tr.timeout,
 tr.ole {
-  background: #3a1a1a;
+  --row-bg: #3a1a1a;
 }
 
 tr.running {
-  background: #3a3a1a;
+  --row-bg: #3a3a1a;
 }
 
 tr.disabled {
