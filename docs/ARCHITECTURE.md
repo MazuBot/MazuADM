@@ -66,6 +66,8 @@ CRUD operations for all entities. Key methods:
 | `finish_job(id, status, stdout, stderr, duration)` | Complete job |
 | `create_flag(...)` | Store captured flag |
 
+Database pool settings are loaded from `AppConfig` under `[db_pool]` in `config.toml`.
+
 ### Scheduler (`scheduler.rs`)
 
 ```rust

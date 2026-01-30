@@ -7,6 +7,42 @@ use std::path::{Path, PathBuf};
 pub struct AppConfig {
     pub database_url: Option<String>,
     pub listen_addr: Option<String>,
+    pub db_pool: Option<DbPoolConfig>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct DbPoolConfig {
+    pub max_connections: Option<u32>,
+    pub min_connections: Option<u32>,
+    pub acquire_timeout_secs: Option<u64>,
+    pub idle_timeout_secs: Option<u64>,
+    pub max_lifetime_secs: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DbPoolSettings {
+    pub max_connections: u32,
+    pub min_connections: u32,
+    pub acquire_timeout_secs: u64,
+    pub idle_timeout_secs: u64,
+    pub max_lifetime_secs: u64,
+}
+
+const DEFAULT_DB_MAX_CONNECTIONS: u32 = 75;
+const DEFAULT_DB_MIN_CONNECTIONS: u32 = 1;
+const DEFAULT_DB_ACQUIRE_TIMEOUT_SECS: u64 = 5;
+const DEFAULT_DB_IDLE_TIMEOUT_SECS: u64 = 300;
+const DEFAULT_DB_MAX_LIFETIME_SECS: u64 = 1800;
+
+pub fn resolve_db_pool_settings(cfg: &AppConfig) -> DbPoolSettings {
+    let pool = cfg.db_pool.as_ref();
+    DbPoolSettings {
+        max_connections: pool.and_then(|p| p.max_connections).unwrap_or(DEFAULT_DB_MAX_CONNECTIONS),
+        min_connections: pool.and_then(|p| p.min_connections).unwrap_or(DEFAULT_DB_MIN_CONNECTIONS),
+        acquire_timeout_secs: pool.and_then(|p| p.acquire_timeout_secs).unwrap_or(DEFAULT_DB_ACQUIRE_TIMEOUT_SECS),
+        idle_timeout_secs: pool.and_then(|p| p.idle_timeout_secs).unwrap_or(DEFAULT_DB_IDLE_TIMEOUT_SECS),
+        max_lifetime_secs: pool.and_then(|p| p.max_lifetime_secs).unwrap_or(DEFAULT_DB_MAX_LIFETIME_SECS),
+    }
 }
 
 pub fn find_config_arg<I, T>(args: I) -> Result<Option<PathBuf>>
@@ -153,5 +189,34 @@ mod tests {
         let parsed = load_toml_config(&cfg).unwrap();
         assert_eq!(parsed.database_url.as_deref(), Some("postgres://example"));
         assert_eq!(parsed.listen_addr.as_deref(), Some("0.0.0.0:4000"));
+    }
+
+    #[test]
+    fn resolve_db_pool_defaults_when_missing() {
+        let cfg = AppConfig::default();
+        let settings = resolve_db_pool_settings(&cfg);
+        assert_eq!(settings.max_connections, DEFAULT_DB_MAX_CONNECTIONS);
+        assert_eq!(settings.min_connections, DEFAULT_DB_MIN_CONNECTIONS);
+        assert_eq!(settings.acquire_timeout_secs, DEFAULT_DB_ACQUIRE_TIMEOUT_SECS);
+        assert_eq!(settings.idle_timeout_secs, DEFAULT_DB_IDLE_TIMEOUT_SECS);
+        assert_eq!(settings.max_lifetime_secs, DEFAULT_DB_MAX_LIFETIME_SECS);
+    }
+
+    #[test]
+    fn resolve_db_pool_overrides_selected_fields() {
+        let cfg = AppConfig {
+            db_pool: Some(DbPoolConfig {
+                max_connections: Some(10),
+                idle_timeout_secs: Some(60),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let settings = resolve_db_pool_settings(&cfg);
+        assert_eq!(settings.max_connections, 10);
+        assert_eq!(settings.min_connections, DEFAULT_DB_MIN_CONNECTIONS);
+        assert_eq!(settings.acquire_timeout_secs, DEFAULT_DB_ACQUIRE_TIMEOUT_SECS);
+        assert_eq!(settings.idle_timeout_secs, 60);
+        assert_eq!(settings.max_lifetime_secs, DEFAULT_DB_MAX_LIFETIME_SECS);
     }
 }

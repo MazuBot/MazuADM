@@ -28,6 +28,7 @@ DATABASE_URL=postgres://localhost/mazuadm sqlx migrate run --source core/migrati
 Notes:
 - Running only `001_initial.sql` leaves newer columns/tables missing (ex: settings, enabled flags).
 - Always apply all migrations from `core/migrations` to keep schema current.
+ - Connection pool settings can be tuned in `config.toml` under `[db_pool]` (see `config.example.toml`).
 
 #### SQLX offline metadata (_sqlx db)
 If `cargo sqlx prepare` fails due to missing migrations or schema drift, recreate the

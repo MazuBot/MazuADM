@@ -1,7 +1,9 @@
 use crate::models::*;
+use crate::config::resolve_db_pool_settings;
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use anyhow::Result;
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct Database {
@@ -78,8 +80,16 @@ struct JobContextRow {
 }
 
 impl Database {
-    pub async fn connect(url: &str) -> Result<Self> {
-        let pool = PgPoolOptions::new().max_connections(10).connect(url).await?;
+    pub async fn connect(url: &str, cfg: &crate::AppConfig) -> Result<Self> {
+        let settings = resolve_db_pool_settings(cfg);
+        let pool = PgPoolOptions::new()
+            .max_connections(settings.max_connections)
+            .min_connections(settings.min_connections)
+            .acquire_timeout(Duration::from_secs(settings.acquire_timeout_secs))
+            .idle_timeout(Duration::from_secs(settings.idle_timeout_secs))
+            .max_lifetime(Duration::from_secs(settings.max_lifetime_secs))
+            .connect(url)
+            .await?;
         Ok(Self { pool })
     }
 

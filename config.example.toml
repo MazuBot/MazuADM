@@ -1,2 +1,9 @@
 database_url = "postgres://user:password@localhost/mazuadm"
 listen_addr = "0.0.0.0:3000"
+
+[db_pool]
+max_connections = 75
+min_connections = 1
+acquire_timeout_secs = 5
+idle_timeout_secs = 300
+max_lifetime_secs = 1800
