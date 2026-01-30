@@ -245,6 +245,9 @@ impl Executor {
                 return Err(anyhow::anyhow!("Job {} missing exploit_run_id", job_id));
             }
             Err(JobContextError::MissingConnectionInfo) => {
+                if let Err(e) = self.db.mark_job_scheduled(job_id).await {
+                    tracing::warn!("Failed to mark job {} scheduled before missing connection info: {}", job_id, e);
+                }
                 finish_job_and_broadcast(&self.db, &self.tx, job_id, "error", None, Some("No connection info (missing IP or port)"), 0).await;
                 return Err(anyhow::anyhow!("Job {} missing connection info", job_id));
             }
@@ -384,6 +387,9 @@ pub(crate) async fn build_job_context_or_finish(
             None
         }
         Err(JobContextError::MissingConnectionInfo) => {
+            if let Err(e) = db.mark_job_scheduled(job_id).await {
+                tracing::warn!("Failed to mark job {} scheduled before missing connection info: {}", job_id, e);
+            }
             finish_job_and_broadcast(db, tx, job_id, "error", None, Some("No connection info (missing IP or port)"), 0).await;
             None
         }
