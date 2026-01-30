@@ -4,8 +4,18 @@ use sqlx::{PgPool, postgres::PgPoolOptions};
 use anyhow::Result;
 use std::time::Duration;
 use redis::AsyncCommands;
+use serde::{Serialize, Deserialize};
 
-const REDIS_FLAG_SET: &str = "mazuadm:flags";
+const REDIS_FLAG_PREFIX: &str = "mazuadm:flag:";
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CachedFlag {
+    pub id: i32,
+    pub job_id: Option<i32>,
+    pub round_id: i32,
+    pub challenge_id: i32,
+    pub team_id: i32,
+}
 
 #[derive(Clone)]
 pub struct Database {
@@ -49,10 +59,18 @@ impl Database {
     pub async fn init_flag_cache(&self) -> Result<()> {
         if let Some(mut conn) = self.redis.clone() {
             let _: () = redis::cmd("FLUSHDB").query_async(&mut conn).await?;
-            let flags: Vec<String> = sqlx::query_scalar("SELECT DISTINCT flag_value FROM flags")
+            let flags: Vec<Flag> = sqlx::query_as("SELECT DISTINCT ON (flag_value) * FROM flags ORDER BY flag_value, id")
                 .fetch_all(&self.pool).await?;
-            if !flags.is_empty() {
-                let _: () = conn.sadd(REDIS_FLAG_SET, &flags).await?;
+            for flag in &flags {
+                let key = format!("{}{}", REDIS_FLAG_PREFIX, flag.flag_value);
+                let cached = CachedFlag {
+                    id: flag.id,
+                    job_id: flag.job_id,
+                    round_id: flag.round_id,
+                    challenge_id: flag.challenge_id,
+                    team_id: flag.team_id,
+                };
+                let _: () = conn.set(&key, serde_json::to_string(&cached)?).await?;
             }
             tracing::info!("Loaded {} unique flags into Redis cache", flags.len());
         }
@@ -61,15 +79,26 @@ impl Database {
 
     async fn is_flag_duplicate(&self, flag_value: &str) -> bool {
         if let Some(mut conn) = self.redis.clone() {
-            conn.sismember(REDIS_FLAG_SET, flag_value).await.unwrap_or(false)
+            let key = format!("{}{}", REDIS_FLAG_PREFIX, flag_value);
+            conn.exists(&key).await.unwrap_or(false)
         } else {
             false
         }
     }
 
-    async fn add_flag_to_cache(&self, flag_value: &str) {
+    async fn add_flag_to_cache(&self, flag: &Flag) {
         if let Some(mut conn) = self.redis.clone() {
-            let _: Result<(), _> = conn.sadd(REDIS_FLAG_SET, flag_value).await;
+            let key = format!("{}{}", REDIS_FLAG_PREFIX, flag.flag_value);
+            let cached = CachedFlag {
+                id: flag.id,
+                job_id: flag.job_id,
+                round_id: flag.round_id,
+                challenge_id: flag.challenge_id,
+                team_id: flag.team_id,
+            };
+            if let Ok(json) = serde_json::to_string(&cached) {
+                let _: Result<(), _> = conn.set(&key, json).await;
+            }
         }
     }
 
@@ -501,7 +530,7 @@ impl Database {
             "INSERT INTO flags (job_id, round_id, challenge_id, team_id, flag_value, status) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
             job_id, round_id, challenge_id, team_id, flag_value, status
         ).fetch_one(&self.pool).await?;
-        self.add_flag_to_cache(flag_value).await;
+        self.add_flag_to_cache(&flag).await;
         Ok(flag)
     }
 
@@ -511,7 +540,7 @@ impl Database {
             "INSERT INTO flags (job_id, round_id, challenge_id, team_id, flag_value, status, submitted_at) VALUES (NULL, $1, $2, $3, $4, $5, NOW()) RETURNING *",
             round_id, challenge_id, team_id, flag_value, status
         ).fetch_one(&self.pool).await?;
-        self.add_flag_to_cache(flag_value).await;
+        self.add_flag_to_cache(&flag).await;
         Ok(flag)
     }
 
