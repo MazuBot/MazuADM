@@ -21,6 +21,8 @@ use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
 
 pub struct WsConnection {
@@ -43,22 +45,14 @@ pub struct AppState {
 const CONSOLE_ENV: &str = "MAZUADM_CONSOLE";
 
 #[cfg(debug_assertions)]
-fn console_enabled() -> bool {
+fn console_log_enabled() -> bool {
     std::env::var(CONSOLE_ENV).ok().as_deref() == Some("1")
 }
 
 #[cfg(not(debug_assertions))]
-fn console_enabled() -> bool {
+fn console_log_enabled() -> bool {
     false
 }
-
-#[cfg(debug_assertions)]
-fn init_console_logging() {
-    console_subscriber::init();
-}
-
-#[cfg(not(debug_assertions))]
-fn init_console_logging() {}
 
 fn default_log_level() -> &'static str {
     if cfg!(debug_assertions) {
@@ -84,12 +78,26 @@ fn should_resume_running_round(pending_count: usize) -> bool {
 
 fn init_logging(log_dir: &Path) -> Result<Option<WorkerGuard>> {
     ensure_default_rust_log();
-    if console_enabled() {
-        init_console_logging();
-        return Ok(None);
-    }
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_log_level()));
+    let console_layer = if cfg!(debug_assertions) {
+        Some(
+            console_subscriber::ConsoleLayer::builder()
+                .with_default_env()
+                .spawn(),
+        )
+    } else {
+        None
+    };
+
+    if console_log_enabled() {
+        let registry = tracing_subscriber::registry()
+            .with(env_filter)
+            .with(console_layer)
+            .with(tracing_subscriber::fmt::layer().with_writer(std::io::stdout));
+        registry.init();
+        return Ok(None);
+    }
     let log_path = log_dir.join("mazuadm-api.log");
     let file = OpenOptions::new()
         .create(true)
@@ -97,11 +105,15 @@ fn init_logging(log_dir: &Path) -> Result<Option<WorkerGuard>> {
         .open(&log_path)
         .with_context(|| format!("failed to open log {}", log_path.display()))?;
     let (writer, guard) = tracing_appender::non_blocking(file);
-    tracing_subscriber::fmt()
-        .with_writer(writer)
-        .with_env_filter(env_filter)
-        .with_ansi(false)
-        .init();
+    let registry = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(console_layer)
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(writer)
+                .with_ansi(false),
+        );
+    registry.init();
     Ok(Some(guard))
 }
 
