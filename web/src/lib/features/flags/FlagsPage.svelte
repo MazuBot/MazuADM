@@ -16,7 +16,7 @@
 
   let challengeFilterId = $state('');
   let teamFilterId = $state('');
-  let statusFilter = $state('');
+  let statusFilters = $state(new Set());
   let searchQuery = $state('');
   let submitRoundId = $state('');
   let submitChallengeId = $state('');
@@ -47,7 +47,7 @@
     const challengeId = challengeFilterId ? Number(challengeFilterId) : null;
     const query = searchQuery.trim().toLowerCase();
     return flags.filter((flag) => {
-      if (statusFilter && flag.status !== statusFilter) return false;
+      if (statusFilters.size > 0 && !statusFilters.has(flag.status)) return false;
       if (teamId && Number(flag.team_id) !== teamId) return false;
       if (challengeId && Number(flag.challenge_id) !== challengeId) return false;
       if (query) {
@@ -111,7 +111,7 @@
 
   let filteredFlags = $derived(filterFlags());
   let availableStatuses = $derived(buildStatusOptions(flags));
-  let canResetFilters = $derived(Boolean(challengeFilterId || teamFilterId || statusFilter || searchQuery));
+  let canResetFilters = $derived(Boolean(challengeFilterId || teamFilterId || statusFilters.size > 0 || searchQuery));
   let pastFlagRounds = $derived(parsePastFlagRounds());
   let runningRound = $derived(rounds.find((r) => r.status === 'running'));
   let allowedRounds = $derived(buildAllowedRounds());
@@ -214,16 +214,27 @@
       <option value={t.id}>{getTeamDisplay(teams, t.id)}</option>
     {/each}
   </select>
-  <select bind:value={statusFilter}>
-    <option value="">All statuses</option>
-    {#each availableStatuses as entry}
-      <option value={entry}>{entry}</option>
+  <div class="status-filters">
+    {#each availableStatuses as status}
+      <label class="status-checkbox">
+        <input
+          type="checkbox"
+          checked={statusFilters.has(status)}
+          onchange={() => {
+            const next = new Set(statusFilters);
+            if (next.has(status)) next.delete(status);
+            else next.add(status);
+            statusFilters = next;
+          }}
+        />
+        {status}
+      </label>
     {/each}
-  </select>
+  </div>
   <button class="small" type="button" onclick={() => {
     challengeFilterId = '';
     teamFilterId = '';
-    statusFilter = '';
+    statusFilters = new Set();
     searchQuery = '';
   }} disabled={!canResetFilters}>
     Reset Filters
@@ -260,5 +271,16 @@
 <style>
   .flag-filters {
     margin-top: 0.75rem;
+  }
+  .status-filters {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+  }
+  .status-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    cursor: pointer;
   }
 </style>
