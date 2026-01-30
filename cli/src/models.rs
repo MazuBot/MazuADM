@@ -256,8 +256,30 @@ pub struct UpdateFlagRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WsConnection {
     pub id: String,
-    pub addr: String,
+    pub client_ip: String,
+    pub client_name: String,
+    pub user: String,
+    pub subscribed_events: Vec<String>,
     pub connected_at: DateTime<Utc>,
+    pub duration_secs: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionInfo {
+    pub version: String,
+    pub git_hash: String,
+    pub git_ref: String,
+    pub build_time: String,
+    pub rustc: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerBulkOpResult {
+    pub total: usize,
+    pub success: usize,
+    pub failed: usize,
+    #[serde(default)]
+    pub failures: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

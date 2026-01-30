@@ -14,7 +14,7 @@ impl ApiClient {
 
     fn url(&self, path: &str) -> String { format!("{}{}", self.base_url, path) }
 
-    pub async fn get_version(&self) -> Result<String> { self.get("/api/version").await }
+    pub async fn get_version(&self) -> Result<VersionInfo> { self.get("/api/version").await }
 
     async fn get<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
         let resp = self.client.get(self.url(path)).send().await?;
@@ -149,8 +149,8 @@ impl ApiClient {
     pub async fn get_container_runners(&self, id: &str) -> Result<Vec<ExploitJob>> { self.get(&format!("/api/containers/{}/runners", id)).await }
     pub async fn delete_container(&self, id: &str) -> Result<()> { self.delete(&format!("/api/containers/{}", id)).await }
     pub async fn restart_container(&self, id: &str) -> Result<()> { let _: String = self.post_empty(&format!("/api/containers/{}/restart", id)).await?; Ok(()) }
-    pub async fn restart_all_containers(&self) -> Result<()> { let _: String = self.post_empty("/api/containers/restart-all").await?; Ok(()) }
-    pub async fn remove_all_containers(&self) -> Result<()> { let _: String = self.post_empty("/api/containers/remove-all").await?; Ok(()) }
+    pub async fn restart_all_containers(&self) -> Result<ContainerBulkOpResult> { self.post_empty("/api/containers/restart-all").await }
+    pub async fn remove_all_containers(&self) -> Result<ContainerBulkOpResult> { self.post_empty("/api/containers/remove-all").await }
 
     // WebSocket connections
     pub async fn list_ws_connections(&self) -> Result<Vec<WsConnection>> { self.get("/api/ws-connections").await }

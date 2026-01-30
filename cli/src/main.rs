@@ -143,7 +143,7 @@ enum RelationCmd { List { challenge: String }, Get { challenge: String, team: St
 #[derive(Tabled)] struct ContainerRow { id: String, exploit: i32, status: String, counter: i32, execs: String, affinity: String }
 #[derive(Tabled)] struct RunnerRow { id: i32, run: String, team_id: String, team_name: String, status: String }
 #[derive(Tabled)] struct RelationRow { challenge: i32, team_id: String, team_name: String, enabled: bool, addr: String, port: String }
-#[derive(Tabled)] struct WsRow { id: String, addr: String, connected: String }
+#[derive(Tabled)] struct WsRow { id: String, client_ip: String, client_name: String, user: String, duration: String }
 
 struct Ctx { api: ApiClient, challenges: Option<Vec<Challenge>>, teams: Option<Vec<Team>>, exploits: Option<Vec<Exploit>> }
 
@@ -212,7 +212,10 @@ async fn main() -> Result<()> {
 
     match cli.cmd {
         Cmd::Version { cmd } => match cmd {
-            VersionCmd::Api => { println!("{}", ctx.api.get_version().await?); }
+            VersionCmd::Api => {
+                let v = ctx.api.get_version().await?;
+                println!("{} ({} {})", v.version, v.git_ref, &v.git_hash[..7.min(v.git_hash.len())]);
+            }
             VersionCmd::Cli => { println!("{}", env!("CARGO_PKG_VERSION")); }
         },
         Cmd::Challenge { cmd } => match cmd {
@@ -440,12 +443,20 @@ async fn main() -> Result<()> {
             }
             ContainerCmd::Delete { id } => { ctx.api.delete_container(&id).await?; println!("Deleted"); }
             ContainerCmd::Restart { id } => { ctx.api.restart_container(&id).await?; println!("Restarted"); }
-            ContainerCmd::RestartAll => { ctx.api.restart_all_containers().await?; println!("Restarted all"); }
-            ContainerCmd::RemoveAll => { ctx.api.remove_all_containers().await?; println!("Removed all"); }
+            ContainerCmd::RestartAll => {
+                let r = ctx.api.restart_all_containers().await?;
+                println!("Restarted {}/{} containers", r.success, r.total);
+                if !r.failures.is_empty() { for f in r.failures { eprintln!("  {}", f); } }
+            }
+            ContainerCmd::RemoveAll => {
+                let r = ctx.api.remove_all_containers().await?;
+                println!("Removed {}/{} containers", r.success, r.total);
+                if !r.failures.is_empty() { for f in r.failures { eprintln!("  {}", f); } }
+            }
         },
         Cmd::Ws { cmd } => match cmd {
             WsCmd::List => {
-                let rows: Vec<_> = ctx.api.list_ws_connections().await?.into_iter().map(|w| WsRow { id: w.id, addr: w.addr, connected: w.connected_at.format("%H:%M:%S").to_string() }).collect();
+                let rows: Vec<_> = ctx.api.list_ws_connections().await?.into_iter().map(|w| WsRow { id: w.id, client_ip: w.client_ip, client_name: w.client_name, user: w.user, duration: format!("{}s", w.duration_secs) }).collect();
                 println!("{}", Table::new(rows));
             }
         },
