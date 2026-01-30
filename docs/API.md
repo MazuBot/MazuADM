@@ -450,7 +450,7 @@ Update a relation.
   "exploit_run_id": "int?",
   "team_id": "int",
   "priority": "int",
-  "status": "string (pending|running|success|failed|timeout|ole|error|skipped|flag|stopped)",
+  "status": "string (pending|running|success|failed|timeout|ole|error|error:stale|skipped|flag|stopped)",
   "container_id": "string?",
   "stdout": "string?",
   "stderr": "string?",

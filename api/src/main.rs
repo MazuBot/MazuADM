@@ -201,15 +201,35 @@ async fn main() -> Result<()> {
     let executor = Executor::new(db.clone(), tx.clone())?;
     executor.container_manager.set_concurrent_create_limit(settings.concurrent_create_limit);
     executor.restore_from_docker().await?;
+
+    let scheduler = Scheduler::new(db.clone(), tx.clone());
+    let (runner, scheduler_handle) = SchedulerRunner::new(scheduler, executor);
+    tokio::spawn(runner.run());
+
+    if let Err(e) = scheduler_handle.restart_all_containers().await {
+        tracing::warn!("Failed to restart containers on startup: {}", e);
+    }
+
+    let running_round_id = db
+        .get_active_rounds()
+        .await?
+        .iter()
+        .find(|r| r.status == "running")
+        .map(|r| r.id);
+    let cleanup = db.cleanup_stale_scheduled_jobs(running_round_id).await?;
+    if cleanup.marked > 0 || cleanup.requeued > 0 {
+        tracing::warn!(
+            "Marked {} stale scheduled jobs; requeued {}",
+            cleanup.marked,
+            cleanup.requeued
+        );
+    }
+
     // Reset any jobs stuck in "running" state from previous run
     let reset = db.reset_stale_jobs().await?;
     if reset > 0 {
         tracing::warn!("Reset {} stale running jobs to stopped status", reset);
     }
-    
-    let scheduler = Scheduler::new(db.clone(), tx.clone());
-    let (runner, scheduler_handle) = SchedulerRunner::new(scheduler, executor);
-    tokio::spawn(runner.run());
 
     let state = Arc::new(AppState { db, tx, scheduler: scheduler_handle, ws_connections: Arc::new(DashMap::new()) });
     resume_running_round_if_needed(state.as_ref()).await?;

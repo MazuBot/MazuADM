@@ -99,11 +99,11 @@ Individual exploit executions within a round.
 | exploit_run_id | INTEGER | YES | FK → exploit_runs (SET NULL) |
 | team_id | INTEGER | NO | FK → teams (CASCADE) |
 | priority | INTEGER | NO | Computed priority |
-| status | VARCHAR(50) | NO | pending/running/success/failed/timeout/ole/error/skipped/flag/stopped |
+| status | VARCHAR(50) | NO | pending/running/success/failed/timeout/ole/error/error:stale/skipped/flag/stopped |
 | container_id | VARCHAR(100) | YES | Docker container ID used |
 | stdout | TEXT | YES | Container stdout |
 | stderr | TEXT | YES | Container stderr |
-| create_reason | VARCHAR(20) | YES | Reason the job was created (e.g., new_round, enqueue_exploit, rerun_job:<id>, rerun_unflag:<id>) |
+| create_reason | VARCHAR(20) | YES | Reason the job was created (e.g., new_round, enqueue_exploit, rerun_job:<id>, rerun_unflag:<id>, cleanup_requeue:<id>) |
 | duration_ms | INTEGER | YES | Execution time in milliseconds |
 | schedule_at | TIMESTAMPTZ | YES | Job scheduled time (set when picked by scheduler) |
 | started_at | TIMESTAMPTZ | YES | Job start time |

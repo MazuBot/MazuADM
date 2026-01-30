@@ -12,7 +12,7 @@ use crate::executor::Executor;
 use crate::settings::{compute_timeout, load_executor_settings, load_job_settings};
 use anyhow::Result;
 use futures::future::BoxFuture;
-use futures::stream::{FuturesUnordered, StreamExt};
+use futures::stream::{self, FuturesUnordered, StreamExt};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
@@ -637,6 +637,32 @@ impl SchedulerHandle {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.send(SchedulerCommand::ListContainers { exploit_id, resp: resp_tx })?;
         resp_rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("Scheduler response dropped")))
+    }
+
+    pub async fn restart_all_containers(&self) -> Result<()> {
+        let containers = self.list_containers(None).await?;
+        let ids: Vec<String> = containers.into_iter().map(|c| c.id).collect();
+        let results = stream::iter(ids)
+            .map(|id| {
+                let scheduler = self.clone();
+                async move { (id.clone(), scheduler.restart_container(id).await) }
+            })
+            .buffer_unordered(10)
+            .collect::<Vec<_>>()
+            .await;
+        let failures: Vec<String> = results
+            .into_iter()
+            .filter_map(|(id, res)| res.err().map(|e| format!("{}: {}", id, e)))
+            .collect();
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "Failed to restart {} containers: {}",
+                failures.len(),
+                failures.join("; ")
+            ))
+        }
     }
 
     pub async fn restart_container(&self, id: String) -> Result<()> {

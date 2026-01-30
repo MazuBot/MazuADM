@@ -9,6 +9,19 @@ pub struct Database {
     pub pool: PgPool,
 }
 
+pub struct CleanupStaleScheduledReport {
+    pub marked: usize,
+    pub requeued: usize,
+}
+
+fn stale_schedule_error_suffix() -> &'static str {
+    "stale schedule_at while pending/running"
+}
+
+fn cleanup_requeue_reason(job_id: i32) -> String {
+    format!("cleanup_requeue:{}", job_id)
+}
+
 impl Database {
     pub async fn connect(url: &str, cfg: &crate::AppConfig) -> Result<Self> {
         let settings = resolve_db_pool_settings(cfg);
@@ -488,10 +501,85 @@ impl Database {
         Ok(sqlx::query_as!(Setting, "SELECT * FROM settings ORDER BY key").fetch_all(&self.pool).await?)
     }
 
+    // Clean up jobs left with schedule_at but pending/running status
+    pub async fn cleanup_stale_scheduled_jobs(&self, running_round_id: Option<i32>) -> Result<CleanupStaleScheduledReport> {
+        let mut tx = self.pool.begin().await?;
+        let suffix = format!("\n[{}]", stale_schedule_error_suffix());
+        let rows = sqlx::query!(
+            "UPDATE exploit_jobs
+             SET status = $1,
+                 finished_at = NOW(),
+                 stderr = COALESCE(stderr, '') || $2
+             WHERE schedule_at IS NOT NULL
+               AND status IN ('pending', 'running')
+             RETURNING id, round_id, exploit_run_id, team_id, priority",
+            "error:stale",
+            suffix
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+        let mut requeue_round_ids: Vec<i32> = Vec::new();
+        let mut requeue_run_ids: Vec<i32> = Vec::new();
+        let mut requeue_team_ids: Vec<i32> = Vec::new();
+        let mut requeue_priorities: Vec<i32> = Vec::new();
+        let mut requeue_reasons: Vec<String> = Vec::new();
+
+        if let Some(running_id) = running_round_id {
+            for row in rows.iter() {
+                if row.round_id != running_id {
+                    continue;
+                }
+                let Some(exploit_run_id) = row.exploit_run_id else {
+                    continue;
+                };
+                requeue_round_ids.push(row.round_id);
+                requeue_run_ids.push(exploit_run_id);
+                requeue_team_ids.push(row.team_id);
+                requeue_priorities.push(row.priority);
+                requeue_reasons.push(cleanup_requeue_reason(row.id));
+            }
+        }
+
+        let mut requeued = 0usize;
+        if !requeue_round_ids.is_empty() {
+            let result = sqlx::query!(
+                "INSERT INTO exploit_jobs (round_id, exploit_run_id, team_id, priority, create_reason)
+                 SELECT * FROM UNNEST($1::int[], $2::int[], $3::int[], $4::int[], $5::text[])",
+                &requeue_round_ids,
+                &requeue_run_ids,
+                &requeue_team_ids,
+                &requeue_priorities,
+                &requeue_reasons
+            )
+            .execute(&mut *tx)
+            .await?;
+            requeued = result.rows_affected() as usize;
+        }
+
+        tx.commit().await?;
+        Ok(CleanupStaleScheduledReport { marked: rows.len(), requeued })
+    }
+
     // Reset stale running jobs on startup
     pub async fn reset_stale_jobs(&self) -> Result<u64> {
         let result = sqlx::query!(r#"UPDATE exploit_jobs SET status = 'stopped', stderr = COALESCE(stderr, '') || E'\n[stopped by server restart]' WHERE status = 'running'"#)
             .execute(&self.pool).await?;
         Ok(result.rows_affected())
+    }
+}
+
+#[cfg(test)]
+mod cleanup_tests {
+    use super::{cleanup_requeue_reason, stale_schedule_error_suffix};
+
+    #[test]
+    fn stale_schedule_error_suffix_is_stable() {
+        assert_eq!(stale_schedule_error_suffix(), "stale schedule_at while pending/running");
+    }
+
+    #[test]
+    fn cleanup_requeue_reason_formats_id() {
+        assert_eq!(cleanup_requeue_reason(42), "cleanup_requeue:42");
     }
 }
