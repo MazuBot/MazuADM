@@ -150,6 +150,8 @@ mazuadm-cli ws list
 mazuadm-cli relation list pwn1
 mazuadm-cli relation get pwn1 team1
 mazuadm-cli relation update pwn1 team1 --ip "10.0.1.100" --port 9999
+mazuadm-cli relation enable pwn1 team1
+mazuadm-cli relation disable pwn1 team1
 ```
 
 ## Environment Variables

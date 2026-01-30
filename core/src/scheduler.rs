@@ -766,7 +766,12 @@ impl Scheduler {
         let mut jobs = Vec::new();
 
         for challenge in challenges.iter().filter(|c| c.enabled) {
-            for team in &teams {
+            let relations = self.db.list_relations(challenge.id).await?;
+            for team in teams.iter().filter(|t| t.enabled) {
+                // Check if relation is disabled
+                if let Some(rel) = relations.iter().find(|r| r.team_id == team.id) {
+                    if !rel.enabled { continue; }
+                }
                 let runs = self.db.list_exploit_runs(Some(challenge.id), Some(team.id)).await?;
                 for run in runs {
                     let priority = Self::calculate_priority(challenge.priority, team.priority, run.sequence, run.priority);

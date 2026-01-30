@@ -50,6 +50,7 @@ pub struct ChallengeTeamRelation {
     pub team_id: i32,
     pub addr: Option<String>,
     pub port: Option<i32>,
+    pub enabled: bool,
     pub created_at: DateTime<Utc>,
 }
 
@@ -253,7 +254,7 @@ mod tests {
     }
 
     fn make_relation(addr: Option<&str>, port: Option<i32>) -> ChallengeTeamRelation {
-        ChallengeTeamRelation { id: 1, challenge_id: 1, team_id: 1, addr: addr.map(String::from), port, created_at: Utc::now() }
+        ChallengeTeamRelation { id: 1, challenge_id: 1, team_id: 1, addr: addr.map(String::from), port, enabled: true, created_at: Utc::now() }
     }
 
     #[test]

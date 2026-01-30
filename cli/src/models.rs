@@ -221,6 +221,7 @@ pub struct ChallengeTeamRelation {
     pub team_id: i32,
     pub addr: Option<String>,
     pub port: Option<i32>,
+    pub enabled: bool,
     pub created_at: DateTime<Utc>,
 }
 
@@ -230,6 +231,8 @@ pub struct UpdateConnectionInfo {
     pub addr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

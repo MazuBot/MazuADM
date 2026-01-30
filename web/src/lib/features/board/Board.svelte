@@ -372,7 +372,7 @@
   async function openRelationModal(team) {
     editingRelation = team;
     const rel = await api.getRelation(challengeId, team.id);
-    relationForm = { addr: rel?.addr || '', port: rel?.port || '' };
+    relationForm = { addr: rel?.addr || '', port: rel?.port || '', enabled: rel?.enabled ?? true };
     relationFormInitial = { ...relationForm };
   }
 
@@ -382,9 +382,11 @@
     try {
       await api.updateConnectionInfo(challengeId, editingRelation.id, {
         addr: relationForm.addr || null,
-        port: relationForm.port ? Number(relationForm.port) : null
+        port: relationForm.port ? Number(relationForm.port) : null,
+        enabled: relationForm.enabled
       });
       editingRelation = null;
+      onRefresh();
       pushToast(`Connection updated for ${teamName} (${challengeName}).`, 'success');
     } catch (error) {
       pushToast(formatApiError(error, `Failed to update connection for ${teamName} (${challengeName}).`), 'error');
@@ -1016,6 +1018,9 @@
       </label>
       <label class:field-changed={isRelationFieldChanged('port')}>
         Port <input bind:value={relationForm.port} type="number" placeholder="Challenge default" />
+      </label>
+      <label class="checkbox" class:field-changed={isRelationFieldChanged('enabled')}>
+        <input type="checkbox" bind:checked={relationForm.enabled} /> Enabled for this challenge
       </label>
       <div class="modal-actions">
         <button type="button" onclick={() => editingRelation = null}>Cancel</button>

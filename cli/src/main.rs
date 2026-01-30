@@ -130,7 +130,7 @@ enum ContainerCmd { List, Runners { id: String }, Delete { id: String }, Restart
 enum WsCmd { List }
 
 #[derive(Subcommand)]
-enum RelationCmd { List { challenge: String }, Get { challenge: String, team: String }, Update { challenge: String, team: String, #[arg(long)] ip: Option<String>, #[arg(long)] port: Option<i32> } }
+enum RelationCmd { List { challenge: String }, Get { challenge: String, team: String }, Update { challenge: String, team: String, #[arg(long)] ip: Option<String>, #[arg(long)] port: Option<i32> }, Enable { challenge: String, team: String }, Disable { challenge: String, team: String } }
 
 #[derive(Tabled)] struct ChallengeRow { id: i32, name: String, enabled: bool, port: String, priority: i32 }
 #[derive(Tabled)] struct TeamRow { id: i32, team_id: String, name: String, enabled: bool, ip: String, priority: i32 }
@@ -142,7 +142,7 @@ enum RelationCmd { List { challenge: String }, Get { challenge: String, team: St
 #[derive(Tabled)] struct SettingRow { key: String, value: String }
 #[derive(Tabled)] struct ContainerRow { id: String, exploit: i32, status: String, counter: i32, execs: String, affinity: String }
 #[derive(Tabled)] struct RunnerRow { id: i32, run: String, team_id: String, team_name: String, status: String }
-#[derive(Tabled)] struct RelationRow { challenge: i32, team_id: String, team_name: String, addr: String, port: String }
+#[derive(Tabled)] struct RelationRow { challenge: i32, team_id: String, team_name: String, enabled: bool, addr: String, port: String }
 #[derive(Tabled)] struct WsRow { id: String, addr: String, connected: String }
 
 struct Ctx { api: ApiClient, challenges: Option<Vec<Challenge>>, teams: Option<Vec<Team>>, exploits: Option<Vec<Exploit>> }
@@ -453,21 +453,33 @@ async fn main() -> Result<()> {
             RelationCmd::List { challenge } => {
                 let c = ctx.find_challenge(&challenge).await?;
                 ctx.teams().await?;
-                let rows: Vec<_> = ctx.api.list_relations(c.id).await?.into_iter().map(|r| { let (tid, tn) = ctx.team_label(r.team_id); RelationRow { challenge: r.challenge_id, team_id: tid, team_name: tn, addr: r.addr.unwrap_or_default(), port: r.port.map(|p| p.to_string()).unwrap_or_default() } }).collect();
+                let rows: Vec<_> = ctx.api.list_relations(c.id).await?.into_iter().map(|r| { let (tid, tn) = ctx.team_label(r.team_id); RelationRow { challenge: r.challenge_id, team_id: tid, team_name: tn, enabled: r.enabled, addr: r.addr.unwrap_or_default(), port: r.port.map(|p| p.to_string()).unwrap_or_default() } }).collect();
                 println!("{}", Table::new(rows));
             }
             RelationCmd::Get { challenge, team } => {
                 let c = ctx.find_challenge(&challenge).await?;
                 let t = ctx.find_team(&team).await?;
                 if let Some(r) = ctx.api.get_relation(c.id, t.id).await? {
-                    println!("Challenge: {}, Team: {} ({}), Addr: {}, Port: {}", r.challenge_id, t.team_id, t.team_name, r.addr.unwrap_or_default(), r.port.map(|p| p.to_string()).unwrap_or_default());
+                    println!("Challenge: {}, Team: {} ({}), Enabled: {}, Addr: {}, Port: {}", r.challenge_id, t.team_id, t.team_name, r.enabled, r.addr.unwrap_or_default(), r.port.map(|p| p.to_string()).unwrap_or_default());
                 } else { println!("Not found"); }
             }
             RelationCmd::Update { challenge, team, ip, port } => {
                 let c = ctx.find_challenge(&challenge).await?;
                 let t = ctx.find_team(&team).await?;
-                ctx.api.update_connection_info(c.id, t.id, UpdateConnectionInfo { addr: ip, port }).await?;
+                ctx.api.update_connection_info(c.id, t.id, UpdateConnectionInfo { addr: ip, port, enabled: None }).await?;
                 println!("Updated");
+            }
+            RelationCmd::Enable { challenge, team } => {
+                let c = ctx.find_challenge(&challenge).await?;
+                let t = ctx.find_team(&team).await?;
+                ctx.api.update_connection_info(c.id, t.id, UpdateConnectionInfo { addr: None, port: None, enabled: Some(true) }).await?;
+                println!("Enabled");
+            }
+            RelationCmd::Disable { challenge, team } => {
+                let c = ctx.find_challenge(&challenge).await?;
+                let t = ctx.find_team(&team).await?;
+                ctx.api.update_connection_info(c.id, t.id, UpdateConnectionInfo { addr: None, port: None, enabled: Some(false) }).await?;
+                println!("Disabled");
             }
         },
     }
