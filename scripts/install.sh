@@ -80,5 +80,3 @@ echo "Exploit template copied to $TEMPLATE_DST."
 if [ -f "$CONFIG_SRC" ]; then
   echo "Config copied to $CONFIG_DST."
 fi
-
-$SUDO systemctl reload nginx.service 
