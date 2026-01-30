@@ -1,10 +1,17 @@
-from typing import List, Optional
+import json
+import logging
+import time
+from typing import Callable, List, Optional
 from urllib.parse import urlencode
 
 import requests
 import websocket
+from websocket import WebSocketTimeoutException
 
 from config import REQUEST_TIMEOUT_SECS
+
+
+logger = logging.getLogger(__name__)
 
 
 class MazuAPI:
@@ -35,9 +42,21 @@ class MazuAPI:
         response = requests.post(url, timeout=self._timeout)
         response.raise_for_status()
 
+    # GET MazuADM/api/rounds/current
+    def get_current_round_id(self) -> Optional[int]:
+        url = f"{self._endpoint.rstrip('/')}/api/rounds/current"
+        response = requests.get(url, timeout=self._timeout)
+        response.raise_for_status()
+        round_obj = response.json()
+        if not round_obj:
+            return None
+        if isinstance(round_obj, dict) and 'id' in round_obj:
+            return int(round_obj['id'])
+        return None
+
     # GET MazuADM/api/flags
     def fetch_all_flags(self) -> List[dict]:
-        url = f"{self._endpoint.rstrip('/')}/api/flags?status=captured"
+        url = f"{self._endpoint.rstrip('/')}/api/flags?status=captured,recheck"
         response = requests.get(url, timeout=self._timeout)
         response.raise_for_status()
         flags = response.json()
@@ -67,3 +86,46 @@ class MazuAPI:
         query = urlencode(params)
         ws_url = f"{self._ws_endpoint}?{query}" if query else self._ws_endpoint
         return websocket.create_connection(ws_url, timeout=self._timeout)
+
+    def listen_flag_events(
+        self,
+        stop_event,
+        on_flag: Callable[[dict], None],
+        reconnect_delay_secs: float,
+        recv_timeout_secs: float,
+    ):
+        while not stop_event.is_set():
+            ws = None
+            try:
+                logger.info('connecting to MazuADM websocket')
+                ws = self.ws_connect(events=['flag'])
+                ws.settimeout(recv_timeout_secs)
+                logger.info('websocket connected')
+                while not stop_event.is_set():
+                    try:
+                        raw = ws.recv()
+                    except WebSocketTimeoutException:
+                        continue
+                    if not raw:
+                        logger.warning('websocket closed by server')
+                        break
+                    try:
+                        message = json.loads(raw)
+                    except json.JSONDecodeError:
+                        logger.debug('invalid websocket payload: %s', raw)
+                        continue
+                    if message.get('type') != 'flag_created':
+                        continue
+                    payload = message.get('data', {})
+                    on_flag(payload)
+            except Exception:
+                logger.exception(
+                    'websocket error; reconnecting in %ss', reconnect_delay_secs
+                )
+                time.sleep(reconnect_delay_secs)
+            finally:
+                if ws is not None:
+                    try:
+                        ws.close()
+                    except Exception:
+                        logger.debug('failed to close websocket cleanly')

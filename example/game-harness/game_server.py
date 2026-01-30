@@ -7,6 +7,7 @@ class GameServer:
     def __init__(self, endpoint: str, timeout_secs: int = REQUEST_TIMEOUT_SECS):
         self._endpoint = endpoint
         self._timeout = timeout_secs
+        self._flag_cache = set()
 
     def _require_endpoint(self):
         if not self._endpoint:
