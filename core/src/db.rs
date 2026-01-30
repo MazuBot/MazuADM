@@ -3,6 +3,7 @@ use crate::config::resolve_db_pool_settings;
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use anyhow::Result;
 use std::time::Duration;
+use chrono::{DateTime, Utc};
 use redis::AsyncCommands;
 use serde::{Serialize, Deserialize};
 
@@ -410,6 +411,137 @@ impl Database {
             "SELECT * FROM exploit_jobs WHERE container_id = $1 AND status = 'running'",
             container_id
         ).fetch_all(&self.pool).await?)
+    }
+
+    // Exploit containers
+    pub async fn list_exploit_containers(&self) -> Result<Vec<ExploitContainer>> {
+        Ok(sqlx::query_as::<_, ExploitContainer>("SELECT * FROM exploit_containers ORDER BY id")
+            .fetch_all(&self.pool)
+            .await?)
+    }
+
+    pub async fn get_exploit_container_by_container_id(&self, container_id: &str) -> Result<Option<ExploitContainer>> {
+        Ok(sqlx::query_as::<_, ExploitContainer>(
+            "SELECT * FROM exploit_containers WHERE container_id = $1",
+        )
+        .bind(container_id)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    pub async fn create_exploit_container(
+        &self,
+        exploit_id: i32,
+        container_id: &str,
+        counter: i32,
+        status: &str,
+        created_at: DateTime<Utc>,
+    ) -> Result<ExploitContainer> {
+        Ok(sqlx::query_as::<_, ExploitContainer>(
+            "INSERT INTO exploit_containers (exploit_id, container_id, counter, status, created_at) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+        )
+        .bind(exploit_id)
+        .bind(container_id)
+        .bind(counter)
+        .bind(status)
+        .bind(created_at)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    pub async fn update_exploit_container_metadata(&self, id: i32, exploit_id: i32, status: &str) -> Result<()> {
+        sqlx::query("UPDATE exploit_containers SET exploit_id = $2, status = $3 WHERE id = $1")
+            .bind(id)
+            .bind(exploit_id)
+            .bind(status)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn update_exploit_container_counter(&self, id: i32, counter: i32) -> Result<()> {
+        sqlx::query("UPDATE exploit_containers SET counter = $2 WHERE id = $1")
+            .bind(id)
+            .bind(counter)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_exploit_container_by_container_id(&self, container_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM exploit_containers WHERE container_id = $1")
+            .bind(container_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // Exploit runners (affinity)
+    pub async fn list_exploit_runners(&self) -> Result<Vec<ExploitRunner>> {
+        Ok(sqlx::query_as::<_, ExploitRunner>("SELECT * FROM exploit_runners ORDER BY id")
+            .fetch_all(&self.pool)
+            .await?)
+    }
+
+    pub async fn list_exploit_runners_by_container(&self, exploit_container_id: i32) -> Result<Vec<ExploitRunner>> {
+        Ok(sqlx::query_as::<_, ExploitRunner>(
+            "SELECT * FROM exploit_runners WHERE exploit_container_id = $1 ORDER BY id",
+        )
+        .bind(exploit_container_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn list_exploit_runners_by_exploit(&self, exploit_id: i32) -> Result<Vec<ExploitRunner>> {
+        Ok(sqlx::query_as::<_, ExploitRunner>(
+            "SELECT * FROM exploit_runners WHERE exploit_id = $1 ORDER BY id",
+        )
+        .bind(exploit_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn upsert_exploit_runner(&self, exploit_container_id: i32, exploit_run_id: i32, team_id: i32, exploit_id: i32) -> Result<ExploitRunner> {
+        sqlx::query(
+            "DELETE FROM exploit_runners WHERE exploit_run_id = $1 OR (team_id = $2 AND exploit_id = $3)",
+        )
+        .bind(exploit_run_id)
+        .bind(team_id)
+        .bind(exploit_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(sqlx::query_as::<_, ExploitRunner>(
+            "INSERT INTO exploit_runners (exploit_container_id, exploit_run_id, team_id, exploit_id) VALUES ($1, $2, $3, $4) RETURNING *",
+        )
+        .bind(exploit_container_id)
+        .bind(exploit_run_id)
+        .bind(team_id)
+        .bind(exploit_id)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    pub async fn delete_exploit_runner_by_run(&self, exploit_run_id: i32) -> Result<()> {
+        sqlx::query("DELETE FROM exploit_runners WHERE exploit_run_id = $1")
+            .bind(exploit_run_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_exploit_runners_by_container(&self, exploit_container_id: i32) -> Result<()> {
+        sqlx::query("DELETE FROM exploit_runners WHERE exploit_container_id = $1")
+            .bind(exploit_container_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn clear_exploit_runners(&self) -> Result<()> {
+        sqlx::query("DELETE FROM exploit_runners")
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn mark_job_stopped_with_reason(&self, id: i32, has_flag: bool, reason: &str) -> Result<()> {

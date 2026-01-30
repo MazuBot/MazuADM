@@ -1,4 +1,4 @@
-use crate::{ContainerInfo, Database, Exploit, WsMessage};
+use crate::{ContainerInfo, Database, Exploit, ExploitRunner, WsMessage};
 use anyhow::Result;
 use bollard::Docker;
 use bollard::query_parameters::{
@@ -34,8 +34,6 @@ const MAX_OUTPUT: usize = 256 * 1024; // 256KB limit
 const LABEL_MANAGED: &str = "mazuadm.managed";
 const LABEL_EXPLOIT_ID: &str = "mazuadm.exploit_id";
 const LABEL_EXPLOIT_NAME: &str = "mazuadm.exploit_name";
-const LABEL_COUNTER: &str = "mazuadm.counter";
-const LABEL_AFFINITY_LIST: &str = "mazuadm.affinity";
 
 struct ExecOutput {
     stdout: String,
@@ -46,6 +44,7 @@ struct ExecOutput {
 
 struct ManagedContainer {
     container_id: String,
+    exploit_container_id: i32,
     exploit_id: i32,
     counter: AtomicI32,
     running_execs: AtomicUsize,
@@ -203,10 +202,25 @@ impl ContainerManager {
                 continue;
             }
             let affinity_limit = exploit.max_per_container.max(1) as usize;
-            let counter = parse_label_i32(&labels, LABEL_COUNTER).unwrap_or(exploit.default_counter);
             let created_at = container.created.map(timestamp_to_utc).unwrap_or_else(Utc::now);
+            let (exploit_container_id, counter) = match self.db.get_exploit_container_by_container_id(&container_id).await? {
+                Some(existing) => {
+                    if existing.exploit_id != exploit_id || existing.status != "running" {
+                        let _ = self.db.update_exploit_container_metadata(existing.id, exploit_id, "running").await;
+                    }
+                    (existing.id, existing.counter)
+                }
+                None => {
+                    let created = self
+                        .db
+                        .create_exploit_container(exploit_id, &container_id, exploit.default_counter, "running", created_at)
+                        .await?;
+                    (created.id, created.counter)
+                }
+            };
             let managed = Arc::new(ManagedContainer {
                 container_id: container_id.clone(),
+                exploit_container_id,
                 exploit_id,
                 counter: AtomicI32::new(counter),
                 running_execs: AtomicUsize::new(0),
@@ -216,19 +230,37 @@ impl ContainerManager {
             rebuilt.by_id.insert(container_id.clone(), managed.clone());
             rebuilt.pools.entry(exploit_id).or_default().push(managed);
 
-            if let Some(list) = labels.get(LABEL_AFFINITY_LIST) {
-                let runs = parse_affinity_list(list);
-                if !runs.is_empty() {
-                    let mut set = HashSet::new();
-                    for run_id in runs {
-                        if rebuilt.affinity.insert(run_id, container_id.clone()).is_some() {
-                            warn!("Affinity run {} assigned to multiple containers; latest wins", run_id);
-                        }
-                        set.insert(run_id);
-                    }
-                    rebuilt.reverse_affinity.insert(container_id.clone(), set);
-                }
+        }
+
+        let runners = match self.db.list_exploit_runners().await {
+            Ok(runners) => runners,
+            Err(e) => {
+                warn!("Failed to load exploit runners: {}", e);
+                Vec::new()
             }
+        };
+        let containers_in_db = match self.db.list_exploit_containers().await {
+            Ok(containers) => containers,
+            Err(e) => {
+                warn!("Failed to load exploit containers: {}", e);
+                Vec::new()
+            }
+        };
+        let mut container_id_by_db_id = HashMap::new();
+        for container in containers_in_db {
+            if rebuilt.by_id.contains_key(&container.container_id) {
+                container_id_by_db_id.insert(container.id, container.container_id);
+            } else if let Err(e) = self.db.delete_exploit_container_by_container_id(&container.container_id).await {
+                warn!("Failed to remove stale exploit container {}: {}", container.container_id, e);
+            }
+        }
+        let (affinity, reverse_affinity, stale_runs) =
+            build_affinity_from_runners(&rebuilt.by_id, &container_id_by_db_id, &runners);
+        rebuilt.affinity = affinity;
+        rebuilt.reverse_affinity = reverse_affinity;
+
+        for run_id in stale_runs {
+            let _ = self.db.delete_exploit_runner_by_run(run_id).await;
         }
 
         let mut guard = registry.lock().await;
@@ -387,6 +419,7 @@ impl ContainerManager {
             self.handle_exhausted_container(registry, &container).await;
             return Err(anyhow::anyhow!("Container counter exhausted for exploit {}", exploit_id));
         }
+        self.persist_container_counter(&container).await;
         let running_execs = container.running_execs.fetch_add(1, Ordering::SeqCst) + 1;
         self.broadcast_container_execs(&container, running_execs);
         Ok(ContainerLease { manager: self, registry, container })
@@ -406,6 +439,17 @@ impl ContainerManager {
         let mut guard = registry.lock().await;
         guard.by_id.insert(container.container_id.clone(), container.clone());
         guard.pools.entry(container.exploit_id).or_default().push(container);
+    }
+
+    async fn persist_container_counter(&self, container: &Arc<ManagedContainer>) {
+        let counter = container.counter.load(Ordering::SeqCst);
+        if let Err(e) = self
+            .db
+            .update_exploit_container_counter(container.exploit_container_id, counter)
+            .await
+        {
+            warn!("Failed to persist counter for container {}: {}", container.container_id, e);
+        }
     }
 
     async fn register_affinity(&self, registry: &ContainerRegistryHandle, container: &Arc<ManagedContainer>, runs: &[i32]) {
@@ -447,13 +491,22 @@ impl ContainerManager {
         if !bound.is_empty() {
             let mut team_ids = Vec::with_capacity(bound.len());
             for run_id in &bound {
-                let team_id = self
+                let run = match self.db.get_exploit_run(*run_id).await {
+                    Ok(run) => run,
+                    Err(e) => {
+                        warn!("Failed to load exploit run {} for affinity: {}", run_id, e);
+                        team_ids.push(None);
+                        continue;
+                    }
+                };
+                if let Err(e) = self
                     .db
-                    .get_exploit_run(*run_id)
+                    .upsert_exploit_runner(container.exploit_container_id, run.id, run.team_id, run.exploit_id)
                     .await
-                    .map(|run| run.team_id)
-                    .ok();
-                team_ids.push(team_id);
+                {
+                    warn!("Failed to persist affinity for run {}: {}", run_id, e);
+                }
+                team_ids.push(Some(run.team_id));
             }
             info!(
                 "Affinity bound runs {:?} to container {} (exploit {}, team_ids {:?})",
@@ -468,27 +521,41 @@ impl ContainerManager {
         exploit_id: i32,
         run_id: i32,
     ) -> Result<AffinityAcquire<'a>> {
-        let container = {
+        let mut dropped = false;
+        let mut container = None;
+        {
             let mut guard = registry.lock().await;
-            let Some(container_id) = guard.affinity.get(&run_id).cloned() else {
-                return Ok(AffinityAcquire::None);
+            let container_id = match guard.affinity.get(&run_id).cloned() {
+                Some(container_id) => container_id,
+                None => return Ok(AffinityAcquire::None),
             };
-            let Some(container) = guard.by_id.get(&container_id).cloned() else {
+            if let Some(existing) = guard.by_id.get(&container_id).cloned() {
+                let has_run = guard
+                    .reverse_affinity
+                    .get(&container_id)
+                    .map(|set| set.contains(&run_id))
+                    .unwrap_or(false);
+                if existing.exploit_id == exploit_id && has_run {
+                    container = Some(existing);
+                } else {
+                    let registry = &mut *guard;
+                    drop_affinity_for_run(&mut registry.affinity, &mut registry.reverse_affinity, run_id);
+                    dropped = true;
+                }
+            } else {
                 let registry = &mut *guard;
                 drop_affinity_for_run(&mut registry.affinity, &mut registry.reverse_affinity, run_id);
-                return Ok(AffinityAcquire::None);
-            };
-            let has_run = guard
-                .reverse_affinity
-                .get(&container_id)
-                .map(|set| set.contains(&run_id))
-                .unwrap_or(false);
-            if container.exploit_id != exploit_id || !has_run {
-                let registry = &mut *guard;
-                drop_affinity_for_run(&mut registry.affinity, &mut registry.reverse_affinity, run_id);
-                return Ok(AffinityAcquire::None);
+                dropped = true;
             }
-            container
+        }
+        if dropped {
+            if let Err(e) = self.db.delete_exploit_runner_by_run(run_id).await {
+                warn!("Failed to clear exploit runner for run {}: {}", run_id, e);
+            }
+            return Ok(AffinityAcquire::None);
+        }
+        let Some(container) = container else {
+            return Ok(AffinityAcquire::None);
         };
 
         if container.counter.load(Ordering::SeqCst) <= 0 {
@@ -500,6 +567,7 @@ impl ContainerManager {
             self.handle_exhausted_container(registry, &container).await;
             return Ok(AffinityAcquire::Exhausted);
         }
+        self.persist_container_counter(&container).await;
         let running_execs = container.running_execs.fetch_add(1, Ordering::SeqCst) + 1;
         self.broadcast_container_execs(&container, running_execs);
         Ok(AffinityAcquire::Lease(ContainerLease { manager: self, registry, container }))
@@ -527,6 +595,7 @@ impl ContainerManager {
             self.handle_exhausted_container(registry, &container).await;
             return Ok(None);
         }
+        self.persist_container_counter(&container).await;
 
         let running_execs = container.running_execs.fetch_add(1, Ordering::SeqCst) + 1;
         self.broadcast_container_execs(&container, running_execs);
@@ -566,9 +635,15 @@ impl ContainerManager {
                 to_unmap.push(*id);
             }
         }
-        for id in to_unmap {
+        for id in &to_unmap {
             let registry = &mut *guard;
-            drop_affinity_for_run(&mut registry.affinity, &mut registry.reverse_affinity, id);
+            drop_affinity_for_run(&mut registry.affinity, &mut registry.reverse_affinity, *id);
+        }
+        drop(guard);
+        for id in to_unmap {
+            if let Err(e) = self.db.delete_exploit_runner_by_run(id).await {
+                warn!("Failed to clear exploit runner for run {}: {}", id, e);
+            }
         }
         build_affinity_for_new_container(run_id, &ids, &mapped, affinity_limit)
     }
@@ -588,6 +663,16 @@ impl ContainerManager {
         let mut reverse = std::mem::take(&mut guard.reverse_affinity);
         drop_affinity_for_container(&mut guard.affinity, &mut reverse, container_id);
         guard.reverse_affinity = reverse;
+        let exploit_container_id = guard
+            .by_id
+            .get(container_id)
+            .map(|container| container.exploit_container_id);
+        drop(guard);
+        if let Some(exploit_container_id) = exploit_container_id {
+            if let Err(e) = self.db.delete_exploit_runners_by_container(exploit_container_id).await {
+                warn!("Failed to clear exploit runners for container {}: {}", container_id, e);
+            }
+        }
     }
 
     async fn detach_container(&self, registry: &ContainerRegistryHandle, container_id: &str) -> Option<Arc<ManagedContainer>> {
@@ -601,6 +686,10 @@ impl ContainerManager {
             if pool.is_empty() {
                 guard.pools.remove(&container.exploit_id);
             }
+        }
+        drop(guard);
+        if let Err(e) = self.db.delete_exploit_container_by_container_id(container_id).await {
+            warn!("Failed to clear exploit container {}: {}", container_id, e);
         }
         Some(container)
     }
@@ -690,10 +779,6 @@ impl ContainerManager {
         labels.insert(LABEL_MANAGED.to_string(), "true".to_string());
         labels.insert(LABEL_EXPLOIT_ID.to_string(), exploit.id.to_string());
         labels.insert(LABEL_EXPLOIT_NAME.to_string(), exploit.name.clone());
-        labels.insert(LABEL_COUNTER.to_string(), exploit.default_counter.to_string());
-        if let Some(runs) = &affinity_runs {
-            labels.insert(LABEL_AFFINITY_LIST.to_string(), format_affinity_list(runs));
-        }
 
         let config = ContainerCreateBody {
             image: Some(exploit.docker_image.clone()),
@@ -713,10 +798,26 @@ impl ContainerManager {
 
         self.docker.start_container(&resp.id, None::<StartContainerOptions>).await?;
 
+        let db_container = match self
+            .db
+            .create_exploit_container(exploit.id, &resp.id, exploit.default_counter, "running", Utc::now())
+            .await
+        {
+            Ok(container) => container,
+            Err(e) => {
+                let _ = self
+                    .docker
+                    .remove_container(&resp.id, Some(RemoveContainerOptions { force: true, ..Default::default() }))
+                    .await;
+                return Err(e);
+            }
+        };
+
         let managed = Arc::new(ManagedContainer {
             container_id: resp.id.clone(),
+            exploit_container_id: db_container.id,
             exploit_id: exploit.id,
-            counter: AtomicI32::new(exploit.default_counter),
+            counter: AtomicI32::new(db_container.counter),
             running_execs: AtomicUsize::new(0),
             affinity_limit,
             created_at: Utc::now(),
@@ -984,9 +1085,15 @@ impl ContainerManager {
                         }
                         unmapped.push(*run_id);
                     }
-                    for run_id in to_unmap {
+                    for run_id in &to_unmap {
                         let registry = &mut *guard;
-                        drop_affinity_for_run(&mut registry.affinity, &mut registry.reverse_affinity, run_id);
+                        drop_affinity_for_run(&mut registry.affinity, &mut registry.reverse_affinity, *run_id);
+                    }
+                    drop(guard);
+                    for run_id in to_unmap {
+                        if let Err(e) = self.db.delete_exploit_runner_by_run(run_id).await {
+                            warn!("Failed to clear exploit runner for run {}: {}", run_id, e);
+                        }
                     }
                     unmapped
                 };
@@ -1104,24 +1211,50 @@ fn build_affinity_for_new_container(run_id: i32, run_ids: &[i32], mapped: &HashS
     result
 }
 
-fn parse_affinity_list(value: &str) -> Vec<i32> {
-    value
-        .split(',')
-        .filter_map(|v| v.trim().parse::<i32>().ok())
-        .collect()
-}
-
-fn format_affinity_list(runs: &[i32]) -> String {
-    let mut ids = runs.to_vec();
-    ids.sort_unstable();
-    ids.dedup();
-    ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",")
-}
-
 fn sorted_run_ids(set: &HashSet<i32>) -> Vec<i32> {
     let mut ids: Vec<i32> = set.iter().copied().collect();
     ids.sort_unstable();
     ids
+}
+
+fn build_affinity_from_runners(
+    containers: &HashMap<String, Arc<ManagedContainer>>,
+    container_id_by_db_id: &HashMap<i32, String>,
+    runners: &[ExploitRunner],
+) -> (
+    HashMap<i32, String>,
+    HashMap<String, HashSet<i32>>,
+    Vec<i32>,
+) {
+    let mut affinity = HashMap::new();
+    let mut reverse_affinity: HashMap<String, HashSet<i32>> = HashMap::new();
+    let mut stale_runs = Vec::new();
+
+    for runner in runners {
+        let Some(container_id) = container_id_by_db_id.get(&runner.exploit_container_id) else {
+            stale_runs.push(runner.exploit_run_id);
+            continue;
+        };
+        let Some(container) = containers.get(container_id) else {
+            stale_runs.push(runner.exploit_run_id);
+            continue;
+        };
+        if container.exploit_id != runner.exploit_id {
+            stale_runs.push(runner.exploit_run_id);
+            continue;
+        }
+        if affinity.contains_key(&runner.exploit_run_id) {
+            stale_runs.push(runner.exploit_run_id);
+            continue;
+        }
+        affinity.insert(runner.exploit_run_id, container_id.clone());
+        reverse_affinity
+            .entry(container_id.clone())
+            .or_default()
+            .insert(runner.exploit_run_id);
+    }
+
+    (affinity, reverse_affinity, stale_runs)
 }
 
 fn drop_affinity_for_run(
@@ -1173,18 +1306,18 @@ pub struct ExecResult {
 #[cfg(test)]
 mod tests {
     use super::{
+        build_affinity_from_runners,
         build_affinity_for_new_container,
         collect_exec_output,
         drop_affinity_for_container,
         drop_affinity_for_run,
         needed_containers,
-        parse_affinity_list,
-        format_affinity_list,
         select_best_container_with_affinity,
         try_decrement_counter,
         ManagedContainer,
         MAX_OUTPUT,
     };
+    use crate::ExploitRunner;
     use bollard::container::LogOutput;
     use chrono::{TimeZone, Utc};
     use futures::stream;
@@ -1193,6 +1326,7 @@ mod tests {
     use std::time::Duration;
 
     fn make_container(
+        exploit_container_id: i32,
         counter: i32,
         affinity_limit: usize,
         affinity_len: usize,
@@ -1200,6 +1334,7 @@ mod tests {
     ) -> (Arc<ManagedContainer>, HashMap<String, HashSet<i32>>) {
         let container = Arc::new(ManagedContainer {
             container_id: format!("c-{}-{}", counter, affinity_len),
+            exploit_container_id,
             exploit_id: 1,
             counter: AtomicI32::new(counter),
             running_execs: AtomicUsize::new(0),
@@ -1263,16 +1398,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_affinity_list_handles_csv() {
-        assert_eq!(parse_affinity_list("1, 2,3"), vec![1, 2, 3]);
-    }
-
-    #[test]
-    fn format_affinity_list_sorts_and_dedups() {
-        assert_eq!(format_affinity_list(&[3, 1, 1, 2]), "1,2,3");
-    }
-
-    #[test]
     fn drop_affinity_for_container_removes_mappings() {
         let mut affinity = HashMap::new();
         let mut reverse = HashMap::new();
@@ -1307,14 +1432,14 @@ mod tests {
 
     #[test]
     fn try_decrement_counter_decrements_once() {
-        let (container, _reverse) = make_container(2, 1, 0, Utc::now());
+        let (container, _reverse) = make_container(1, 2, 1, 0, Utc::now());
         assert!(try_decrement_counter(&container));
         assert_eq!(container.counter.load(Ordering::SeqCst), 1);
     }
 
     #[test]
     fn try_decrement_counter_refuses_at_zero() {
-        let (container, _reverse) = make_container(0, 1, 0, Utc::now());
+        let (container, _reverse) = make_container(2, 0, 1, 0, Utc::now());
         assert!(!try_decrement_counter(&container));
         assert_eq!(container.counter.load(Ordering::SeqCst), 0);
     }
@@ -1331,9 +1456,9 @@ mod tests {
     fn select_best_container_prefers_lowest_affinity_and_oldest() {
         let t_old = Utc.timestamp_opt(100, 0).single().unwrap();
         let t_new = Utc.timestamp_opt(200, 0).single().unwrap();
-        let (c1, mut reverse1) = make_container(5, 2, 0, t_new);
-        let (c2, reverse2) = make_container(5, 2, 1, t_old);
-        let (c3, reverse3) = make_container(0, 2, 0, t_old);
+        let (c1, mut reverse1) = make_container(1, 5, 2, 0, t_new);
+        let (c2, reverse2) = make_container(2, 5, 2, 1, t_old);
+        let (c3, reverse3) = make_container(3, 0, 2, 0, t_old);
 
         reverse1.extend(reverse2);
         reverse1.extend(reverse3);
@@ -1341,9 +1466,34 @@ mod tests {
         let selected = select_best_container_with_affinity(vec![c2.clone(), c3.clone(), c1.clone()], &reverse1).unwrap();
         assert_eq!(selected.container_id, c1.container_id);
 
-        let (c4, reverse4) = make_container(5, 2, 0, t_old);
+        let (c4, reverse4) = make_container(4, 5, 2, 0, t_old);
         reverse1.extend(reverse4);
         let tie_selected = select_best_container_with_affinity(vec![c1.clone(), c4.clone()], &reverse1).unwrap();
         assert_eq!(tie_selected.container_id, c4.container_id);
+    }
+
+    #[test]
+    fn build_affinity_from_runners_skips_stale_entries() {
+        let t = Utc.timestamp_opt(100, 0).single().unwrap();
+        let (c1, _) = make_container(10, 5, 2, 0, t);
+        let (c2, _) = make_container(11, 5, 2, 0, t);
+        let mut containers = HashMap::new();
+        containers.insert(c1.container_id.clone(), c1.clone());
+        containers.insert(c2.container_id.clone(), c2.clone());
+        let mut container_id_by_db_id = HashMap::new();
+        container_id_by_db_id.insert(c1.exploit_container_id, c1.container_id.clone());
+        container_id_by_db_id.insert(c2.exploit_container_id, c2.container_id.clone());
+
+        let runners = vec![
+            ExploitRunner { id: 1, exploit_container_id: c1.exploit_container_id, exploit_run_id: 10, team_id: 1, exploit_id: 1, created_at: t },
+            ExploitRunner { id: 2, exploit_container_id: 999, exploit_run_id: 11, team_id: 2, exploit_id: 1, created_at: t },
+            ExploitRunner { id: 3, exploit_container_id: c2.exploit_container_id, exploit_run_id: 12, team_id: 3, exploit_id: 99, created_at: t },
+        ];
+
+        let (affinity, reverse, stale_runs) = build_affinity_from_runners(&containers, &container_id_by_db_id, &runners);
+        assert_eq!(affinity.get(&10), Some(&c1.container_id));
+        assert!(reverse.get(&c1.container_id).unwrap().contains(&10));
+        assert!(stale_runs.contains(&11));
+        assert!(stale_runs.contains(&12));
     }
 }

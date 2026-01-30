@@ -710,8 +710,15 @@ pub async fn list_containers(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<C
     Ok(Json(containers))
 }
 
-pub async fn get_container_runners(State(s): S, Path(id): Path<String>) -> R<Vec<ExploitJob>> {
-    s.db.get_running_jobs_by_container(&id).await.map(Json).map_err(err)
+pub async fn get_container_runners(State(s): S, Path(id): Path<String>) -> R<Vec<ExploitRunner>> {
+    let Some(container) = s
+        .db
+        .get_exploit_container_by_container_id(&id)
+        .await
+        .map_err(err)? else {
+        return Ok(Json(Vec::new()));
+    };
+    s.db.list_exploit_runners_by_container(container.id).await.map(Json).map_err(err)
 }
 
 pub async fn delete_container(State(s): S, Path(id): Path<String>) -> R<String> {

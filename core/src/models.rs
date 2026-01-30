@@ -159,6 +159,26 @@ impl ExploitJob {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct ExploitContainer {
+    pub id: i32,
+    pub exploit_id: i32,
+    pub container_id: String,
+    pub counter: i32,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
+pub struct ExploitRunner {
+    pub id: i32,
+    pub exploit_container_id: i32,
+    pub exploit_run_id: i32,
+    pub team_id: i32,
+    pub exploit_id: i32,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct Flag {
     pub id: i32,
     pub job_id: Option<i32>,
