@@ -1,7 +1,8 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { AnsiUp } from 'ansi_up';
   import * as api from '$lib/data/api';
+  import { roundCreatedAt } from '$lib/data/stores/app.js';
   import Modal from '$lib/ui/Modal.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import { buildStatusOptions } from '$lib/utils/filters.js';
@@ -148,6 +149,7 @@
 
   async function handleNewRoundClick() {
     try {
+      startNewRoundCooldown(NEW_ROUND_COOLDOWN_MS);
       const id = await onNewRound?.();
       if (id) {
         pushToast(`Round #${id} created.`, 'success');
@@ -204,6 +206,11 @@
   let selectedRound = $derived(getSelectedRound());
   let isPendingRound = $derived(selectedRound?.status === 'pending');
   let isJobsCreating = $derived(selectedRound?.status === 'pending' && selectedRound?.jobs_ready === false);
+  let newRoundCooldown = $state(false);
+  let newRoundCooldownTimer = null;
+  let lastRoundCreatedAt = $state(0);
+
+  const NEW_ROUND_COOLDOWN_MS = 3000;
 
   onMount(() => {
     const onKeydown = (e) => {
@@ -215,6 +222,29 @@
     window.addEventListener('keydown', onKeydown);
     return () => window.removeEventListener('keydown', onKeydown);
   });
+
+  onDestroy(() => {
+    if (newRoundCooldownTimer) {
+      clearTimeout(newRoundCooldownTimer);
+      newRoundCooldownTimer = null;
+    }
+  });
+
+  $effect(() => {
+    if ($roundCreatedAt && $roundCreatedAt !== lastRoundCreatedAt) {
+      lastRoundCreatedAt = $roundCreatedAt;
+      startNewRoundCooldown(NEW_ROUND_COOLDOWN_MS);
+    }
+  });
+
+  function startNewRoundCooldown(ms) {
+    newRoundCooldown = true;
+    if (newRoundCooldownTimer) clearTimeout(newRoundCooldownTimer);
+    newRoundCooldownTimer = setTimeout(() => {
+      newRoundCooldown = false;
+      newRoundCooldownTimer = null;
+    }, ms);
+  }
 
   function getJobPriority(job) {
     if (optimisticPriority?.id === job.id) return optimisticPriority.priority;
@@ -370,7 +400,7 @@
 
 <div class="rounds-panel">
   <div class="controls">
-    <button onclick={handleNewRoundClick}>New Round</button>
+    <button onclick={handleNewRoundClick} disabled={newRoundCooldown}>New Round</button>
     <select
       value={selectedRoundId ?? ''}
       onchange={(e) => onSelectRound(e.target.value ? Number(e.target.value) : null)}

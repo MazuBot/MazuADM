@@ -11,6 +11,7 @@ import { selectedChallengeId, ensureSelections } from './selections.js'
 export const ready = writable(false)
 export const settings = writable([])
 export const wsConnections = writable([])
+export const roundCreatedAt = writable(0)
 
 async function loadSettings() {
   settings.set(await api.settings())
@@ -68,6 +69,7 @@ function handleWsMessage(msg) {
     case 'round_created':
       rounds.update((list) => [{ ...data, jobs_ready: false }, ...list])
       pushToast(`Round #${data.id} created.`, 'success')
+      roundCreatedAt.set(Date.now())
       break
     case 'round_updated':
       {
@@ -213,6 +215,7 @@ export const app = {
   containers,
   containerRunners,
   wsConnections,
+  roundCreatedAt,
   selectedChallengeId,
   selectedRoundId,
   selectedFlagRoundId,
