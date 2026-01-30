@@ -33,7 +33,10 @@ if [ "$DEBUG_API" -eq 1 ]; then
 else
   cargo build --release -p mazuadm-api &
 fi
-npm --prefix web run build &
+{
+  npm --prefix web ci
+  npm --prefix web run build
+} &
 wait
 
 BIN_DIR="/usr/local/bin"

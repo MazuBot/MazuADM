@@ -21,8 +21,11 @@ The installer copies `config.toml` from your current directory to `/opt/mazuadm/
 
 ### Database
 ```bash
-DATABASE_URL=postgres://localhost/mazuadm
-sqlx database create
+sudo -u postgres psql
+# CREATE USER mazuadm WITH ENCRYPTED PASSWORD 'mazuadm';
+# CREATE DATABASE mazuadm OWNER mazuadm
+
+export DATABASE_URL=postgres://mazuadm:mazuadm@127.0.0.1:5432/mazuadm
 sqlx migrate run --source core/migrations
 ```
 
@@ -35,7 +38,7 @@ If `cargo sqlx prepare` fails due to missing migrations or schema drift, recreat
 scratch database and rerun migrations:
 
 ```bash
-DATABASE_URL=postgres://localhost/mazuadm_sqlx
+export DATABASE_URL=postgres://mazuadm:mazuadm@127.0.0.1:5432/mazuadm_sqlx
 sqlx database drop -y
 sqlx database create
 sqlx migrate run --source core/migrations
