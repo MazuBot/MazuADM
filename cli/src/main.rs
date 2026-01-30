@@ -277,7 +277,7 @@ async fn main() -> Result<()> {
             }
             ExploitCmd::Pack { name, challenge, config } => {
                 let cfg = match config { Some(p) => exploit_config::load_exploit_config(&p)?, None => exploit_config::load_default_exploit_config()? };
-                let name = if name == "." { cwd_basename()? } else { name };
+                let name = if name != "." { name } else if let Some(n) = cfg.name.clone() { n } else { cwd_basename()? };
                 let challenge = resolve_challenge(&mut ctx, challenge, cfg.challenge.as_ref()).await?;
                 let image = cfg.docker_image.ok_or_else(|| anyhow!("missing image in config"))?;
                 println!("Building docker image: {}", image);
