@@ -50,6 +50,7 @@
   let editingRelation = $state(null);
   let relationForm = $state({ addr: '', port: '' });
   let relationFormInitial = $state(null);
+  let relationEnabled = $state({});
 
   let draggingCard = $state(null);
   let dragOverIndex = $state(null);
@@ -372,9 +373,43 @@
   async function openRelationModal(team) {
     editingRelation = team;
     const rel = await api.getRelation(challengeId, team.id);
-    relationForm = { addr: rel?.addr || '', port: rel?.port || '', enabled: rel?.enabled ?? true };
+    relationForm = { addr: rel?.addr || '', port: rel?.port || '' };
     relationFormInitial = { ...relationForm };
   }
+
+  async function toggleRelationEnabled(team, e) {
+    e.stopPropagation();
+    const rel = await api.getRelation(challengeId, team.id);
+    const currentEnabled = rel?.enabled ?? true;
+    const nextEnabled = !currentEnabled;
+    const teamName = teamLabel(team.id);
+    const challengeName = challengeLabel();
+    try {
+      await api.updateConnectionInfo(challengeId, team.id, { enabled: nextEnabled });
+      relationEnabled = { ...relationEnabled, [team.id]: nextEnabled };
+      pushToast(`${teamName} ${nextEnabled ? 'enabled' : 'disabled'} for ${challengeName}.`, 'success');
+    } catch (error) {
+      pushToast(formatApiError(error, `Failed to update ${teamName} for ${challengeName}.`), 'error');
+    }
+  }
+
+  function getRelationEnabled(teamId) {
+    if (teamId in relationEnabled) return relationEnabled[teamId];
+    return true; // default enabled
+  }
+
+  async function loadRelationStates() {
+    const relations = await api.relations(challengeId);
+    const states = {};
+    for (const rel of relations) {
+      states[rel.team_id] = rel.enabled;
+    }
+    relationEnabled = states;
+  }
+
+  $effect(() => {
+    if (challengeId) loadRelationStates();
+  });
 
   async function saveRelation() {
     const challengeName = challengeLabel();
@@ -382,11 +417,9 @@
     try {
       await api.updateConnectionInfo(challengeId, editingRelation.id, {
         addr: relationForm.addr || null,
-        port: relationForm.port ? Number(relationForm.port) : null,
-        enabled: relationForm.enabled
+        port: relationForm.port ? Number(relationForm.port) : null
       });
       editingRelation = null;
-      onRefresh();
       pushToast(`Connection updated for ${teamName} (${challengeName}).`, 'success');
     } catch (error) {
       pushToast(formatApiError(error, `Failed to update connection for ${teamName} (${challengeName}).`), 'error');
@@ -792,7 +825,7 @@
       {@const orderIndex = new Map(baseRuns.map((r, i) => [r.id, i]))}
       <div
         class="column"
-        class:disabled={!team.enabled}
+        class:disabled={!team.enabled || !getRelationEnabled(team.id)}
         class:highlighted={selectedTeamId === team.team_id}
         id={teamAnchor(team)}
         role="list"
@@ -804,6 +837,15 @@
           <a class="team-link" href={`#${team.team_id}`} onclick={(e) => jumpToTeam(team, e)}>
             <span class="truncate">{getTeamDisplay(teams, team.id)}</span>
           </a>
+          <button
+            type="button"
+            class="gear"
+            title={getRelationEnabled(team.id) ? 'Disable for this challenge' : 'Enable for this challenge'}
+            aria-label={getRelationEnabled(team.id) ? 'Disable for this challenge' : 'Enable for this challenge'}
+            onclick={(e) => toggleRelationEnabled(team, e)}
+          >
+            {#if getRelationEnabled(team.id)}<Icon name="pause" />{:else}<Icon name="play" />{/if}
+          </button>
           <button
             type="button"
             class="gear"
@@ -1018,9 +1060,6 @@
       </label>
       <label class:field-changed={isRelationFieldChanged('port')}>
         Port <input bind:value={relationForm.port} type="number" placeholder="Challenge default" />
-      </label>
-      <label class="checkbox" class:field-changed={isRelationFieldChanged('enabled')}>
-        <input type="checkbox" bind:checked={relationForm.enabled} /> Enabled for this challenge
       </label>
       <div class="modal-actions">
         <button type="button" onclick={() => editingRelation = null}>Cancel</button>
