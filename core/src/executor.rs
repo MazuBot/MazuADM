@@ -53,10 +53,6 @@ fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &
     let _ = tx.send(WsMessage::new(msg_type, data));
 }
 
-fn broadcast_job_update(tx: &broadcast::Sender<WsMessage>, job: &ExploitJob) {
-    broadcast(tx, "job_updated", &job.without_logs());
-}
-
 impl Executor {
     pub fn new(db: Database, tx: broadcast::Sender<WsMessage>) -> Result<Self> {
         let container_manager = ContainerManager::new(db.clone(), tx.clone())?;
@@ -97,10 +93,10 @@ impl Executor {
         entry.clone()
     }
 
-    pub async fn execute_job(&self, job: &ExploitJob, run: &ExploitRun, exploit: &Exploit, team: &Team, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64, max_flags: usize) -> Result<JobResult> {
+    pub async fn execute_job(&self, job: &ExploitJob, run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64, max_flags: usize) -> Result<JobResult> {
         let start = Instant::now();
         let stop_rx = self.stop_tx.subscribe();
-        let updated_job = self.db.mark_job_running(job.id).await?;
+        self.db.mark_job_running(job.id).await?;
 
         tracing::info!(
             "Executing job {} exploit {} run {} team {} challenge {} timeout {}s",
@@ -113,7 +109,11 @@ impl Executor {
         );
         
         // Broadcast job running
-        broadcast_job_update(&self.tx, &updated_job);
+        if let Ok(updated_job) = self.db.get_job(job.id).await {
+            broadcast(&self.tx, "job_updated", &updated_job.without_logs());
+        }
+
+        let team = self.db.get_team(job.team_id).await?;
         
         let exploit_exec = self.get_exploit_executor(exploit).await;
         let _guard = exploit_exec.gate.lock().await;
@@ -215,10 +215,12 @@ impl Executor {
             }
         }
         
-        let finished_job = self.db.finish_job(job.id, final_status, Some(&stdout), Some(&final_stderr), duration_ms).await?;
+        self.db.finish_job(job.id, final_status, Some(&stdout), Some(&final_stderr), duration_ms).await?;
         
         // Broadcast job finished
-        broadcast_job_update(&self.tx, &finished_job);
+        if let Ok(updated_job) = self.db.get_job(job.id).await {
+            broadcast(&self.tx, "job_updated", &updated_job.without_logs());
+        }
         lease.finish().await;
 
         tracing::info!(
@@ -253,7 +255,7 @@ impl Executor {
         let settings = load_job_settings(&self.db).await;
         let timeout = compute_timeout(ctx.exploit.timeout_secs, settings.worker_timeout);
 
-        let result = self.execute_job(&ctx.job, &ctx.run, &ctx.exploit, &ctx.team, &ctx.conn, ctx.challenge.flag_regex.as_deref(), timeout, settings.max_flags).await;
+        let result = self.execute_job(&ctx.job, &ctx.run, &ctx.exploit, &ctx.conn, ctx.challenge.flag_regex.as_deref(), timeout, settings.max_flags).await;
 
         match result {
             Ok(result) => {
@@ -268,12 +270,13 @@ impl Executor {
             Err(e) => {
                 if let Ok(current) = self.db.get_job(ctx.job.id).await {
                     if current.status == "stopped" {
-                        broadcast_job_update(&self.tx, &current);
+                        broadcast(&self.tx, "job_updated", &current.without_logs());
                         return Err(e);
                     }
                 }
-                if let Ok(updated) = self.db.finish_job(ctx.job.id, "error", None, Some(&e.to_string()), 0).await {
-                    broadcast_job_update(&self.tx, &updated);
+                let _ = self.db.finish_job(ctx.job.id, "error", None, Some(&e.to_string()), 0).await;
+                if let Ok(updated) = self.db.get_job(ctx.job.id).await {
+                    broadcast(&self.tx, "job_updated", &updated.without_logs());
                 }
                 Err(e)
             }
@@ -348,31 +351,19 @@ pub(crate) async fn should_skip_job(
 }
 
 pub(crate) async fn build_job_context(db: &Database, job_id: i32) -> std::result::Result<JobContext, JobContextError> {
-    let data = db.get_job_context_data(job_id).await.map_err(JobContextError::Db)?;
-    ensure_pending(&data.job)?;
-    let exploit_run_id = require_exploit_run_id(&data.job)?;
+    let job = db.get_job(job_id).await.map_err(JobContextError::Db)?;
+    ensure_pending(&job)?;
+    let exploit_run_id = require_exploit_run_id(&job)?;
 
-    let run = match data.run {
-        Some(run) => run,
-        None => return Err(JobContextError::Db(anyhow::anyhow!("exploit run {} missing", exploit_run_id))),
-    };
-    let exploit = match data.exploit {
-        Some(exploit) => exploit,
-        None => return Err(JobContextError::Db(anyhow::anyhow!("exploit {} missing", run.exploit_id))),
-    };
-    let challenge = match data.challenge {
-        Some(challenge) => challenge,
-        None => return Err(JobContextError::Db(anyhow::anyhow!("challenge {} missing", run.challenge_id))),
-    };
-    let team = match data.team {
-        Some(team) => team,
-        None => return Err(JobContextError::Db(anyhow::anyhow!("team {} missing", data.job.team_id))),
-    };
+    let run = db.get_exploit_run(exploit_run_id).await.map_err(JobContextError::Db)?;
+    let exploit = db.get_exploit(run.exploit_id).await.map_err(JobContextError::Db)?;
+    let challenge = db.get_challenge(run.challenge_id).await.map_err(JobContextError::Db)?;
+    let team = db.get_team(job.team_id).await.map_err(JobContextError::Db)?;
 
-    let rel = data.relation;
+    let rel = db.get_relation(challenge.id, team.id).await.map_err(JobContextError::Db)?;
     let conn = rel.and_then(|r| r.connection_info(&challenge, &team)).ok_or(JobContextError::MissingConnectionInfo)?;
 
-    Ok(JobContext { job: data.job, run, exploit, challenge, team, conn })
+    Ok(JobContext { job, run, exploit, challenge, team, conn })
 }
 
 pub(crate) async fn build_job_context_or_finish(
@@ -431,8 +422,9 @@ pub(crate) async fn finish_job_and_broadcast(
     stderr: Option<&str>,
     duration_ms: i32,
 ) {
-    if let Ok(job) = db.finish_job(job_id, status, stdout, stderr, duration_ms).await {
-        broadcast_job_update(tx, &job);
+    let _ = db.finish_job(job_id, status, stdout, stderr, duration_ms).await;
+    if let Ok(j) = db.get_job(job_id).await {
+        broadcast(tx, "job_updated", &j.without_logs());
     }
 }
 
