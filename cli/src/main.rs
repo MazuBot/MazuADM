@@ -54,7 +54,8 @@ enum TeamCmd {
 
 #[derive(Subcommand)]
 enum ExploitCmd {
-    Create { #[arg(default_value = ".")] name: String, #[arg(long)] challenge: Option<String>, #[arg(long, default_missing_value = "config.toml")] config: Option<std::path::PathBuf> },
+    Create { name: String, #[arg(long)] challenge: String, #[arg(long)] image: String, #[arg(long)] entrypoint: Option<String>, #[arg(long)] max_per_container: Option<i32>, #[arg(long)] max_concurrent_jobs: Option<i32>, #[arg(long)] timeout: Option<i32>, #[arg(long)] default_counter: Option<i32>, #[arg(long)] ignore_connection_info: Option<bool> },
+    Pack { #[arg(default_value = ".")] name: String, #[arg(long)] challenge: Option<String>, #[arg(long, default_missing_value = "config.toml")] config: Option<std::path::PathBuf> },
     List { #[arg(long)] challenge: Option<String> },
     Update { name: String, #[arg(long)] challenge: Option<String>, #[arg(long, default_missing_value = "config.toml")] config: Option<std::path::PathBuf>, #[arg(long)] image: Option<String>, #[arg(long)] entrypoint: Option<String>, #[arg(long)] max_per_container: Option<i32>, #[arg(long)] max_concurrent_jobs: Option<i32>, #[arg(long)] timeout: Option<i32>, #[arg(long)] default_counter: Option<i32> },
     Delete { name: String, #[arg(long)] challenge: Option<String> },
@@ -231,7 +232,12 @@ async fn main() -> Result<()> {
             }
         },
         Cmd::Exploit { cmd } => match cmd {
-            ExploitCmd::Create { name, challenge, config } => {
+            ExploitCmd::Create { name, challenge, image, entrypoint, max_per_container, max_concurrent_jobs, timeout, default_counter, ignore_connection_info } => {
+                let challenge = ctx.find_challenge(&challenge).await?;
+                let e = ctx.api.create_exploit(CreateExploit { name, challenge_id: challenge.id, docker_image: image, entrypoint, enabled: Some(true), max_per_container, max_containers: None, max_concurrent_jobs, timeout_secs: timeout, default_counter, ignore_connection_info, auto_add: None, insert_into_rounds: None }).await?;
+                println!("Created exploit {}", e.id);
+            }
+            ExploitCmd::Pack { name, challenge, config } => {
                 let cfg = match config { Some(p) => exploit_config::load_exploit_config(&p)?, None => exploit_config::load_default_exploit_config()? };
                 let name = if name == "." { cwd_basename()? } else { name };
                 let challenge = resolve_challenge(&mut ctx, challenge, cfg.challenge.as_ref()).await?;
