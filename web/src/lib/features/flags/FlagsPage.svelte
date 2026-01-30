@@ -22,16 +22,11 @@
   let submitTeamId = $state('');
   let submitFlagValue = $state('');
   let submitting = $state(false);
+  let roundSelectionTouched = $state(false);
 
   function getSetting(key, fallback) {
     return settings?.find((s) => s.key === key)?.value || fallback;
   }
-
-  $effect(() => {
-    if (submitRoundId === '' && selectedFlagRoundId) {
-      submitRoundId = String(selectedFlagRoundId);
-    }
-  });
 
   function parsePastFlagRounds() {
     const raw = getSetting('past_flag_rounds', '5');
@@ -57,19 +52,37 @@
     });
   }
 
+  function resolveChallengeId() {
+    if (submitChallengeId) return Number(submitChallengeId);
+    if (challengeFilterId) return Number(challengeFilterId);
+    return challenges?.[0]?.id ?? null;
+  }
+
+  function resolveTeamId() {
+    if (submitTeamId) return Number(submitTeamId);
+    if (teamFilterId) return Number(teamFilterId);
+    return teams?.[0]?.id ?? null;
+  }
+
   async function handleSubmitFlag() {
     if (!onSubmitFlag) return;
     const flagValue = submitFlagValue.trim();
-    if (!submitChallengeId || !submitTeamId || !flagValue) {
-      pushToast('Select a challenge, team, and flag value.', 'error');
+    if (!flagValue) {
+      pushToast('Enter a flag value.', 'error');
+      return;
+    }
+    const challengeId = resolveChallengeId();
+    const teamId = resolveTeamId();
+    if (!challengeId || !teamId) {
+      pushToast('Select a challenge and team, or set filters to choose defaults.', 'error');
       return;
     }
     submitting = true;
     try {
       await onSubmitFlag({
         round_id: submitRoundId ? Number(submitRoundId) : null,
-        challenge_id: Number(submitChallengeId),
-        team_id: Number(submitTeamId),
+        challenge_id: challengeId,
+        team_id: teamId,
         flag_value: flagValue
       });
       submitFlagValue = '';
@@ -91,10 +104,17 @@
   let canSubmit = $derived(
     !submitting &&
       hasRunningRound &&
-      submitChallengeId !== '' &&
-      submitTeamId !== '' &&
+      challenges.length > 0 &&
+      teams.length > 0 &&
       submitFlagValue.trim().length > 0
   );
+
+  $effect(() => {
+    if (roundSelectionTouched) return;
+    if (submitRoundId === '' && runningRound) {
+      submitRoundId = String(runningRound.id);
+    }
+  });
 
   $effect(() => {
     if (!submitRoundId || allowedRounds.length === 0) return;
@@ -109,7 +129,11 @@
     <h2>Manual Flag Submission</h2>
   </div>
   <div class="controls">
-    <select bind:value={submitRoundId} aria-label="Round for manual flag">
+    <select
+      bind:value={submitRoundId}
+      aria-label="Round for manual flag"
+      onchange={() => { roundSelectionTouched = true; }}
+    >
       <option value="">Running round</option>
       {#each allowedRounds as r}
         <option value={String(r.id)}>Round {r.id} ({r.status})</option>
@@ -138,7 +162,7 @@
       {submitting ? 'Submitting...' : 'Submit Flag'}
     </button>
   </div>
-  <p class="hint">Leave round empty to target the running round.</p>
+  <p class="hint">Round defaults to running; choose blank to leave it unset.</p>
   {#if !hasRunningRound}
     <p class="hint">Manual submission requires a running round.</p>
   {/if}
