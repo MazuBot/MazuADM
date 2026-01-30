@@ -581,6 +581,39 @@ pub struct ListFlagsQuery {
     pub sort: Option<String>,
 }
 
+#[derive(Deserialize, Clone)]
+pub struct UpdateFlagRequest {
+    pub id: i32,
+    pub status: String,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum UpdateFlagsBody {
+    Single(UpdateFlagRequest),
+    Multiple(Vec<UpdateFlagRequest>),
+}
+
+#[derive(Deserialize)]
+pub struct UpdateFlagsQuery {
+    pub force: Option<bool>,
+}
+
+pub async fn update_flags(State(s): S, Query(q): Query<UpdateFlagsQuery>, Json(body): Json<UpdateFlagsBody>) -> R<Vec<Flag>> {
+    let force = q.force.unwrap_or(false);
+    let reqs = match body {
+        UpdateFlagsBody::Single(r) => vec![r],
+        UpdateFlagsBody::Multiple(r) => r,
+    };
+    let mut flags = Vec::new();
+    for req in &reqs {
+        let flag = s.db.update_flag_status(req.id, &req.status, force).await.map_err(err)?;
+        broadcast(&s, "flag_updated", &flag);
+        flags.push(flag);
+    }
+    Ok(Json(flags))
+}
+
 // Settings
 pub async fn list_settings(State(s): S) -> R<Vec<Setting>> {
     s.db.list_settings().await.map(Json).map_err(err)

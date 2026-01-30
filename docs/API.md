@@ -303,6 +303,26 @@ Submit one or multiple flags manually. Accepts a single object or an array. If `
 
 **Response:** `Flag[]`
 
+### `PATCH /api/flags`
+Update flag status. Accepts a single object or an array. Will not update flags with status `succeed` unless `force=true` is provided.
+
+**Query:** `force?: bool` - Force update even if status is `succeed`
+
+**Body (single):**
+```json
+{"id": 1, "status": "failed"}
+```
+
+**Body (multiple):**
+```json
+[
+  {"id": 1, "status": "failed"},
+  {"id": 2, "status": "duplicated"}
+]
+```
+
+**Response:** `Flag[]`
+
 ---
 
 ## Settings
