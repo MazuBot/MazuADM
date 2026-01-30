@@ -47,6 +47,13 @@ services:
     networks:
       - mazuadm
 
+  redis:
+    image: redis:alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      - mazuadm
+
 networks:
   mazuadm:
     name: mazuadm
