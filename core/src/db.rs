@@ -488,12 +488,17 @@ impl Database {
         }
     }
 
-    pub async fn update_flag_status(&self, id: i32, status: &str, force: bool) -> Result<Flag> {
-        if force {
-            Ok(sqlx::query_as!(Flag, "UPDATE flags SET status = $2 WHERE id = $1 RETURNING *", id, status).fetch_one(&self.pool).await?)
+    pub async fn update_flag_status(&self, id: i32, status: &str, force: bool) -> Result<bool> {
+        let result = if force {
+            sqlx::query!("UPDATE flags SET status = $2 WHERE id = $1", id, status).execute(&self.pool).await?
         } else {
-            Ok(sqlx::query_as!(Flag, "UPDATE flags SET status = $2 WHERE id = $1 AND status != 'success' RETURNING *", id, status).fetch_one(&self.pool).await?)
-        }
+            sqlx::query!("UPDATE flags SET status = $2 WHERE id = $1 AND status != 'success'", id, status).execute(&self.pool).await?
+        };
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn get_flag(&self, id: i32) -> Result<Flag> {
+        Ok(sqlx::query_as!(Flag, "SELECT * FROM flags WHERE id = $1", id).fetch_one(&self.pool).await?)
     }
 
     // Settings

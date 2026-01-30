@@ -331,7 +331,7 @@ Update flag status. Accepts a single object or an array. Will not update flags w
 ]
 ```
 
-**Response:** `Flag[]`
+**Response:** `bool[]` - Array of booleans indicating whether each flag was updated
 
 ---
 

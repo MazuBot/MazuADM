@@ -609,19 +609,23 @@ pub struct UpdateFlagsQuery {
     pub force: Option<bool>,
 }
 
-pub async fn update_flags(State(s): S, Query(q): Query<UpdateFlagsQuery>, Json(body): Json<UpdateFlagsBody>) -> R<Vec<Flag>> {
+pub async fn update_flags(State(s): S, Query(q): Query<UpdateFlagsQuery>, Json(body): Json<UpdateFlagsBody>) -> R<Vec<bool>> {
     let force = q.force.unwrap_or(false);
     let reqs = match body {
         UpdateFlagsBody::Single(r) => vec![r],
         UpdateFlagsBody::Multiple(r) => r,
     };
-    let mut flags = Vec::new();
+    let mut results = Vec::new();
     for req in &reqs {
-        let flag = s.db.update_flag_status(req.id, &req.status, force).await.map_err(err)?;
-        broadcast(&s, "flag_updated", &flag);
-        flags.push(flag);
+        let updated = s.db.update_flag_status(req.id, &req.status, force).await.map_err(err)?;
+        if updated {
+            if let Ok(flag) = s.db.get_flag(req.id).await {
+                broadcast(&s, "flag_updated", &flag);
+            }
+        }
+        results.push(updated);
     }
-    Ok(Json(flags))
+    Ok(Json(results))
 }
 
 // Settings
