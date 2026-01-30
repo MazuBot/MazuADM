@@ -236,7 +236,7 @@ async fn main() -> Result<()> {
                 let name = if name == "." { cwd_basename()? } else { name };
                 let challenge = resolve_challenge(&mut ctx, challenge, cfg.challenge.as_ref()).await?;
                 let image = cfg.docker_image.ok_or_else(|| anyhow!("missing image"))?;
-                let e = ctx.api.create_exploit(CreateExploit { name, challenge_id: challenge.id, docker_image: image, entrypoint: cfg.entrypoint, enabled: cfg.enabled, max_per_container: cfg.max_per_container, max_containers: None, max_concurrent_jobs: cfg.max_concurrent_jobs, timeout_secs: cfg.timeout_secs, default_counter: cfg.default_counter, auto_add: None, insert_into_rounds: None }).await?;
+                let e = ctx.api.create_exploit(CreateExploit { name, challenge_id: challenge.id, docker_image: image, entrypoint: cfg.entrypoint, enabled: cfg.enabled, max_per_container: cfg.max_per_container, max_containers: None, max_concurrent_jobs: cfg.max_concurrent_jobs, timeout_secs: cfg.timeout_secs, default_counter: cfg.default_counter, ignore_connection_info: cfg.ignore_connection_info, auto_add: None, insert_into_rounds: None }).await?;
                 println!("Created exploit {}", e.id);
             }
             ExploitCmd::List { challenge } => {
@@ -248,7 +248,7 @@ async fn main() -> Result<()> {
                 let cfg = match config { Some(p) => exploit_config::load_exploit_config(&p)?, None => exploit_config::load_default_exploit_config()? };
                 let challenge = resolve_challenge(&mut ctx, challenge, cfg.challenge.as_ref()).await?;
                 let e = ctx.find_exploit(challenge.id, &name).await?;
-                ctx.api.update_exploit(e.id, UpdateExploit { name: e.name, docker_image: image.or(cfg.docker_image).unwrap_or(e.docker_image), entrypoint: entrypoint.or(cfg.entrypoint).or(e.entrypoint), enabled: cfg.enabled.or(Some(e.enabled)), max_per_container: max_per_container.or(cfg.max_per_container).or(Some(e.max_per_container)), max_containers: None, max_concurrent_jobs: max_concurrent_jobs.or(cfg.max_concurrent_jobs).or(Some(e.max_concurrent_jobs)), timeout_secs: timeout.or(cfg.timeout_secs).or(Some(e.timeout_secs)), default_counter: default_counter.or(cfg.default_counter).or(Some(e.default_counter)) }).await?;
+                ctx.api.update_exploit(e.id, UpdateExploit { name: e.name, docker_image: image.or(cfg.docker_image).unwrap_or(e.docker_image), entrypoint: entrypoint.or(cfg.entrypoint).or(e.entrypoint), enabled: cfg.enabled.or(Some(e.enabled)), max_per_container: max_per_container.or(cfg.max_per_container).or(Some(e.max_per_container)), max_containers: None, max_concurrent_jobs: max_concurrent_jobs.or(cfg.max_concurrent_jobs).or(Some(e.max_concurrent_jobs)), timeout_secs: timeout.or(cfg.timeout_secs).or(Some(e.timeout_secs)), default_counter: default_counter.or(cfg.default_counter).or(Some(e.default_counter)), ignore_connection_info: cfg.ignore_connection_info.or(Some(e.ignore_connection_info)) }).await?;
                 println!("Updated");
             }
             ExploitCmd::Delete { name, challenge } => {
@@ -260,13 +260,13 @@ async fn main() -> Result<()> {
             ExploitCmd::Enable { name, challenge } => {
                 let challenge = resolve_challenge(&mut ctx, challenge, None).await?;
                 let e = ctx.find_exploit(challenge.id, &name).await?;
-                ctx.api.update_exploit(e.id, UpdateExploit { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint, enabled: Some(true), max_per_container: Some(e.max_per_container), max_containers: None, max_concurrent_jobs: Some(e.max_concurrent_jobs), timeout_secs: Some(e.timeout_secs), default_counter: Some(e.default_counter) }).await?;
+                ctx.api.update_exploit(e.id, UpdateExploit { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint, enabled: Some(true), max_per_container: Some(e.max_per_container), max_containers: None, max_concurrent_jobs: Some(e.max_concurrent_jobs), timeout_secs: Some(e.timeout_secs), default_counter: Some(e.default_counter), ignore_connection_info: Some(e.ignore_connection_info) }).await?;
                 println!("Enabled");
             }
             ExploitCmd::Disable { name, challenge } => {
                 let challenge = resolve_challenge(&mut ctx, challenge, None).await?;
                 let e = ctx.find_exploit(challenge.id, &name).await?;
-                ctx.api.update_exploit(e.id, UpdateExploit { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint, enabled: Some(false), max_per_container: Some(e.max_per_container), max_containers: None, max_concurrent_jobs: Some(e.max_concurrent_jobs), timeout_secs: Some(e.timeout_secs), default_counter: Some(e.default_counter) }).await?;
+                ctx.api.update_exploit(e.id, UpdateExploit { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint, enabled: Some(false), max_per_container: Some(e.max_per_container), max_containers: None, max_concurrent_jobs: Some(e.max_concurrent_jobs), timeout_secs: Some(e.timeout_secs), default_counter: Some(e.default_counter), ignore_connection_info: Some(e.ignore_connection_info) }).await?;
                 println!("Disabled");
             }
             ExploitCmd::Run { name, challenge, team } => {
