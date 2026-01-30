@@ -59,10 +59,10 @@ enum TeamCmd {
 
 #[derive(Subcommand)]
 enum ExploitCmd {
-    Create { name: String, #[arg(long)] challenge: Option<String>, #[arg(long)] config: Option<std::path::PathBuf>, #[arg(long)] image: Option<String>, #[arg(long)] entrypoint: Option<String>, #[arg(long)] max_per_container: Option<i32>, #[arg(long)] max_concurrent_jobs: Option<i32>, #[arg(long)] timeout: Option<i32>, #[arg(long)] default_counter: Option<i32>, #[arg(long)] ignore_connection_info: Option<bool> },
+    Create { name: String, #[arg(long)] challenge: Option<String>, #[arg(long)] config: Option<std::path::PathBuf>, #[arg(long)] image: Option<String>, #[arg(long)] entrypoint: Option<String>, #[arg(long)] max_per_container: Option<i32>, #[arg(long)] max_containers: Option<i32>, #[arg(long)] max_concurrent_jobs: Option<i32>, #[arg(long)] timeout: Option<i32>, #[arg(long)] default_counter: Option<i32>, #[arg(long)] ignore_connection_info: Option<bool>, #[arg(long)] auto_add: Option<String>, #[arg(long)] insert_into_rounds: Option<bool> },
     Pack { #[arg(default_value = ".")] name: String, #[arg(long)] challenge: Option<String>, #[arg(long, default_missing_value = "config.toml")] config: Option<std::path::PathBuf> },
     List { #[arg(long)] challenge: Option<String> },
-    Update { name: String, #[arg(long)] challenge: Option<String>, #[arg(long, default_missing_value = "config.toml")] config: Option<std::path::PathBuf>, #[arg(long)] image: Option<String>, #[arg(long)] entrypoint: Option<String>, #[arg(long)] max_per_container: Option<i32>, #[arg(long)] max_concurrent_jobs: Option<i32>, #[arg(long)] timeout: Option<i32>, #[arg(long)] default_counter: Option<i32> },
+    Update { name: String, #[arg(long)] challenge: Option<String>, #[arg(long, default_missing_value = "config.toml")] config: Option<std::path::PathBuf>, #[arg(long)] image: Option<String>, #[arg(long)] entrypoint: Option<String>, #[arg(long)] max_per_container: Option<i32>, #[arg(long)] max_containers: Option<i32>, #[arg(long)] max_concurrent_jobs: Option<i32>, #[arg(long)] timeout: Option<i32>, #[arg(long)] default_counter: Option<i32> },
     Delete { name: String, #[arg(long)] challenge: Option<String> },
     Enable { name: String, #[arg(long)] challenge: Option<String> },
     Disable { name: String, #[arg(long)] challenge: Option<String> },
@@ -268,11 +268,11 @@ async fn main() -> Result<()> {
             }
         },
         Cmd::Exploit { cmd } => match cmd {
-            ExploitCmd::Create { name, challenge, config, image, entrypoint, max_per_container, max_concurrent_jobs, timeout, default_counter, ignore_connection_info } => {
+            ExploitCmd::Create { name, challenge, config, image, entrypoint, max_per_container, max_containers, max_concurrent_jobs, timeout, default_counter, ignore_connection_info, auto_add, insert_into_rounds } => {
                 let cfg = match config { Some(p) => exploit_config::load_exploit_config(&p)?, None => exploit_config::ExploitConfig::default() };
                 let challenge = resolve_challenge(&mut ctx, challenge, cfg.challenge.as_ref()).await?;
                 let image = image.or(cfg.docker_image).ok_or_else(|| anyhow!("--image or config docker_image required"))?;
-                let e = ctx.api.create_exploit(CreateExploit { name, challenge_id: challenge.id, docker_image: image, entrypoint: entrypoint.or(cfg.entrypoint), enabled: cfg.enabled.or(Some(true)), max_per_container: max_per_container.or(cfg.max_per_container), max_containers: None, max_concurrent_jobs: max_concurrent_jobs.or(cfg.max_concurrent_jobs), timeout_secs: timeout.or(cfg.timeout_secs), default_counter: default_counter.or(cfg.default_counter), ignore_connection_info: ignore_connection_info.or(cfg.ignore_connection_info), auto_add: None, insert_into_rounds: None }).await?;
+                let e = ctx.api.create_exploit(CreateExploit { name, challenge_id: challenge.id, docker_image: image, entrypoint: entrypoint.or(cfg.entrypoint), enabled: cfg.enabled.or(Some(true)), max_per_container: max_per_container.or(cfg.max_per_container), max_containers: max_containers.or(cfg.max_containers), max_concurrent_jobs: max_concurrent_jobs.or(cfg.max_concurrent_jobs), timeout_secs: timeout.or(cfg.timeout_secs), default_counter: default_counter.or(cfg.default_counter), ignore_connection_info: ignore_connection_info.or(cfg.ignore_connection_info), auto_add: auto_add.or(cfg.auto_add), insert_into_rounds: insert_into_rounds.or(cfg.insert_into_rounds) }).await?;
                 println!("Created exploit {}", e.id);
             }
             ExploitCmd::Pack { name, challenge, config } => {
@@ -283,7 +283,7 @@ async fn main() -> Result<()> {
                 println!("Building docker image: {}", image);
                 let status = std::process::Command::new("docker").args(["build", "-t", &image, "."]).status()?;
                 if !status.success() { return Err(anyhow!("docker build failed")); }
-                let e = ctx.api.create_exploit(CreateExploit { name, challenge_id: challenge.id, docker_image: image, entrypoint: cfg.entrypoint, enabled: cfg.enabled, max_per_container: cfg.max_per_container, max_containers: None, max_concurrent_jobs: cfg.max_concurrent_jobs, timeout_secs: cfg.timeout_secs, default_counter: cfg.default_counter, ignore_connection_info: cfg.ignore_connection_info, auto_add: None, insert_into_rounds: None }).await?;
+                let e = ctx.api.create_exploit(CreateExploit { name, challenge_id: challenge.id, docker_image: image, entrypoint: cfg.entrypoint, enabled: cfg.enabled, max_per_container: cfg.max_per_container, max_containers: cfg.max_containers, max_concurrent_jobs: cfg.max_concurrent_jobs, timeout_secs: cfg.timeout_secs, default_counter: cfg.default_counter, ignore_connection_info: cfg.ignore_connection_info, auto_add: cfg.auto_add, insert_into_rounds: cfg.insert_into_rounds }).await?;
                 println!("Created exploit {}", e.id);
             }
             ExploitCmd::List { challenge } => {
@@ -291,11 +291,11 @@ async fn main() -> Result<()> {
                 let rows: Vec<_> = ctx.api.list_exploits(cid).await?.into_iter().map(|e| ExploitRow { id: e.id, name: e.name, enabled: e.enabled, challenge: e.challenge_id, image: e.docker_image }).collect();
                 println!("{}", Table::new(rows));
             }
-            ExploitCmd::Update { name, challenge, config, image, entrypoint, max_per_container, max_concurrent_jobs, timeout, default_counter } => {
+            ExploitCmd::Update { name, challenge, config, image, entrypoint, max_per_container, max_containers, max_concurrent_jobs, timeout, default_counter } => {
                 let cfg = match config { Some(p) => exploit_config::load_exploit_config(&p)?, None => exploit_config::load_default_exploit_config()? };
                 let challenge = resolve_challenge(&mut ctx, challenge, cfg.challenge.as_ref()).await?;
                 let e = ctx.find_exploit(challenge.id, &name).await?;
-                ctx.api.update_exploit(e.id, UpdateExploit { name: e.name, docker_image: image.or(cfg.docker_image).unwrap_or(e.docker_image), entrypoint: entrypoint.or(cfg.entrypoint).or(e.entrypoint), enabled: cfg.enabled.or(Some(e.enabled)), max_per_container: max_per_container.or(cfg.max_per_container).or(Some(e.max_per_container)), max_containers: None, max_concurrent_jobs: max_concurrent_jobs.or(cfg.max_concurrent_jobs).or(Some(e.max_concurrent_jobs)), timeout_secs: timeout.or(cfg.timeout_secs).or(Some(e.timeout_secs)), default_counter: default_counter.or(cfg.default_counter).or(Some(e.default_counter)), ignore_connection_info: cfg.ignore_connection_info.or(Some(e.ignore_connection_info)) }).await?;
+                ctx.api.update_exploit(e.id, UpdateExploit { name: e.name, docker_image: image.or(cfg.docker_image).unwrap_or(e.docker_image), entrypoint: entrypoint.or(cfg.entrypoint).or(e.entrypoint), enabled: cfg.enabled.or(Some(e.enabled)), max_per_container: max_per_container.or(cfg.max_per_container).or(Some(e.max_per_container)), max_containers: max_containers.or(cfg.max_containers), max_concurrent_jobs: max_concurrent_jobs.or(cfg.max_concurrent_jobs).or(Some(e.max_concurrent_jobs)), timeout_secs: timeout.or(cfg.timeout_secs).or(Some(e.timeout_secs)), default_counter: default_counter.or(cfg.default_counter).or(Some(e.default_counter)), ignore_connection_info: cfg.ignore_connection_info.or(Some(e.ignore_connection_info)) }).await?;
                 println!("Updated");
             }
             ExploitCmd::Delete { name, challenge } => {
