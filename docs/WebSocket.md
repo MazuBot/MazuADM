@@ -8,8 +8,8 @@
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `user` | Yes | User identifier (3-16 alphanumeric characters) |
-| `client` | No | Client identifier (e.g., `web-ui-dev`) |
+| `user` | Yes | User identifier (3-16 alphanumeric or hyphen characters) |
+| `client` | No | Client identifier (3-16 alphanumeric or hyphen characters) |
 | `events` | No | Event subscription filter |
 
 ### User Parameter

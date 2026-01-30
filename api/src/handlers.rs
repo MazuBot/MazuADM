@@ -62,13 +62,17 @@ struct WsClientMsg {
     events: Vec<String>,
 }
 
+fn is_valid_name(s: &str) -> bool {
+    s.len() >= 3 && s.len() <= 16 && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
 pub async fn ws_handler(ws: WebSocketUpgrade, Query(q): Query<WsQuery>, headers: HeaderMap, ConnectInfo(addr): ConnectInfo<SocketAddr>, State(s): S) -> Response {
     let user = q.user.filter(|u| !u.is_empty());
-    let error = match &user {
-        None => Some("Missing required 'user' parameter"),
-        Some(u) if u.len() < 3 || u.len() > 16 || !u.chars().all(|c| c.is_ascii_alphanumeric()) => {
-            Some("User must be 3-16 alphanumeric characters")
-        }
+    let client = q.client.filter(|c| !c.is_empty());
+    let error = match (&user, &client) {
+        (None, _) => Some("Missing required 'user' parameter"),
+        (Some(u), _) if !is_valid_name(u) => Some("User must be 3-16 alphanumeric or hyphen characters"),
+        (_, Some(c)) if !is_valid_name(c) => Some("Client must be 3-16 alphanumeric or hyphen characters"),
         _ => None,
     };
     if let Some(err_msg) = error {
@@ -78,10 +82,10 @@ pub async fn ws_handler(ws: WebSocketUpgrade, Query(q): Query<WsQuery>, headers:
             let _ = socket.close().await;
         });
     }
-    
+
     let client_ip = get_client_ip(&s, &headers, addr).await;
     let subs = parse_events(q.events);
-    let client_name = q.client.unwrap_or_else(|| "unknown".to_string());
+    let client_name = client.unwrap_or_else(|| "unknown".to_string());
     ws.on_upgrade(move |socket| handle_ws(socket, s, subs, client_ip, client_name, user.unwrap()))
 }
 
