@@ -409,10 +409,11 @@
       <option value="">Select round</option>
       {#each rounds as r}
         <option value={r.id}>
-          Round {r.id} ({r.status}{r.jobs_ready === false ? ' • creating jobs' : ''})
+          Round {r.id} ({r.status}{r.jobs_ready === false ? '*' : ''})
         </option>
       {/each}
     </select>
+    <span class="hint">* jobs still creating</span>
     <button onclick={handleRunClick} disabled={!selectedRoundId}>Run</button>
     <button
       onclick={handleRerunUnflaggedClick}
