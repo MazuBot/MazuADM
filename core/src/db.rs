@@ -1,10 +1,79 @@
 use crate::models::*;
+use chrono::{DateTime, Utc};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use anyhow::Result;
 
 #[derive(Clone)]
 pub struct Database {
     pub pool: PgPool,
+}
+
+#[derive(Debug)]
+pub struct JobContextData {
+    pub job: ExploitJob,
+    pub run: Option<ExploitRun>,
+    pub exploit: Option<Exploit>,
+    pub challenge: Option<Challenge>,
+    pub team: Option<Team>,
+    pub relation: Option<ChallengeTeamRelation>,
+}
+
+#[derive(sqlx::FromRow)]
+struct JobContextRow {
+    job_id: i32,
+    job_round_id: i32,
+    job_exploit_run_id: Option<i32>,
+    job_team_id: i32,
+    job_priority: i32,
+    job_status: String,
+    job_container_id: Option<String>,
+    job_stdout: Option<String>,
+    job_stderr: Option<String>,
+    job_create_reason: Option<String>,
+    job_duration_ms: Option<i32>,
+    job_schedule_at: Option<DateTime<Utc>>,
+    job_started_at: Option<DateTime<Utc>>,
+    job_finished_at: Option<DateTime<Utc>>,
+    job_created_at: DateTime<Utc>,
+    run_id: Option<i32>,
+    run_exploit_id: Option<i32>,
+    run_challenge_id: Option<i32>,
+    run_team_id: Option<i32>,
+    run_priority: Option<i32>,
+    run_sequence: Option<i32>,
+    run_enabled: Option<bool>,
+    run_created_at: Option<DateTime<Utc>>,
+    exploit_id: Option<i32>,
+    exploit_name: Option<String>,
+    exploit_challenge_id: Option<i32>,
+    exploit_enabled: Option<bool>,
+    exploit_max_per_container: Option<i32>,
+    exploit_max_containers: Option<i32>,
+    exploit_docker_image: Option<String>,
+    exploit_entrypoint: Option<String>,
+    exploit_timeout_secs: Option<i32>,
+    exploit_default_counter: Option<i32>,
+    exploit_created_at: Option<DateTime<Utc>>,
+    challenge_id: Option<i32>,
+    challenge_name: Option<String>,
+    challenge_enabled: Option<bool>,
+    challenge_default_port: Option<i32>,
+    challenge_priority: Option<i32>,
+    challenge_flag_regex: Option<String>,
+    challenge_created_at: Option<DateTime<Utc>>,
+    team_id: Option<i32>,
+    team_team_id: Option<String>,
+    team_team_name: Option<String>,
+    team_default_ip: Option<String>,
+    team_priority: Option<i32>,
+    team_created_at: Option<DateTime<Utc>>,
+    team_enabled: Option<bool>,
+    rel_id: Option<i32>,
+    rel_challenge_id: Option<i32>,
+    rel_team_id: Option<i32>,
+    rel_addr: Option<String>,
+    rel_port: Option<i32>,
+    rel_created_at: Option<DateTime<Utc>>,
 }
 
 impl Database {
@@ -15,6 +84,268 @@ impl Database {
 
     fn clamp_priority(p: Option<i32>) -> i32 {
         p.unwrap_or(0).clamp(0, 99)
+    }
+
+    pub async fn get_job_context_data(&self, job_id: i32) -> Result<JobContextData> {
+        let row = sqlx::query_as::<_, JobContextRow>(
+            r#"
+SELECT
+    ej.id AS job_id,
+    ej.round_id AS job_round_id,
+    ej.exploit_run_id AS job_exploit_run_id,
+    ej.team_id AS job_team_id,
+    ej.priority AS job_priority,
+    ej.status AS job_status,
+    ej.container_id AS job_container_id,
+    ej.stdout AS job_stdout,
+    ej.stderr AS job_stderr,
+    ej.create_reason AS job_create_reason,
+    ej.duration_ms AS job_duration_ms,
+    ej.schedule_at AS job_schedule_at,
+    ej.started_at AS job_started_at,
+    ej.finished_at AS job_finished_at,
+    ej.created_at AS job_created_at,
+    er.id AS run_id,
+    er.exploit_id AS run_exploit_id,
+    er.challenge_id AS run_challenge_id,
+    er.team_id AS run_team_id,
+    er.priority AS run_priority,
+    er.sequence AS run_sequence,
+    er.enabled AS run_enabled,
+    er.created_at AS run_created_at,
+    e.id AS exploit_id,
+    e.name AS exploit_name,
+    e.challenge_id AS exploit_challenge_id,
+    e.enabled AS exploit_enabled,
+    e.max_per_container AS exploit_max_per_container,
+    e.max_containers AS exploit_max_containers,
+    e.docker_image AS exploit_docker_image,
+    e.entrypoint AS exploit_entrypoint,
+    e.timeout_secs AS exploit_timeout_secs,
+    e.default_counter AS exploit_default_counter,
+    e.created_at AS exploit_created_at,
+    c.id AS challenge_id,
+    c.name AS challenge_name,
+    c.enabled AS challenge_enabled,
+    c.default_port AS challenge_default_port,
+    c.priority AS challenge_priority,
+    c.flag_regex AS challenge_flag_regex,
+    c.created_at AS challenge_created_at,
+    t.id AS team_id,
+    t.team_id AS team_team_id,
+    t.team_name AS team_team_name,
+    t.default_ip AS team_default_ip,
+    t.priority AS team_priority,
+    t.created_at AS team_created_at,
+    t.enabled AS team_enabled,
+    ctr.id AS rel_id,
+    ctr.challenge_id AS rel_challenge_id,
+    ctr.team_id AS rel_team_id,
+    ctr.addr AS rel_addr,
+    ctr.port AS rel_port,
+    ctr.created_at AS rel_created_at
+FROM exploit_jobs ej
+LEFT JOIN exploit_runs er ON er.id = ej.exploit_run_id
+LEFT JOIN exploits e ON e.id = er.exploit_id
+LEFT JOIN challenges c ON c.id = er.challenge_id
+LEFT JOIN teams t ON t.id = ej.team_id
+LEFT JOIN challenge_team_relations ctr ON ctr.challenge_id = c.id AND ctr.team_id = t.id
+WHERE ej.id = $1
+"#,
+        )
+        .bind(job_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        let JobContextRow {
+            job_id,
+            job_round_id,
+            job_exploit_run_id,
+            job_team_id,
+            job_priority,
+            job_status,
+            job_container_id,
+            job_stdout,
+            job_stderr,
+            job_create_reason,
+            job_duration_ms,
+            job_schedule_at,
+            job_started_at,
+            job_finished_at,
+            job_created_at,
+            run_id,
+            run_exploit_id,
+            run_challenge_id,
+            run_team_id,
+            run_priority,
+            run_sequence,
+            run_enabled,
+            run_created_at,
+            exploit_id,
+            exploit_name,
+            exploit_challenge_id,
+            exploit_enabled,
+            exploit_max_per_container,
+            exploit_max_containers,
+            exploit_docker_image,
+            exploit_entrypoint,
+            exploit_timeout_secs,
+            exploit_default_counter,
+            exploit_created_at,
+            challenge_id,
+            challenge_name,
+            challenge_enabled,
+            challenge_default_port,
+            challenge_priority,
+            challenge_flag_regex,
+            challenge_created_at,
+            team_id,
+            team_team_id,
+            team_team_name,
+            team_default_ip,
+            team_priority,
+            team_created_at,
+            team_enabled,
+            rel_id,
+            rel_challenge_id,
+            rel_team_id,
+            rel_addr,
+            rel_port,
+            rel_created_at,
+        } = row;
+
+        let job = ExploitJob {
+            id: job_id,
+            round_id: job_round_id,
+            exploit_run_id: job_exploit_run_id,
+            team_id: job_team_id,
+            priority: job_priority,
+            status: job_status,
+            container_id: job_container_id,
+            stdout: job_stdout,
+            stderr: job_stderr,
+            create_reason: job_create_reason,
+            duration_ms: job_duration_ms,
+            schedule_at: job_schedule_at,
+            started_at: job_started_at,
+            finished_at: job_finished_at,
+            created_at: job_created_at,
+        };
+
+        let run = match run_id {
+            Some(run_id) => {
+                let exploit_id = run_exploit_id.ok_or_else(|| anyhow::anyhow!("missing exploit_id for run {}", run_id))?;
+                let challenge_id = run_challenge_id.ok_or_else(|| anyhow::anyhow!("missing challenge_id for run {}", run_id))?;
+                let team_id = run_team_id.ok_or_else(|| anyhow::anyhow!("missing team_id for run {}", run_id))?;
+                let sequence = run_sequence.ok_or_else(|| anyhow::anyhow!("missing sequence for run {}", run_id))?;
+                let enabled = run_enabled.ok_or_else(|| anyhow::anyhow!("missing enabled for run {}", run_id))?;
+                let created_at = run_created_at.ok_or_else(|| anyhow::anyhow!("missing created_at for run {}", run_id))?;
+                Some(ExploitRun {
+                    id: run_id,
+                    exploit_id,
+                    challenge_id,
+                    team_id,
+                    priority: run_priority,
+                    sequence,
+                    enabled,
+                    created_at,
+                })
+            }
+            None => None,
+        };
+
+        let exploit = match exploit_id {
+            Some(exploit_id) => {
+                let name = exploit_name.ok_or_else(|| anyhow::anyhow!("missing name for exploit {}", exploit_id))?;
+                let challenge_id = exploit_challenge_id.ok_or_else(|| anyhow::anyhow!("missing challenge_id for exploit {}", exploit_id))?;
+                let enabled = exploit_enabled.ok_or_else(|| anyhow::anyhow!("missing enabled for exploit {}", exploit_id))?;
+                let max_per_container = exploit_max_per_container.ok_or_else(|| anyhow::anyhow!("missing max_per_container for exploit {}", exploit_id))?;
+                let max_containers = exploit_max_containers.ok_or_else(|| anyhow::anyhow!("missing max_containers for exploit {}", exploit_id))?;
+                let docker_image = exploit_docker_image.ok_or_else(|| anyhow::anyhow!("missing docker_image for exploit {}", exploit_id))?;
+                let timeout_secs = exploit_timeout_secs.ok_or_else(|| anyhow::anyhow!("missing timeout_secs for exploit {}", exploit_id))?;
+                let default_counter = exploit_default_counter.ok_or_else(|| anyhow::anyhow!("missing default_counter for exploit {}", exploit_id))?;
+                let created_at = exploit_created_at.ok_or_else(|| anyhow::anyhow!("missing created_at for exploit {}", exploit_id))?;
+                Some(Exploit {
+                    id: exploit_id,
+                    name,
+                    challenge_id,
+                    enabled,
+                    max_per_container,
+                    max_containers,
+                    docker_image,
+                    entrypoint: exploit_entrypoint,
+                    timeout_secs,
+                    default_counter,
+                    created_at,
+                })
+            }
+            None => None,
+        };
+
+        let challenge = match challenge_id {
+            Some(challenge_id) => {
+                let name = challenge_name.ok_or_else(|| anyhow::anyhow!("missing name for challenge {}", challenge_id))?;
+                let enabled = challenge_enabled.ok_or_else(|| anyhow::anyhow!("missing enabled for challenge {}", challenge_id))?;
+                let priority = challenge_priority.ok_or_else(|| anyhow::anyhow!("missing priority for challenge {}", challenge_id))?;
+                let created_at = challenge_created_at.ok_or_else(|| anyhow::anyhow!("missing created_at for challenge {}", challenge_id))?;
+                Some(Challenge {
+                    id: challenge_id,
+                    name,
+                    enabled,
+                    default_port: challenge_default_port,
+                    priority,
+                    flag_regex: challenge_flag_regex,
+                    created_at,
+                })
+            }
+            None => None,
+        };
+
+        let team = match team_id {
+            Some(team_id) => {
+                let team_code = team_team_id.ok_or_else(|| anyhow::anyhow!("missing team_id for team {}", team_id))?;
+                let team_name = team_team_name.ok_or_else(|| anyhow::anyhow!("missing team_name for team {}", team_id))?;
+                let priority = team_priority.ok_or_else(|| anyhow::anyhow!("missing priority for team {}", team_id))?;
+                let created_at = team_created_at.ok_or_else(|| anyhow::anyhow!("missing created_at for team {}", team_id))?;
+                let enabled = team_enabled.ok_or_else(|| anyhow::anyhow!("missing enabled for team {}", team_id))?;
+                Some(Team {
+                    id: team_id,
+                    team_id: team_code,
+                    team_name,
+                    default_ip: team_default_ip,
+                    priority,
+                    created_at,
+                    enabled,
+                })
+            }
+            None => None,
+        };
+
+        let relation = match rel_id {
+            Some(rel_id) => {
+                let challenge_id = rel_challenge_id.ok_or_else(|| anyhow::anyhow!("missing challenge_id for relation {}", rel_id))?;
+                let team_id = rel_team_id.ok_or_else(|| anyhow::anyhow!("missing team_id for relation {}", rel_id))?;
+                let created_at = rel_created_at.ok_or_else(|| anyhow::anyhow!("missing created_at for relation {}", rel_id))?;
+                Some(ChallengeTeamRelation {
+                    id: rel_id,
+                    challenge_id,
+                    team_id,
+                    addr: rel_addr,
+                    port: rel_port,
+                    created_at,
+                })
+            }
+            None => None,
+        };
+
+        Ok(JobContextData {
+            job,
+            run,
+            exploit,
+            challenge,
+            team,
+            relation,
+        })
     }
 
     // Challenges
@@ -377,14 +708,14 @@ impl Database {
         Ok(row.unwrap_or(0))
     }
 
-    pub async fn mark_job_running(&self, id: i32) -> Result<()> {
-        sqlx::query!(
-            "UPDATE exploit_jobs SET status = 'running', started_at = NOW() WHERE id = $1",
-            id
+    pub async fn mark_job_running(&self, id: i32) -> Result<ExploitJob> {
+        let job = sqlx::query_as::<_, ExploitJob>(
+            "UPDATE exploit_jobs SET status = 'running', started_at = NOW() WHERE id = $1 RETURNING *",
         )
-        .execute(&self.pool)
+        .bind(id)
+        .fetch_one(&self.pool)
         .await?;
-        Ok(())
+        Ok(job)
     }
 
     pub async fn mark_job_scheduled(&self, id: i32) -> Result<()> {
@@ -399,11 +730,18 @@ impl Database {
         Ok(())
     }
 
-    pub async fn finish_job(&self, id: i32, status: &str, stdout: Option<&str>, stderr: Option<&str>, duration_ms: i32) -> Result<()> {
-        sqlx::query!("UPDATE exploit_jobs SET status = $2, stdout = $3, stderr = $4, duration_ms = $5, finished_at = NOW() WHERE id = $1",
-            id, status, stdout, stderr, duration_ms
-        ).execute(&self.pool).await?;
-        Ok(())
+    pub async fn finish_job(&self, id: i32, status: &str, stdout: Option<&str>, stderr: Option<&str>, duration_ms: i32) -> Result<ExploitJob> {
+        let job = sqlx::query_as::<_, ExploitJob>(
+            "UPDATE exploit_jobs SET status = $2, stdout = $3, stderr = $4, duration_ms = $5, finished_at = NOW() WHERE id = $1 RETURNING *",
+        )
+        .bind(id)
+        .bind(status)
+        .bind(stdout)
+        .bind(stderr)
+        .bind(duration_ms)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(job)
     }
 
     pub async fn reorder_jobs(&self, items: &[(i32, i32)]) -> Result<()> {

@@ -706,7 +706,7 @@ async fn execute_one_job(
 
     let timeout = compute_timeout(ctx.exploit.timeout_secs, settings.worker_timeout);
 
-    match executor.execute_job(&ctx.job, &ctx.run, &ctx.exploit, &ctx.conn, ctx.challenge.flag_regex.as_deref(), timeout, settings.max_flags).await {
+    match executor.execute_job(&ctx.job, &ctx.run, &ctx.exploit, &ctx.team, &ctx.conn, ctx.challenge.flag_regex.as_deref(), timeout, settings.max_flags).await {
         Ok(result) => {
             for flag in result.flags {
                 if let Ok(f) = db.create_flag(ctx.job.id, round_id, ctx.challenge.id, ctx.team.id, &flag).await {
