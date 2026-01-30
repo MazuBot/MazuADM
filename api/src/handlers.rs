@@ -509,7 +509,7 @@ pub async fn stop_job(State(s): S, Path(job_id): Path<i32>) -> R<ExploitJob> {
 }
 
 // Flags
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct SubmitFlagRequest {
     pub round_id: Option<i32>,
     pub challenge_id: i32,
@@ -518,7 +518,14 @@ pub struct SubmitFlagRequest {
     pub status: Option<String>,
 }
 
-pub async fn submit_flag(State(s): S, Json(req): Json<SubmitFlagRequest>) -> R<Flag> {
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum SubmitFlagsBody {
+    Single(SubmitFlagRequest),
+    Multiple(Vec<SubmitFlagRequest>),
+}
+
+async fn create_one_flag(s: &AppState, req: &SubmitFlagRequest, running_round_id: i32, past_rounds: usize) -> Result<Flag, String> {
     let flag_value = req.flag_value.trim();
     if flag_value.is_empty() {
         return Err("Flag value cannot be empty".to_string());
@@ -526,8 +533,6 @@ pub async fn submit_flag(State(s): S, Json(req): Json<SubmitFlagRequest>) -> R<F
     if flag_value.len() > 512 {
         return Err("Flag value exceeds 512 characters".to_string());
     }
-    let running_round_id = require_running_round_id(&s).await?;
-    let past_rounds = parse_setting_usize(s.db.get_setting("past_flag_rounds").await.ok(), 5);
     let round_id = req.round_id.unwrap_or(running_round_id);
     if !round_within_history(round_id, running_round_id, past_rounds) {
         let min_allowed = min_allowed_round_id(running_round_id, past_rounds);
@@ -541,8 +546,22 @@ pub async fn submit_flag(State(s): S, Json(req): Json<SubmitFlagRequest>) -> R<F
     s.db.get_team(req.team_id).await.map_err(err)?;
     let status = req.status.as_deref().unwrap_or("manual");
     let flag = s.db.create_manual_flag(round_id, req.challenge_id, req.team_id, flag_value, status).await.map_err(err)?;
-    broadcast(&s, "flag_created", &flag);
-    Ok(Json(flag))
+    broadcast(s, "flag_created", &flag);
+    Ok(flag)
+}
+
+pub async fn submit_flag(State(s): S, Json(body): Json<SubmitFlagsBody>) -> R<Vec<Flag>> {
+    let running_round_id = require_running_round_id(&s).await?;
+    let past_rounds = parse_setting_usize(s.db.get_setting("past_flag_rounds").await.ok(), 5);
+    let reqs = match body {
+        SubmitFlagsBody::Single(r) => vec![r],
+        SubmitFlagsBody::Multiple(r) => r,
+    };
+    let mut flags = Vec::new();
+    for req in &reqs {
+        flags.push(create_one_flag(&s, req, running_round_id, past_rounds).await?);
+    }
+    Ok(Json(flags))
 }
 
 pub async fn list_flags(State(s): S, Query(q): Query<ListFlagsQuery>) -> R<Vec<Flag>> {

@@ -280,9 +280,9 @@ List flags.
 **Response:** `Flag[]`
 
 ### `POST /api/flags`
-Submit a flag manually. If `round_id` is omitted, the running round is used. If `status` is omitted, defaults to `manual`. Requests are limited to the running round and up to `past_flag_rounds` rounds before it.
+Submit one or multiple flags manually. Accepts a single object or an array. If `round_id` is omitted, the running round is used. If `status` is omitted, defaults to `manual`. Requests are limited to the running round and up to `past_flag_rounds` rounds before it.
 
-**Body:**
+**Body (single):**
 ```json
 {
   "round_id": 1,
@@ -293,7 +293,15 @@ Submit a flag manually. If `round_id` is omitted, the running round is used. If 
 }
 ```
 
-**Response:** `Flag`
+**Body (multiple):**
+```json
+[
+  {"challenge_id": 2, "team_id": 3, "flag_value": "FLAG{a}"},
+  {"challenge_id": 2, "team_id": 4, "flag_value": "FLAG{b}"}
+]
+```
+
+**Response:** `Flag[]`
 
 ---
 
