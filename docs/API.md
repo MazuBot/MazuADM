@@ -2,6 +2,15 @@
 
 Base URL: `http://localhost:3000`
 
+## Version
+
+### `GET /api/version`
+Get API version.
+
+**Response:** `string`
+
+---
+
 ## WebSocket
 
 ### `GET /ws`
@@ -440,6 +449,15 @@ Update a relation.
 ```
 
 **Response:** `ChallengeTeamRelation`
+
+---
+
+## WebSocket Connections
+
+### `GET /api/ws-connections`
+List active WebSocket connections.
+
+**Response:** `WebSocketConnection[]`
 
 ---
 

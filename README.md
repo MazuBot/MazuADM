@@ -80,7 +80,7 @@ cd web && npm install && npm run dev
 
 ## CLI Usage
 
-See [CLI.md](CLI.md) for detailed CLI documentation.
+See [docs/CLI.md](docs/CLI.md) for detailed CLI documentation.
 
 ## Exploit Container Interface
 
