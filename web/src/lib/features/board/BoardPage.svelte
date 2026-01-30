@@ -1,7 +1,7 @@
 <script>
   import Board from './Board.svelte';
 
-  let { challenges, teams, exploits, exploitRuns, selectedChallengeId, onSelectChallenge, onRefresh } = $props();
+  let { challenges, teams, exploits, exploitRuns, settings, selectedChallengeId, onSelectChallenge, onRefresh } = $props();
 </script>
 
 {#if challenges.length}
@@ -14,4 +14,4 @@
   </div>
 {/if}
 
-<Board {challenges} {teams} {exploits} {exploitRuns} challengeId={selectedChallengeId} onRefresh={onRefresh} />
+<Board {challenges} {teams} {exploits} {exploitRuns} {settings} challengeId={selectedChallengeId} onRefresh={onRefresh} />

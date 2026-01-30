@@ -267,7 +267,13 @@ pub async fn list_exploits(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<Exp
     s.db.list_exploits(q.challenge_id).await.map(Json).map_err(err)
 }
 
-pub async fn create_exploit(State(s): S, Json(e): Json<CreateExploit>) -> R<Exploit> {
+pub async fn create_exploit(State(s): S, Json(mut e): Json<CreateExploit>) -> R<Exploit> {
+    // Apply default_ignore_connection_info setting if not specified
+    if e.ignore_connection_info.is_none() {
+        if let Ok(val) = s.db.get_setting("default_ignore_connection_info").await {
+            e.ignore_connection_info = Some(val == "true");
+        }
+    }
     let auto_add = e.auto_add.clone();
     let insert_into_rounds = e.insert_into_rounds;
     let exploit = s.db.create_exploit(e).await.map_err(err)?;

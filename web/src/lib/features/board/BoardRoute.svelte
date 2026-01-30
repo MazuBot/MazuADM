@@ -6,7 +6,7 @@
 
   export let routeId = null
 
-  const { ready, challenges, teams, exploits, exploitRuns, selectedChallengeId, loadAll } = app
+  const { ready, challenges, teams, exploits, exploitRuns, settings, selectedChallengeId, loadAll } = app
 
   $: if ($ready) {
     const { selectedId } = resolveBoardSelection({
@@ -34,6 +34,7 @@
   teams={$teams}
   exploits={$exploits}
   exploitRuns={$exploitRuns}
+  settings={$settings}
   selectedChallengeId={$selectedChallengeId}
   onSelectChallenge={selectChallenge}
   onRefresh={loadAll}

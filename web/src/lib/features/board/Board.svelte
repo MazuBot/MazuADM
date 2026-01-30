@@ -6,7 +6,15 @@
   import { getChallengeName, getExploitName, getTeamDisplay } from '$lib/utils/lookup.js';
   import { formatApiError, pushToast } from '$lib/ui/toastStore.js';
 
-  let { challenges, teams, exploits, exploitRuns, challengeId, onRefresh } = $props();
+  let { challenges, teams, exploits, exploitRuns, settings, challengeId, onRefresh } = $props();
+
+  function getSetting(key, fallback) {
+    return settings?.find((s) => s.key === key)?.value ?? fallback;
+  }
+
+  function getDefaultIgnoreConnectionInfo() {
+    return getSetting('default_ignore_connection_info', 'false') === 'true';
+  }
 
   function getNewExploitDefaults() {
     return {
@@ -18,7 +26,7 @@
       max_concurrent_jobs: 0,
       default_counter: 999,
       timeout_secs: 0,
-      ignore_connection_info: false,
+      ignore_connection_info: getDefaultIgnoreConnectionInfo(),
       auto_add: 'end',
       insert_into_rounds: true
     };
