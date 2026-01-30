@@ -13,7 +13,10 @@
     selectedChallengeId,
     selectedRoundId,
     selectedFlagRoundId,
+    wsConnections,
     loadAll,
+    loadContainers,
+    resetContainers,
     start,
     restart,
     stop
@@ -56,8 +59,17 @@
       userInput = ''
       showUserModal = true
     })
-    setOnConnect(() => {
+    setOnConnect((isReconnect) => {
       api.version().then(v => beVersion = shortHash(v.git_hash))
+      if (!isReconnect) return
+      loadAll()
+      if (pathname.startsWith('/containers')) {
+        resetContainers()
+        loadContainers()
+      }
+      if (pathname.startsWith('/websockets')) {
+        api.listWsConnections().then(data => wsConnections.set(data))
+      }
     })
     if (!getUser()) {
       showUserModal = true

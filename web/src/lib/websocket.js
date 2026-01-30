@@ -2,6 +2,7 @@ let ws = null;
 let reconnectTimer = null;
 let onAuthError = null;
 let onConnect = null;
+let hasConnected = false;
 
 const feVersion = import.meta.env.DEV ? 'dev' : __BUILD_GIT_HASH__;
 
@@ -43,7 +44,9 @@ export function connect(onMessage) {
   };
 
   ws.onopen = () => {
-    onConnect?.();
+    const isReconnect = hasConnected;
+    hasConnected = true;
+    onConnect?.(isReconnect);
   };
   
   ws.onclose = () => {
