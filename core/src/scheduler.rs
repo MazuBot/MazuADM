@@ -16,8 +16,9 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use dashmap::DashMap;
-use tokio::sync::{broadcast, mpsc, oneshot, Mutex, Notify, OwnedMutexGuard, Semaphore};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex, Notify, OwnedMutexGuard, OwnedSemaphorePermit, Semaphore};
 use std::time::Duration;
 
 fn broadcast<T: serde::Serialize>(tx: &broadcast::Sender<WsMessage>, msg_type: &str, data: &T) {
@@ -52,6 +53,17 @@ struct ScheduleSettings {
 struct PendingEntry {
     priority: i32,
     job_id: i32,
+}
+
+struct ExploitGate {
+    limit: AtomicUsize,
+    semaphore: Arc<Semaphore>,
+}
+
+enum ExploitPermit {
+    #[allow(dead_code)]
+    Limited(OwnedSemaphorePermit),
+    Unlimited,
 }
 
 #[derive(serde::Serialize)]
@@ -168,6 +180,7 @@ pub struct SchedulerRunner {
     settings: Option<ScheduleSettings>,
     round_id: Option<i32>,
     target_locks: DashMap<(i32, i32), Arc<Mutex<()>>>,
+    exploit_gates: DashMap<i32, Arc<ExploitGate>>,
 }
 
 #[derive(Clone)]
@@ -192,6 +205,7 @@ impl SchedulerRunner {
             settings: None,
             round_id: None,
             target_locks: DashMap::new(),
+            exploit_gates: DashMap::new(),
         };
         let handle = SchedulerHandle { tx, notify };
         (runner, handle)
@@ -275,10 +289,22 @@ impl SchedulerRunner {
             }
             SchedulerCommand::RunJobImmediately(job_id) => {
                 let exec = executor;
+                let db = self.scheduler.db.clone();
+                let tx = self.scheduler.tx.clone();
+                let exploit_gates = self.exploit_gates.clone();
                 immediate.push(Box::pin(async move {
+                    let ctx = match build_job_context_or_finish(&db, &tx, job_id).await {
+                        Some(ctx) => ctx,
+                        None => return,
+                    };
+                    let exploit_permit = match acquire_exploit_permit(&exploit_gates, ctx.exploit.id, ctx.exploit.max_concurrent_jobs).await {
+                        Some(permit) => permit,
+                        None => return,
+                    };
                     if let Err(e) = exec.run_job_immediately(job_id).await {
                         tracing::error!("Immediate job {} failed: {}", job_id, e);
                     }
+                    drop(exploit_permit);
                 }));
             }
             SchedulerCommand::StopJob { job_id, reason, resp } => {
@@ -343,6 +369,7 @@ impl SchedulerRunner {
         self.queue.reset(round_id, jobs);
         self.round_id = Some(round_id);
         self.target_locks = DashMap::new();
+        self.exploit_gates.clear();
         self.update_settings(settings);
         Ok(())
     }
@@ -404,7 +431,7 @@ impl SchedulerRunner {
         while self.semaphore.available_permits() > 0 {
             let mut scanned = 0;
             let max_scan = self.queue.len();
-            let mut selected: Option<(JobContext, Option<OwnedMutexGuard<()>>)> = None;
+            let mut selected: Option<(JobContext, Option<OwnedMutexGuard<()>>, ExploitPermit)> = None;
 
             while scanned < max_scan {
                 let Some(job) = self.queue.pop_next() else { break; };
@@ -430,11 +457,23 @@ impl SchedulerRunner {
                     }
                 };
 
-                selected = Some((ctx, target_guard));
+                let exploit_permit = match try_acquire_exploit_permit(
+                    &self.exploit_gates,
+                    ctx.exploit.id,
+                    ctx.exploit.max_concurrent_jobs,
+                ) {
+                    Some(permit) => permit,
+                    None => {
+                        deferred.push(ctx.job);
+                        continue;
+                    }
+                };
+
+                selected = Some((ctx, target_guard, exploit_permit));
                 break;
             }
 
-            let Some((ctx, target_guard)) = selected else { break; };
+            let Some((ctx, target_guard, exploit_permit)) = selected else { break; };
 
             tracing::info!(
                 "Scheduling job {} for round {} (challenge {}, team {}, priority {})",
@@ -460,6 +499,7 @@ impl SchedulerRunner {
             let exec = executor;
             in_flight.push(Box::pin(async move {
                 let _permit = permit;
+                let _exploit_permit = exploit_permit;
                 let _target_guard = target_guard;
                 execute_one_job(db, tx, exec, _target_guard, ctx, round_id, settings).await;
             }));
@@ -473,6 +513,89 @@ impl SchedulerRunner {
             self.round_id = None;
         }
     }
+}
+
+fn normalize_exploit_limit(limit: i32) -> Option<usize> {
+    if limit <= 0 {
+        None
+    } else {
+        usize::try_from(limit).ok()
+    }
+}
+
+fn sync_exploit_gate(gate: &ExploitGate, desired_limit: usize) {
+    let current_limit = gate.limit.load(AtomicOrdering::Relaxed);
+    if current_limit == desired_limit {
+        return;
+    }
+    let available = gate.semaphore.available_permits();
+    let running = current_limit.saturating_sub(available);
+    gate.limit.store(desired_limit, AtomicOrdering::Relaxed);
+    let desired_available = desired_limit.saturating_sub(running);
+    if available < desired_available {
+        gate.semaphore.add_permits(desired_available - available);
+    } else if available > desired_available {
+        let to_forget = available - desired_available;
+        let _ = gate.semaphore.forget_permits(to_forget);
+    }
+}
+
+fn ensure_exploit_gate(
+    exploit_gates: &DashMap<i32, Arc<ExploitGate>>,
+    exploit_id: i32,
+    limit: usize,
+) -> Arc<ExploitGate> {
+    use dashmap::mapref::entry::Entry;
+    match exploit_gates.entry(exploit_id) {
+        Entry::Occupied(entry) => {
+            let gate = entry.get().clone();
+            sync_exploit_gate(&gate, limit);
+            gate
+        }
+        Entry::Vacant(entry) => {
+            let gate = Arc::new(ExploitGate {
+                limit: AtomicUsize::new(limit),
+                semaphore: Arc::new(Semaphore::new(limit)),
+            });
+            entry.insert(gate.clone());
+            gate
+        }
+    }
+}
+
+fn try_acquire_exploit_permit(
+    exploit_gates: &DashMap<i32, Arc<ExploitGate>>,
+    exploit_id: i32,
+    raw_limit: i32,
+) -> Option<ExploitPermit> {
+    let Some(limit) = normalize_exploit_limit(raw_limit) else {
+        exploit_gates.remove(&exploit_id);
+        return Some(ExploitPermit::Unlimited);
+    };
+    let gate = ensure_exploit_gate(exploit_gates, exploit_id, limit);
+    gate.semaphore
+        .clone()
+        .try_acquire_owned()
+        .ok()
+        .map(ExploitPermit::Limited)
+}
+
+async fn acquire_exploit_permit(
+    exploit_gates: &DashMap<i32, Arc<ExploitGate>>,
+    exploit_id: i32,
+    raw_limit: i32,
+) -> Option<ExploitPermit> {
+    let Some(limit) = normalize_exploit_limit(raw_limit) else {
+        exploit_gates.remove(&exploit_id);
+        return Some(ExploitPermit::Unlimited);
+    };
+    let gate = ensure_exploit_gate(exploit_gates, exploit_id, limit);
+    gate.semaphore
+        .clone()
+        .acquire_owned()
+        .await
+        .ok()
+        .map(ExploitPermit::Limited)
 }
 
 impl SchedulerHandle {
@@ -744,6 +867,36 @@ mod target_lock_tests {
             try_acquire_target_guard(&locks, false, (1, 1)),
             TargetLockOutcome::NoLock
         ));
+    }
+}
+
+#[cfg(test)]
+mod exploit_gate_tests {
+    use super::{normalize_exploit_limit, sync_exploit_gate, ExploitGate};
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use tokio::sync::Semaphore;
+
+    #[test]
+    fn normalize_exploit_limit_handles_zero_and_negative() {
+        assert_eq!(normalize_exploit_limit(0), None);
+        assert_eq!(normalize_exploit_limit(-1), None);
+        assert_eq!(normalize_exploit_limit(3), Some(3));
+    }
+
+    #[test]
+    fn sync_exploit_gate_adjusts_available_permits() {
+        let gate = ExploitGate {
+            limit: AtomicUsize::new(2),
+            semaphore: Arc::new(Semaphore::new(2)),
+        };
+        let permit = gate.semaphore.clone().try_acquire_owned().expect("permit");
+        sync_exploit_gate(&gate, 1);
+        assert_eq!(gate.semaphore.available_permits(), 0);
+        drop(permit);
+        assert_eq!(gate.semaphore.available_permits(), 1);
+        sync_exploit_gate(&gate, 3);
+        assert_eq!(gate.semaphore.available_permits(), 3);
     }
 }
 

@@ -127,7 +127,7 @@ impl Database {
     pub async fn create_exploit(&self, e: CreateExploit) -> Result<Exploit> {
         let exploit = sqlx::query_as!(
             Exploit,
-            "INSERT INTO exploits (name, challenge_id, docker_image, entrypoint, enabled, max_per_container, max_containers, timeout_secs, default_counter) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
+            "INSERT INTO exploits (name, challenge_id, docker_image, entrypoint, enabled, max_per_container, max_containers, max_concurrent_jobs, timeout_secs, default_counter) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *",
             e.name,
             e.challenge_id,
             e.docker_image,
@@ -135,6 +135,7 @@ impl Database {
             e.enabled.unwrap_or(true),
             e.max_per_container.unwrap_or(1),
             e.max_containers.unwrap_or(0),
+            e.max_concurrent_jobs.unwrap_or(0),
             e.timeout_secs.unwrap_or(30),
             e.default_counter.unwrap_or(999),
         )
@@ -176,7 +177,7 @@ impl Database {
     pub async fn update_exploit(&self, id: i32, e: UpdateExploit) -> Result<Exploit> {
         let exploit = sqlx::query_as!(
             Exploit,
-            "UPDATE exploits SET name = $2, docker_image = $3, entrypoint = $4, enabled = COALESCE($5, enabled), max_per_container = COALESCE($6, max_per_container), max_containers = COALESCE($7, max_containers), timeout_secs = COALESCE($8, timeout_secs), default_counter = COALESCE($9, default_counter) WHERE id = $1 RETURNING *",
+            "UPDATE exploits SET name = $2, docker_image = $3, entrypoint = $4, enabled = COALESCE($5, enabled), max_per_container = COALESCE($6, max_per_container), max_containers = COALESCE($7, max_containers), max_concurrent_jobs = COALESCE($8, max_concurrent_jobs), timeout_secs = COALESCE($9, timeout_secs), default_counter = COALESCE($10, default_counter) WHERE id = $1 RETURNING *",
             id,
             e.name,
             e.docker_image,
@@ -184,6 +185,7 @@ impl Database {
             e.enabled,
             e.max_per_container,
             e.max_containers,
+            e.max_concurrent_jobs,
             e.timeout_secs,
             e.default_counter
         )
