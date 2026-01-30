@@ -15,6 +15,7 @@
       entrypoint: '',
       max_per_container: Math.max(teams.length, 1),
       max_containers: 0,
+      max_concurrent_jobs: 0,
       default_counter: 999,
       timeout_secs: 0,
       auto_add: 'end',
@@ -34,7 +35,7 @@
   let editFormInitial = $state(null);
 
   let editingExploit = $state(null);
-  let exploitForm = $state({ name: '', docker_image: '', entrypoint: '', max_per_container: 1, max_containers: 0, default_counter: 999, timeout_secs: 0, enabled: true });
+  let exploitForm = $state({ name: '', docker_image: '', entrypoint: '', max_per_container: 1, max_containers: 0, max_concurrent_jobs: 0, default_counter: 999, timeout_secs: 0, enabled: true });
   let exploitFormInitial = $state(null);
 
   let editingRelation = $state(null);
@@ -218,6 +219,7 @@
         entrypoint: newExploit.entrypoint || null,
         max_per_container: newExploit.max_per_container,
         max_containers: newExploit.max_containers,
+        max_concurrent_jobs: newExploit.max_concurrent_jobs,
         default_counter: newExploit.default_counter,
         timeout_secs: newExploit.timeout_secs || 0,
         auto_add: newExploit.auto_add,
@@ -244,13 +246,13 @@
   function duplicateExploit(e, ev) {
     ev.stopPropagation();
     showAddExploit = true;
-    newExploit = { name: e.name + ' (copy)', docker_image: e.docker_image, entrypoint: e.entrypoint || '', max_per_container: e.max_per_container, max_containers: e.max_containers, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, auto_add: 'end', insert_into_rounds: true };
+    newExploit = { name: e.name + ' (copy)', docker_image: e.docker_image, entrypoint: e.entrypoint || '', max_per_container: e.max_per_container, max_containers: e.max_containers, max_concurrent_jobs: e.max_concurrent_jobs, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, auto_add: 'end', insert_into_rounds: true };
     newExploitInitial = { ...newExploit };
   }
 
   function openEditExploit(e) {
     editingExploit = e;
-    exploitForm = { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint || '', max_per_container: e.max_per_container, max_containers: e.max_containers, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, enabled: e.enabled };
+    exploitForm = { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint || '', max_per_container: e.max_per_container, max_containers: e.max_containers, max_concurrent_jobs: e.max_concurrent_jobs, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, enabled: e.enabled };
     exploitFormInitial = { ...exploitForm };
   }
 
@@ -883,6 +885,9 @@
       <label class:field-changed={isNewExploitChanged('max_containers')}>
         Max containers <input bind:value={newExploit.max_containers} type="number" placeholder="0 = unlimited" />
       </label>
+      <label class:field-changed={isNewExploitChanged('max_concurrent_jobs')}>
+        Max concurrent jobs <input bind:value={newExploit.max_concurrent_jobs} type="number" placeholder="0 = unlimited" />
+      </label>
       <label class:field-changed={isNewExploitChanged('default_counter')}>
         Default counter <input bind:value={newExploit.default_counter} type="number" placeholder="Default: 999" />
       </label>
@@ -960,6 +965,9 @@
       </label>
       <label class:field-changed={isExploitFieldChanged('max_containers')}>
         Max containers <input bind:value={exploitForm.max_containers} type="number" placeholder="0 = unlimited" />
+      </label>
+      <label class:field-changed={isExploitFieldChanged('max_concurrent_jobs')}>
+        Max concurrent jobs <input bind:value={exploitForm.max_concurrent_jobs} type="number" placeholder="0 = unlimited" />
       </label>
       <label class:field-changed={isExploitFieldChanged('default_counter')}>
         Default counter <input bind:value={exploitForm.default_counter} type="number" />
