@@ -37,7 +37,7 @@ pub enum SchedulerCommand {
     EnsureContainers { exploit_id: i32, resp: oneshot::Sender<Result<()>> },
     DestroyExploitContainers { exploit_id: i32, resp: oneshot::Sender<Result<()>> },
     ListContainers { exploit_id: Option<i32>, resp: oneshot::Sender<Result<Vec<ContainerInfo>>> },
-    RestartContainer { id: String, resp: oneshot::Sender<Result<()>> },
+    RestartContainer { id: String, timeout_secs: Option<u64>, force: bool, resp: oneshot::Sender<Result<()>> },
     DestroyContainer { id: String, resp: oneshot::Sender<Result<()>> },
 }
 
@@ -337,14 +337,14 @@ impl SchedulerRunner {
                     });
                 let _ = resp.send(res);
             }
-            SchedulerCommand::RestartContainer { id, resp } => {
-                let cm = &executor.container_manager;
-                let registry = &executor.container_registry;
-                immediate.push(Box::pin(async move {
-                    let res = cm.restart_container_by_id(registry, &id).await;
-                    let _ = resp.send(res);
-                }));
-            }
+        SchedulerCommand::RestartContainer { id, timeout_secs, force, resp } => {
+            let cm = &executor.container_manager;
+            let registry = &executor.container_registry;
+            immediate.push(Box::pin(async move {
+                let res = cm.restart_container_by_id(registry, &id, timeout_secs, force).await;
+                let _ = resp.send(res);
+            }));
+        }
             SchedulerCommand::DestroyContainer { id, resp } => {
                 let cm = &executor.container_manager;
                 let registry = &executor.container_registry;
@@ -639,13 +639,13 @@ impl SchedulerHandle {
         resp_rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("Scheduler response dropped")))
     }
 
-    pub async fn restart_all_containers(&self) -> Result<()> {
+    pub async fn restart_all_containers(&self, timeout_secs: Option<u64>, force: bool) -> Result<()> {
         let containers = self.list_containers(None).await?;
         let ids: Vec<String> = containers.into_iter().map(|c| c.id).collect();
         let results = stream::iter(ids)
             .map(|id| {
                 let scheduler = self.clone();
-                async move { (id.clone(), scheduler.restart_container(id).await) }
+                async move { (id.clone(), scheduler.restart_container(id, timeout_secs, force).await) }
             })
             .buffer_unordered(10)
             .collect::<Vec<_>>()
@@ -665,9 +665,9 @@ impl SchedulerHandle {
         }
     }
 
-    pub async fn restart_container(&self, id: String) -> Result<()> {
+    pub async fn restart_container(&self, id: String, timeout_secs: Option<u64>, force: bool) -> Result<()> {
         let (resp_tx, resp_rx) = oneshot::channel();
-        self.send(SchedulerCommand::RestartContainer { id, resp: resp_tx })?;
+        self.send(SchedulerCommand::RestartContainer { id, timeout_secs, force, resp: resp_tx })?;
         resp_rx.await.unwrap_or_else(|_| Err(anyhow::anyhow!("Scheduler response dropped")))
     }
 

@@ -206,7 +206,7 @@ async fn main() -> Result<()> {
     let (runner, scheduler_handle) = SchedulerRunner::new(scheduler, executor);
     tokio::spawn(runner.run());
 
-    if let Err(e) = scheduler_handle.restart_all_containers().await {
+    if let Err(e) = scheduler_handle.restart_all_containers(Some(0), true).await {
         tracing::warn!("Failed to restart containers on startup: {}", e);
     }
 

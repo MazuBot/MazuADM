@@ -330,6 +330,14 @@ Destroy a container.
 ### `POST /api/containers/restart-all`
 Restart all managed containers.
 
+**Body (optional):**
+```json
+{
+  "timeout": "int?",
+  "force": "bool?"
+}
+```
+
 ### `POST /api/containers/remove-all`
 Remove all managed containers.
 
@@ -342,6 +350,14 @@ Get running jobs for a container.
 ### `POST /api/containers/{id}/restart`
 Restart a container (Docker restart; preserves container ID and labels). Repeated requests while a restart is in-flight are ignored.
 `id` is the Docker container ID.
+
+**Body (optional):**
+```json
+{
+  "timeout": "int?",
+  "force": "bool?"
+}
+```
 
 ---
 

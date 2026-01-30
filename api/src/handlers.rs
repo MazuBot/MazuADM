@@ -560,6 +560,12 @@ pub struct UpdateSetting {
     pub value: String,
 }
 
+#[derive(Deserialize, Default)]
+pub struct RestartContainerRequest {
+    pub timeout: Option<u64>,
+    pub force: Option<bool>,
+}
+
 pub async fn update_setting(State(s): S, Json(u): Json<UpdateSetting>) -> R<String> {
     s.db.set_setting(&u.key, &u.value).await.map_err(err)?;
     broadcast(&s, "setting_updated", &u);
@@ -581,36 +587,22 @@ pub async fn delete_container(State(s): S, Path(id): Path<String>) -> R<String> 
     Ok(Json("ok".to_string()))
 }
 
-pub async fn restart_container(State(s): S, Path(id): Path<String>) -> R<String> {
-    s.scheduler.restart_container(id).await.map_err(err)?;
+pub async fn restart_container(State(s): S, Path(id): Path<String>, body: Option<Json<RestartContainerRequest>>) -> R<String> {
+    let req = body.map(|Json(r)| r).unwrap_or_default();
+    s.scheduler
+        .restart_container(id, req.timeout, req.force.unwrap_or(false))
+        .await
+        .map_err(err)?;
     Ok(Json("ok".to_string()))
 }
 
-pub async fn restart_all_containers(State(s): S) -> R<String> {
-    let containers = s.scheduler.list_containers(None).await.map_err(err)?;
-    let ids: Vec<String> = containers.into_iter().map(|c| c.id).collect();
-    let scheduler = s.scheduler.clone();
-    let results = stream::iter(ids)
-        .map(|id| {
-            let scheduler = scheduler.clone();
-            async move { (id.clone(), scheduler.restart_container(id).await) }
-        })
-        .buffer_unordered(10)
-        .collect::<Vec<_>>()
-        .await;
-    let failures: Vec<String> = results
-        .into_iter()
-        .filter_map(|(id, res)| res.err().map(|e| format!("{}: {}", id, e)))
-        .collect();
-    if failures.is_empty() {
-        Ok(Json("ok".to_string()))
-    } else {
-        Err(format!(
-            "Failed to restart {} containers: {}",
-            failures.len(),
-            failures.join("; ")
-        ))
-    }
+pub async fn restart_all_containers(State(s): S, body: Option<Json<RestartContainerRequest>>) -> R<String> {
+    let req = body.map(|Json(r)| r).unwrap_or_default();
+    s.scheduler
+        .restart_all_containers(req.timeout, req.force.unwrap_or(false))
+        .await
+        .map_err(err)?;
+    Ok(Json("ok".to_string()))
 }
 
 pub async fn remove_all_containers(State(s): S) -> R<String> {

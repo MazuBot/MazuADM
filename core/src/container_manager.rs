@@ -860,14 +860,21 @@ impl ContainerManager {
     }
 
     /// Restart a container by ID
-    pub(crate) async fn restart_container_by_id(&self, registry: &ContainerRegistryHandle, container_id: &str) -> Result<()> {
-        if !self.begin_restart(container_id).await {
+    pub(crate) async fn restart_container_by_id(
+        &self,
+        registry: &ContainerRegistryHandle,
+        container_id: &str,
+        timeout_secs: Option<u64>,
+        force: bool,
+    ) -> Result<()> {
+        if !force && !self.begin_restart(container_id).await {
             return Ok(());
         }
 
+        let timeout = timeout_secs.and_then(|t| i32::try_from(t).ok());
         let result = self
             .docker
-            .restart_container(container_id, Some(RestartContainerOptions { t: Some(5), signal: None }))
+            .restart_container(container_id, Some(RestartContainerOptions { t: timeout, signal: None }))
             .await
             .map_err(Into::into);
 
