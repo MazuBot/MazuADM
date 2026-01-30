@@ -358,6 +358,20 @@ Update a setting.
 }
 ```
 
+### Available Settings
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `concurrent_limit` | Max concurrent job executions | `10` |
+| `concurrent_create_limit` | Max concurrent container creations | `1` |
+| `worker_timeout` | Default job timeout in seconds | `60` |
+| `max_flags_per_job` | Max flags extracted per job | `50` |
+| `skip_on_flag` | Skip remaining jobs for team after flag | `false` |
+| `sequential_per_target` | Run jobs sequentially per target | `false` |
+| `past_flag_rounds` | Rounds before current allowed for flag submission | `5` |
+| `ip_headers` | Comma-separated headers for client IP detection | `` |
+| `default_ignore_connection_info` | Default value for exploit ignore_connection_info | `false` |
+
 ---
 
 ## Containers
