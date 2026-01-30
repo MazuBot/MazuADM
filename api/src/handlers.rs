@@ -649,6 +649,11 @@ pub struct RestartContainerRequest {
     pub force: Option<bool>,
 }
 
+#[derive(Deserialize, Default)]
+pub struct ContainerBulkQuery {
+    pub challenge_id: Option<i32>,
+}
+
 #[derive(serde::Serialize)]
 pub struct ContainerBulkOpResult {
     pub total: usize,
@@ -669,6 +674,19 @@ fn summarize_container_ops<E: std::fmt::Display>(results: Vec<(String, std::resu
     ContainerBulkOpResult { total, success, failed, failures }
 }
 
+async fn list_containers_for_challenge(s: &AppState, challenge_id: Option<i32>) -> Result<Vec<ContainerInfo>, String> {
+    let containers = s.scheduler.list_containers(None).await.map_err(err)?;
+    let Some(challenge_id) = challenge_id else {
+        return Ok(containers);
+    };
+    let exploits = s.db.list_exploits(Some(challenge_id)).await.map_err(err)?;
+    let exploit_ids: HashSet<i32> = exploits.into_iter().map(|exploit| exploit.id).collect();
+    Ok(containers
+        .into_iter()
+        .filter(|container| exploit_ids.contains(&container.exploit_id))
+        .collect())
+}
+
 pub async fn update_setting(State(s): S, Json(u): Json<UpdateSetting>) -> R<String> {
     s.db.set_setting(&u.key, &u.value).await.map_err(err)?;
     broadcast(&s, "setting_updated", &u);
@@ -677,7 +695,7 @@ pub async fn update_setting(State(s): S, Json(u): Json<UpdateSetting>) -> R<Stri
 
 // Containers
 pub async fn list_containers(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<ContainerInfo>> {
-    let containers = s.scheduler.list_containers(q.challenge_id).await.map_err(err)?;
+    let containers = list_containers_for_challenge(&s, q.challenge_id).await?;
     Ok(Json(containers))
 }
 
@@ -699,11 +717,15 @@ pub async fn restart_container(State(s): S, Path(id): Path<String>, body: Option
     Ok(Json("ok".to_string()))
 }
 
-pub async fn restart_all_containers(State(s): S, body: Option<Json<RestartContainerRequest>>) -> R<ContainerBulkOpResult> {
+pub async fn restart_all_containers(
+    State(s): S,
+    Query(q): Query<ContainerBulkQuery>,
+    body: Option<Json<RestartContainerRequest>>,
+) -> R<ContainerBulkOpResult> {
     let req = body.map(|Json(r)| r).unwrap_or_default();
     let force = req.force.unwrap_or(false);
     let timeout = req.timeout;
-    let containers = s.scheduler.list_containers(None).await.map_err(err)?;
+    let containers = list_containers_for_challenge(&s, q.challenge_id).await?;
     let ids: Vec<String> = containers.into_iter().map(|c| c.id).collect();
     let scheduler = s.scheduler.clone();
     let results = stream::iter(ids)
@@ -717,8 +739,8 @@ pub async fn restart_all_containers(State(s): S, body: Option<Json<RestartContai
     Ok(Json(summarize_container_ops(results)))
 }
 
-pub async fn remove_all_containers(State(s): S) -> R<ContainerBulkOpResult> {
-    let containers = s.scheduler.list_containers(None).await.map_err(err)?;
+pub async fn remove_all_containers(State(s): S, Query(q): Query<ContainerBulkQuery>) -> R<ContainerBulkOpResult> {
+    let containers = list_containers_for_challenge(&s, q.challenge_id).await?;
     let ids: Vec<String> = containers.into_iter().map(|c| c.id).collect();
     let scheduler = s.scheduler.clone();
     let results = stream::iter(ids)
