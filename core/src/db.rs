@@ -478,10 +478,13 @@ impl Database {
         Ok(count.unwrap_or(0) > 0)
     }
 
-    pub async fn list_flags(&self, round_id: Option<i32>) -> Result<Vec<Flag>> {
-        match round_id {
-            Some(r) => Ok(sqlx::query_as!(Flag, "SELECT * FROM flags WHERE round_id = $1 ORDER BY id DESC", r).fetch_all(&self.pool).await?),
-            None => Ok(sqlx::query_as!(Flag, "SELECT * FROM flags ORDER BY id DESC").fetch_all(&self.pool).await?),
+    pub async fn list_flags(&self, round_id: Option<i32>, statuses: Option<Vec<String>>, desc: bool) -> Result<Vec<Flag>> {
+        let order = if desc { "DESC" } else { "ASC" };
+        match (round_id, statuses) {
+            (Some(r), Some(s)) => Ok(sqlx::query_as(&format!("SELECT * FROM flags WHERE round_id = $1 AND status = ANY($2) ORDER BY id {}", order)).bind(r).bind(&s).fetch_all(&self.pool).await?),
+            (Some(r), None) => Ok(sqlx::query_as(&format!("SELECT * FROM flags WHERE round_id = $1 ORDER BY id {}", order)).bind(r).fetch_all(&self.pool).await?),
+            (None, Some(s)) => Ok(sqlx::query_as(&format!("SELECT * FROM flags WHERE status = ANY($1) ORDER BY id {}", order)).bind(&s).fetch_all(&self.pool).await?),
+            (None, None) => Ok(sqlx::query_as(&format!("SELECT * FROM flags ORDER BY id {}", order)).fetch_all(&self.pool).await?),
         }
     }
 

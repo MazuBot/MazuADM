@@ -545,8 +545,21 @@ pub async fn submit_flag(State(s): S, Json(req): Json<SubmitFlagRequest>) -> R<F
     Ok(Json(flag))
 }
 
-pub async fn list_flags(State(s): S, Query(q): Query<ListQuery>) -> R<Vec<Flag>> {
-    s.db.list_flags(q.round_id).await.map(Json).map_err(err)
+pub async fn list_flags(State(s): S, Query(q): Query<ListFlagsQuery>) -> R<Vec<Flag>> {
+    let statuses = q.status.as_ref().map(|s| s.split(',').map(|x| x.to_string()).collect::<Vec<_>>());
+    let desc = match q.sort.as_deref() {
+        Some("asc") => false,
+        Some("desc") | None => true,
+        Some(_) => return Err("sort must be 'asc' or 'desc'".to_string()),
+    };
+    s.db.list_flags(q.round_id, statuses, desc).await.map(Json).map_err(err)
+}
+
+#[derive(Deserialize)]
+pub struct ListFlagsQuery {
+    pub round_id: Option<i32>,
+    pub status: Option<String>,
+    pub sort: Option<String>,
 }
 
 // Settings

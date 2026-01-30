@@ -272,7 +272,10 @@ Stops the current exec process for that job (containers are not destroyed).
 ### `GET /api/flags`
 List flags.
 
-**Query:** `round_id?: int`
+**Query:**
+- `round_id?: int` - Filter by round ID
+- `status?: string` - Filter by status (comma-separated, e.g. `captured,manual`)
+- `sort?: string` - Sort order: `asc` or `desc` (default: `desc`)
 
 **Response:** `Flag[]`
 
