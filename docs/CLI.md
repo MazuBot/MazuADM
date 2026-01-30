@@ -47,8 +47,10 @@ mazuadm-cli team disable team1
 ### Exploit Management
 
 ```bash
-mazuadm-cli exploit create pwn1-exp --challenge pwn1 --config config.toml
-mazuadm-cli exploit create . --challenge pwn1
+mazuadm-cli exploit create pwn1-exp --challenge pwn1 --image pwn1-exp:latest
+mazuadm-cli exploit create pwn1-exp --challenge pwn1 --image pwn1-exp:latest --timeout 60
+mazuadm-cli exploit pack --challenge pwn1                    # uses cwd name and config.toml
+mazuadm-cli exploit pack pwn1-exp --challenge pwn1 --config config.toml
 mazuadm-cli exploit list
 mazuadm-cli exploit list --challenge pwn1
 mazuadm-cli exploit update pwn1-exp --challenge pwn1 --timeout 60
