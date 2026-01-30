@@ -29,6 +29,7 @@
         value={getSetting('concurrent_limit', '10')}
         onchange={(e) => updateSettingAndToast('concurrent_limit', e.target.value)}
       />
+      <span class="setting-desc">Max concurrent job executions</span>
     </div>
     <div class="setting-row">
       <label for="setting_concurrent_create_limit">concurrent_create_limit</label>
@@ -37,6 +38,7 @@
         value={getSetting('concurrent_create_limit', '1')}
         onchange={(e) => updateSettingAndToast('concurrent_create_limit', e.target.value)}
       />
+      <span class="setting-desc">Max concurrent container creations</span>
     </div>
     <div class="setting-row">
       <label for="setting_worker_timeout">worker_timeout</label>
@@ -45,6 +47,7 @@
         value={getSetting('worker_timeout', '60')}
         onchange={(e) => updateSettingAndToast('worker_timeout', e.target.value)}
       />
+      <span class="setting-desc">Default job timeout in seconds</span>
     </div>
     <div class="setting-row">
       <label for="setting_max_flags_per_job">max_flags_per_job</label>
@@ -53,6 +56,7 @@
         value={getSetting('max_flags_per_job', '50')}
         onchange={(e) => updateSettingAndToast('max_flags_per_job', e.target.value)}
       />
+      <span class="setting-desc">Max flags extracted per job</span>
     </div>
     <div class="setting-row">
       <label for="setting_past_flag_rounds">past_flag_rounds</label>
@@ -61,6 +65,7 @@
         value={getSetting('past_flag_rounds', '5')}
         onchange={(e) => updateSettingAndToast('past_flag_rounds', e.target.value)}
       />
+      <span class="setting-desc">Rounds before current allowed for flag submission</span>
     </div>
     <div class="setting-row">
       <label for="setting_skip_on_flag">skip_on_flag</label>
@@ -68,6 +73,7 @@
         <option value="false" selected={getSetting('skip_on_flag', 'false') !== 'true'}>No</option>
         <option value="true" selected={getSetting('skip_on_flag', 'false') === 'true'}>Yes</option>
       </select>
+      <span class="setting-desc">Skip remaining jobs for team after flag</span>
     </div>
     <div class="setting-row">
       <label for="setting_sequential_per_target">sequential_per_target</label>
@@ -78,6 +84,7 @@
         <option value="false" selected={getSetting('sequential_per_target', 'false') !== 'true'}>No</option>
         <option value="true" selected={getSetting('sequential_per_target', 'false') === 'true'}>Yes</option>
       </select>
+      <span class="setting-desc">Run jobs sequentially per target</span>
     </div>
     <div class="setting-row">
       <label for="setting_ip_headers">ip_headers</label>
@@ -87,10 +94,25 @@
         placeholder="X-Forwarded-For,X-Real-IP"
         onchange={(e) => updateSettingAndToast('ip_headers', e.target.value)}
       />
+      <span class="setting-desc">Comma-separated headers for client IP detection</span>
+    </div>
+    <div class="setting-row">
+      <label for="setting_default_ignore_connection_info">default_ignore_connection_info</label>
+      <select
+        id="setting_default_ignore_connection_info"
+        onchange={(e) => updateSettingAndToast('default_ignore_connection_info', e.target.value)}
+      >
+        <option value="false" selected={getSetting('default_ignore_connection_info', 'false') !== 'true'}>No</option>
+        <option value="true" selected={getSetting('default_ignore_connection_info', 'false') === 'true'}>Yes</option>
+      </select>
+      <span class="setting-desc">Default value for exploit ignore_connection_info</span>
     </div>
   </div>
-  <p class="hint">skip_on_flag: Skip remaining exploits for a chal/team once a flag is found in this round.</p>
-  <p class="hint">past_flag_rounds: Allow manual flag submission for up to N rounds before the running round.</p>
-  <p class="hint">sequential_per_target: Run exploits sequentially per chal/team (don't run multiple exploits for same target at once).</p>
-  <p class="hint">ip_headers: Comma-separated list of headers to check for client IP (e.g., X-Forwarded-For,X-Real-IP).</p>
 </div>
+
+<style>
+  .setting-desc {
+    color: #888;
+    font-size: 0.85em;
+  }
+</style>
