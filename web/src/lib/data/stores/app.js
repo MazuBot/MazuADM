@@ -134,7 +134,7 @@ function handleWsMessage(msg) {
     case 'flag_created': {
       const currentFlagRoundId = get(selectedFlagRoundId)
       if (!currentFlagRoundId || data.round_id === currentFlagRoundId) {
-        flags.update((list) => (list.some((f) => f.id === data.id) ? list : [...list, data]))
+        flags.update((list) => (list.some((f) => f.id === data.id) ? list : [data, ...list]))
       }
       break
     }
