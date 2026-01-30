@@ -368,8 +368,28 @@ Restart all managed containers.
 }
 ```
 
+**Response:**
+```json
+{
+  "total": 5,
+  "success": 5,
+  "failed": 0,
+  "failures": []
+}
+```
+
 ### `POST /api/containers/remove-all`
 Remove all managed containers.
+
+**Response:**
+```json
+{
+  "total": 5,
+  "success": 5,
+  "failed": 0,
+  "failures": []
+}
+```
 
 ### `GET /api/containers/{id}/runners`
 Get running jobs for a container.

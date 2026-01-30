@@ -649,6 +649,26 @@ pub struct RestartContainerRequest {
     pub force: Option<bool>,
 }
 
+#[derive(serde::Serialize)]
+pub struct ContainerBulkOpResult {
+    pub total: usize,
+    pub success: usize,
+    pub failed: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub failures: Vec<String>,
+}
+
+fn summarize_container_ops<E: std::fmt::Display>(results: Vec<(String, std::result::Result<(), E>)>) -> ContainerBulkOpResult {
+    let total = results.len();
+    let failures: Vec<String> = results
+        .into_iter()
+        .filter_map(|(id, res)| res.err().map(|e| format!("{}: {}", id, e)))
+        .collect();
+    let failed = failures.len();
+    let success = total - failed;
+    ContainerBulkOpResult { total, success, failed, failures }
+}
+
 pub async fn update_setting(State(s): S, Json(u): Json<UpdateSetting>) -> R<String> {
     s.db.set_setting(&u.key, &u.value).await.map_err(err)?;
     broadcast(&s, "setting_updated", &u);
@@ -679,16 +699,25 @@ pub async fn restart_container(State(s): S, Path(id): Path<String>, body: Option
     Ok(Json("ok".to_string()))
 }
 
-pub async fn restart_all_containers(State(s): S, body: Option<Json<RestartContainerRequest>>) -> R<String> {
+pub async fn restart_all_containers(State(s): S, body: Option<Json<RestartContainerRequest>>) -> R<ContainerBulkOpResult> {
     let req = body.map(|Json(r)| r).unwrap_or_default();
-    s.scheduler
-        .restart_all_containers(req.timeout, req.force.unwrap_or(false))
-        .await
-        .map_err(err)?;
-    Ok(Json("ok".to_string()))
+    let force = req.force.unwrap_or(false);
+    let timeout = req.timeout;
+    let containers = s.scheduler.list_containers(None).await.map_err(err)?;
+    let ids: Vec<String> = containers.into_iter().map(|c| c.id).collect();
+    let scheduler = s.scheduler.clone();
+    let results = stream::iter(ids)
+        .map(|id| {
+            let scheduler = scheduler.clone();
+            async move { (id.clone(), scheduler.restart_container(id, timeout, force).await) }
+        })
+        .buffer_unordered(10)
+        .collect::<Vec<_>>()
+        .await;
+    Ok(Json(summarize_container_ops(results)))
 }
 
-pub async fn remove_all_containers(State(s): S) -> R<String> {
+pub async fn remove_all_containers(State(s): S) -> R<ContainerBulkOpResult> {
     let containers = s.scheduler.list_containers(None).await.map_err(err)?;
     let ids: Vec<String> = containers.into_iter().map(|c| c.id).collect();
     let scheduler = s.scheduler.clone();
@@ -700,19 +729,7 @@ pub async fn remove_all_containers(State(s): S) -> R<String> {
         .buffer_unordered(10)
         .collect::<Vec<_>>()
         .await;
-    let failures: Vec<String> = results
-        .into_iter()
-        .filter_map(|(id, res)| res.err().map(|e| format!("{}: {}", id, e)))
-        .collect();
-    if failures.is_empty() {
-        Ok(Json("ok".to_string()))
-    } else {
-        Err(format!(
-            "Failed to remove {} containers: {}",
-            failures.len(),
-            failures.join("; ")
-        ))
-    }
+    Ok(Json(summarize_container_ops(results)))
 }
 
 // Relations
