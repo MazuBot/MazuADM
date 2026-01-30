@@ -241,7 +241,10 @@ async fn main() -> Result<()> {
                 let cfg = match config { Some(p) => exploit_config::load_exploit_config(&p)?, None => exploit_config::load_default_exploit_config()? };
                 let name = if name == "." { cwd_basename()? } else { name };
                 let challenge = resolve_challenge(&mut ctx, challenge, cfg.challenge.as_ref()).await?;
-                let image = cfg.docker_image.ok_or_else(|| anyhow!("missing image"))?;
+                let image = cfg.docker_image.ok_or_else(|| anyhow!("missing image in config"))?;
+                println!("Building docker image: {}", image);
+                let status = std::process::Command::new("docker").args(["build", "-t", &image, "."]).status()?;
+                if !status.success() { return Err(anyhow!("docker build failed")); }
                 let e = ctx.api.create_exploit(CreateExploit { name, challenge_id: challenge.id, docker_image: image, entrypoint: cfg.entrypoint, enabled: cfg.enabled, max_per_container: cfg.max_per_container, max_containers: None, max_concurrent_jobs: cfg.max_concurrent_jobs, timeout_secs: cfg.timeout_secs, default_counter: cfg.default_counter, ignore_connection_info: cfg.ignore_connection_info, auto_add: None, insert_into_rounds: None }).await?;
                 println!("Created exploit {}", e.id);
             }
