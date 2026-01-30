@@ -205,6 +205,7 @@
   let availableReasons = $derived([...new Set(jobs.map(j => getReasonBase(j.create_reason)))].filter(Boolean).sort());
   let selectedRound = $derived(getSelectedRound());
   let isPendingRound = $derived(selectedRound?.status === 'pending');
+  let isJobsCreating = $derived(selectedRound?.status === 'pending' && selectedRound?.jobs_ready === false);
 
   onMount(() => {
     const onKeydown = (e) => {
@@ -378,7 +379,9 @@
     >
       <option value="">Select round</option>
       {#each rounds as r}
-        <option value={r.id}>Round {r.id} ({r.status})</option>
+        <option value={r.id}>
+          Round {r.id} ({r.status}{r.jobs_ready === false ? ' • creating jobs' : ''})
+        </option>
       {/each}
     </select>
     <button onclick={handleRunClick} disabled={!selectedRoundId}>Run</button>
@@ -434,6 +437,10 @@
       Reset Filters
     </button>
   </div>
+
+  {#if isJobsCreating}
+    <p class="muted">Creating jobs for this round...</p>
+  {/if}
 
   {#if filteredJobs.length}
     <table>

@@ -65,11 +65,21 @@ function handleWsMessage(msg) {
       loadAll()
       break
     case 'round_created':
-      rounds.update((list) => [data, ...list])
+      rounds.update((list) => [{ ...data, jobs_ready: false }, ...list])
       break
     case 'round_updated':
-      rounds.update((list) => list.map((r) => (r.id === data.id ? data : r)))
+      rounds.update((list) => list.map((r) => (r.id === data.id ? { ...r, ...data } : r)))
       break
+    case 'round_jobs_ready': {
+      const currentRoundId = get(selectedRoundId)
+      rounds.update((list) =>
+        list.map((r) => (r.id === data.round_id ? { ...r, jobs_ready: true } : r))
+      )
+      if (currentRoundId && data?.round_id === currentRoundId) {
+        loadJobs(currentRoundId)
+      }
+      break
+    }
     case 'job_created': {
       const currentRoundId = get(selectedRoundId)
       if (data.round_id === currentRoundId) {
