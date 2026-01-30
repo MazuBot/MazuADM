@@ -22,6 +22,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::Layer;
 use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
 
@@ -92,9 +93,12 @@ fn init_logging(log_dir: &Path) -> Result<Option<WorkerGuard>> {
 
     if console_log_enabled() {
         let registry = tracing_subscriber::registry()
-            .with(env_filter)
             .with(console_layer)
-            .with(tracing_subscriber::fmt::layer().with_writer(std::io::stdout));
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(std::io::stdout)
+                    .with_filter(env_filter),
+            );
         registry.init();
         return Ok(None);
     }
@@ -106,12 +110,12 @@ fn init_logging(log_dir: &Path) -> Result<Option<WorkerGuard>> {
         .with_context(|| format!("failed to open log {}", log_path.display()))?;
     let (writer, guard) = tracing_appender::non_blocking(file);
     let registry = tracing_subscriber::registry()
-        .with(env_filter)
         .with(console_layer)
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(writer)
-                .with_ansi(false),
+                .with_ansi(false)
+                .with_filter(env_filter),
         );
     registry.init();
     Ok(Some(guard))
