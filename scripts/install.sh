@@ -57,7 +57,7 @@ $SUDO systemctl start mazuadm-api.service
 
 WEB_SRC="./web/build"
 WEB_DST="$CONFIG_DIR/web"
-TEMPLATE_SRC="./sample/exp-template"
+TEMPLATE_SRC="./example/exp-template"
 TEMPLATE_DST="$CONFIG_DIR/exp-template"
 CONFIG_SRC="./config.toml"
 CONFIG_DST="$CONFIG_DIR/config.toml"
