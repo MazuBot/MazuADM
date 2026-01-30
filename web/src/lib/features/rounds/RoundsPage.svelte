@@ -46,10 +46,8 @@
           return;
         }
         await api.rerunRound(selectedRoundId);
-        pushToast(`Round #${selectedRoundId} re-run started.`, 'success');
       } else {
         await onRunRound(selectedRoundId);
-        pushToast(`Round #${selectedRoundId} started.`, 'success');
       }
     } catch (error) {
       pushToast(formatApiError(error, `Failed to run round #${selectedRoundId}.`), 'error');
@@ -152,11 +150,6 @@
     try {
       startNewRoundCooldown(NEW_ROUND_COOLDOWN_MS);
       const id = await onNewRound?.();
-      if (id) {
-        pushToast(`Round #${id} created.`, 'success');
-      } else {
-        pushToast('Round created.', 'success');
-      }
     } catch (error) {
       pushToast(formatApiError(error, 'Failed to create round.'), 'error');
     }
