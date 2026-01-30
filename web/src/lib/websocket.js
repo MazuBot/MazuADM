@@ -1,6 +1,7 @@
 let ws = null;
 let reconnectTimer = null;
 let onAuthError = null;
+let onConnect = null;
 
 const feVersion = import.meta.env.DEV ? 'dev' : __BUILD_GIT_HASH__;
 
@@ -14,6 +15,10 @@ export function setUser(user) {
 
 export function setOnAuthError(callback) {
   onAuthError = callback;
+}
+
+export function setOnConnect(callback) {
+  onConnect = callback;
 }
 
 export function connect(onMessage) {
@@ -35,6 +40,10 @@ export function connect(onMessage) {
       }
       onMessage(msg);
     } catch {}
+  };
+
+  ws.onopen = () => {
+    onConnect?.();
   };
   
   ws.onclose = () => {
