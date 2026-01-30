@@ -17,6 +17,7 @@
   let challengeFilterId = $state('');
   let teamFilterId = $state('');
   let statusFilter = $state('');
+  let searchQuery = $state('');
   let submitRoundId = $state('');
   let submitChallengeId = $state('');
   let submitTeamId = $state('');
@@ -44,12 +45,26 @@
   function filterFlags() {
     const teamId = teamFilterId ? Number(teamFilterId) : null;
     const challengeId = challengeFilterId ? Number(challengeFilterId) : null;
+    const query = searchQuery.trim().toLowerCase();
     return flags.filter((flag) => {
       if (statusFilter && flag.status !== statusFilter) return false;
       if (teamId && Number(flag.team_id) !== teamId) return false;
       if (challengeId && Number(flag.challenge_id) !== challengeId) return false;
+      if (query) {
+        const jobMatch = flag.job_id != null && String(flag.job_id).includes(query);
+        const flagMatch = flag.flag_value.toLowerCase().includes(query);
+        if (!jobMatch && !flagMatch) return false;
+      }
       return true;
     });
+  }
+
+  function highlight(text) {
+    if (!text) return '-';
+    const q = searchQuery.trim();
+    if (q.length < 2) return text;
+    const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    return text.replace(regex, '<mark>$1</mark>');
   }
 
   function resolveChallengeId() {
@@ -96,7 +111,7 @@
 
   let filteredFlags = $derived(filterFlags());
   let availableStatuses = $derived(buildStatusOptions(flags));
-  let canResetFilters = $derived(Boolean(challengeFilterId || teamFilterId || statusFilter));
+  let canResetFilters = $derived(Boolean(challengeFilterId || teamFilterId || statusFilter || searchQuery));
   let pastFlagRounds = $derived(parsePastFlagRounds());
   let runningRound = $derived(rounds.find((r) => r.status === 'running'));
   let allowedRounds = $derived(buildAllowedRounds());
@@ -177,6 +192,7 @@
 </div>
 
 <div class="controls flag-filters">
+  <input type="text" bind:value={searchQuery} placeholder="Search job/flag..." />
   <select
     value={selectedFlagRoundId ?? ''}
     onchange={(e) => onSelectFlagRound(e.target.value ? Number(e.target.value) : null)}
@@ -208,6 +224,7 @@
     challengeFilterId = '';
     teamFilterId = '';
     statusFilter = '';
+    searchQuery = '';
   }} disabled={!canResetFilters}>
     Reset Filters
   </button>
@@ -229,11 +246,11 @@
     {#each filteredFlags as f}
       <tr>
         <td>{f.id}</td>
-        <td>{f.job_id ?? '-'}</td>
+        <td>{@html highlight(String(f.job_id ?? '-'))}</td>
         <td>{f.round_id}</td>
         <td>{getChallengeName(challenges, f.challenge_id)}</td>
         <td><span class="truncate">{getTeamDisplay(teams, f.team_id)}</span></td>
-        <td><code>{f.flag_value}</code></td>
+        <td><code>{@html highlight(f.flag_value)}</code></td>
         <td>{f.status}</td>
       </tr>
     {/each}
