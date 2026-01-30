@@ -5,18 +5,7 @@ Base URL: `http://localhost:3000`
 ## WebSocket
 
 ### `GET /ws`
-Real-time event stream for UI updates.
-
-Events: `challenge_created`, `challenge_updated`, `challenge_deleted`, `team_created`, `team_updated`, `team_deleted`, `exploit_created`, `exploit_updated`, `exploit_deleted`, `exploit_run_created`, `exploit_run_updated`, `exploit_run_deleted`, `exploit_runs_reordered`, `round_created`, `round_updated`, `round_jobs_ready`, `job_created`, `job_updated`, `flag_created`, `setting_updated`, `container_created`, `container_updated`, `container_deleted`, `container_execs_updated`, `connection_info_updated`
-
-`round_jobs_ready` payload:
-```json
-{
-  "round_id": "int",
-  "created": "int",
-  "success": "boolean"
-}
-```
+Real-time event stream for UI updates. See `docs/WebSocket.md` for events and payloads.
 
 ---
 

@@ -85,6 +85,7 @@ Send JSON messages to change subscriptions:
 |-------|------|-------------|
 | `round_created` | `Round` | New round created |
 | `round_updated` | `Round` | Round status/progress changed |
+| `round_jobs_ready` | `{"round_id": int, "created": int, "success": bool}` | Background job creation finished |
 
 ### Jobs
 | Event | Data | Description |
