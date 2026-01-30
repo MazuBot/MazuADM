@@ -61,7 +61,6 @@ pub struct Exploit {
     pub enabled: bool,
     pub max_per_container: i32,
     pub max_containers: i32,
-    pub max_concurrent_jobs: i32,
     pub docker_image: String,
     pub entrypoint: Option<String>,
     pub timeout_secs: i32,
@@ -78,7 +77,6 @@ pub struct CreateExploit {
     pub enabled: Option<bool>,
     pub max_per_container: Option<i32>,
     pub max_containers: Option<i32>,
-    pub max_concurrent_jobs: Option<i32>,
     pub timeout_secs: Option<i32>,
     pub default_counter: Option<i32>,
     pub auto_add: Option<String>,
@@ -93,7 +91,6 @@ pub struct UpdateExploit {
     pub enabled: Option<bool>,
     pub max_per_container: Option<i32>,
     pub max_containers: Option<i32>,
-    pub max_concurrent_jobs: Option<i32>,
     pub timeout_secs: Option<i32>,
     pub default_counter: Option<i32>,
 }

@@ -106,7 +106,6 @@ Create an exploit.
   "enabled": "boolean?",
   "max_per_container": "int?",
   "max_containers": "int? (0 = unlimited)",
-  "max_concurrent_jobs": "int? (0 = unlimited)",
   "timeout_secs": "int?",
   "default_counter": "int?",
   "auto_add": "string? (start|end)",
@@ -128,7 +127,6 @@ Update an exploit.
   "enabled": "boolean?",
   "max_per_container": "int?",
   "max_containers": "int? (0 = unlimited)",
-  "max_concurrent_jobs": "int? (0 = unlimited)",
   "timeout_secs": "int?",
   "default_counter": "int?"
 }
@@ -409,7 +407,6 @@ Update a relation.
   "enabled": "boolean",
   "max_per_container": "int",
   "max_containers": "int",
-  "max_concurrent_jobs": "int",
   "docker_image": "string",
   "entrypoint": "string?",
   "timeout_secs": "int",
