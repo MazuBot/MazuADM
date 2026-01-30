@@ -413,6 +413,7 @@ impl ContainerManager {
             return;
         }
         let container_id = container.container_id.clone();
+        let exploit_id = container.exploit_id;
         let mut guard = registry.lock().await;
         let current_len = guard
             .reverse_affinity
@@ -423,7 +424,13 @@ impl ContainerManager {
         if remaining == 0 {
             return;
         }
+        let mut bound = Vec::new();
         for run_id in runs.iter().take(remaining) {
+            let already_bound = guard
+                .affinity
+                .get(run_id)
+                .map(|cid| cid == &container_id)
+                .unwrap_or(false);
             let registry = &mut *guard;
             drop_affinity_for_run(&mut registry.affinity, &mut registry.reverse_affinity, *run_id);
             registry.affinity.insert(*run_id, container_id.clone());
@@ -432,6 +439,26 @@ impl ContainerManager {
                 .entry(container_id.clone())
                 .or_default()
                 .insert(*run_id);
+            if !already_bound {
+                bound.push(*run_id);
+            }
+        }
+        drop(guard);
+        if !bound.is_empty() {
+            let mut team_ids = Vec::with_capacity(bound.len());
+            for run_id in &bound {
+                let team_id = self
+                    .db
+                    .get_exploit_run(*run_id)
+                    .await
+                    .map(|run| run.team_id)
+                    .ok();
+                team_ids.push(team_id);
+            }
+            info!(
+                "Affinity bound runs {:?} to container {} (exploit {}, team_ids {:?})",
+                bound, container_id, exploit_id, team_ids
+            );
         }
     }
 
