@@ -39,11 +39,36 @@ pub struct AppState {
     pub ws_connections: Arc<DashMap<Uuid, WsConnection>>,
 }
 
+#[cfg(debug_assertions)]
+const CONSOLE_ENV: &str = "MAZUADM_CONSOLE";
+
+#[cfg(debug_assertions)]
+fn console_enabled() -> bool {
+    std::env::var(CONSOLE_ENV).ok().as_deref() == Some("1")
+}
+
+#[cfg(not(debug_assertions))]
+fn console_enabled() -> bool {
+    false
+}
+
+#[cfg(debug_assertions)]
+fn init_console_logging() {
+    console_subscriber::init();
+}
+
+#[cfg(not(debug_assertions))]
+fn init_console_logging() {}
+
 fn should_resume_running_round(pending_count: usize) -> bool {
     pending_count > 0
 }
 
-fn init_logging(log_dir: &Path) -> Result<WorkerGuard> {
+fn init_logging(log_dir: &Path) -> Result<Option<WorkerGuard>> {
+    if console_enabled() {
+        init_console_logging();
+        return Ok(None);
+    }
     let log_path = log_dir.join("mazuadm-api.log");
     let file = OpenOptions::new()
         .create(true)
@@ -55,7 +80,7 @@ fn init_logging(log_dir: &Path) -> Result<WorkerGuard> {
         .with_writer(writer)
         .with_ansi(false)
         .init();
-    Ok(guard)
+    Ok(Some(guard))
 }
 
 fn parse_config_dir<I, T>(args: I) -> Result<Option<PathBuf>>

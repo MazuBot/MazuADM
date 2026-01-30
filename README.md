@@ -52,6 +52,19 @@ DATABASE_URL=postgres://localhost/mazuadm ./target/release/mazuadm-api [config_d
 # logs: <config_dir>/mazuadm-api.log (or ./mazuadm-api.log when omitted)
 ```
 
+### Tokio console (debug)
+Enable the console subscriber only in debug builds:
+```bash
+RUSTFLAGS="--cfg tokio_unstable" MAZUADM_CONSOLE=1 cargo run -p mazuadm-api [config_dir]
+# in another terminal
+cargo install --locked tokio-console
+tokio-console
+```
+Notes:
+- The console server binds to `127.0.0.1:6669` by default.
+- `RUST_LOG` controls stdout log filtering when console logging is enabled.
+- `./scripts/install.sh --debug` installs a debug API binary with tokio-console support; set `MAZUADM_CONSOLE=1` when running it.
+
 ### Run CLI
 ```bash
 ./target/release/mazuadm-cli --help

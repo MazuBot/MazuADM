@@ -1,6 +1,20 @@
 #!/bin/sh
 set -eu
 
+DEBUG_API=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --debug)
+      DEBUG_API=1
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
 if [ "$(id -u)" -ne 0 ]; then
   echo require root
   sudo id
@@ -13,13 +27,22 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$ROOT"
-cargo build --release -p mazuadm-cli -p mazuadm-api &
+cargo build --release -p mazuadm-cli &
+if [ "$DEBUG_API" -eq 1 ]; then
+  RUSTFLAGS="--cfg tokio_unstable" cargo build -p mazuadm-api &
+else
+  cargo build --release -p mazuadm-api &
+fi
 npm --prefix web run build &
 wait
 
 BIN_DIR="/usr/local/bin"
 CLI_BIN="./target/release/mazuadm-cli"
-API_BIN="./target/release/mazuadm-api"
+if [ "$DEBUG_API" -eq 1 ]; then
+  API_BIN="./target/debug/mazuadm-api"
+else
+  API_BIN="./target/release/mazuadm-api"
+fi
 CONFIG_DIR='/opt/mazuadm'
 
 $SUDO mkdir -p "$CONFIG_DIR"

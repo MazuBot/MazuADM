@@ -35,3 +35,9 @@ Risks/notes:
 - Improve determinism in async scheduling.
 - Make spawn points explicit and log failures.
 - Extract pure helpers for unit tests (round selection/finalization and status logic).
+
+## Tokio console (debug)
+To inspect async tasks in debug builds:
+- `RUSTFLAGS="--cfg tokio_unstable" MAZUADM_CONSOLE=1 cargo run -p mazuadm-api [config_dir]`
+- Run `tokio-console` in another terminal (default bind: `127.0.0.1:6669`).
+- Use `RUST_LOG` to filter stdout logs when console logging is enabled.
