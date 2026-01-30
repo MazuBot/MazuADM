@@ -56,6 +56,7 @@ Docker-based exploit definitions.
 | timeout_secs | INTEGER | NO | Container timeout (default: 30) |
 | max_per_container | INTEGER | NO | Max affinity teams per container (default: 1) |
 | max_containers | INTEGER | NO | Max active containers for exploit (default: 0 = unlimited) |
+| max_concurrent_jobs | INTEGER | NO | Max concurrent jobs per exploit (default: 0 = unlimited) |
 | default_counter | INTEGER | NO | Container lifetime (default: 999) |
 | created_at | TIMESTAMPTZ | NO | Creation timestamp |
 
