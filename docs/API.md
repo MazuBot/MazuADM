@@ -285,6 +285,7 @@ List flags.
 - `round_id?: int` - Filter by round ID
 - `status?: string` - Filter by status (comma-separated, e.g. `captured,success`)
 - `sort?: string` - Sort order: `asc` or `desc` (default: `desc`)
+- `fields?: string` - Fields to include (comma-separated, e.g. `id,flag_value,status`). Returns all fields if omitted.
 
 **Response:** `Flag[]`
 

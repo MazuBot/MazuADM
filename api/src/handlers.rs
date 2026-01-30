@@ -564,14 +564,23 @@ pub async fn submit_flag(State(s): S, Json(body): Json<SubmitFlagsBody>) -> R<Ve
     Ok(Json(flags))
 }
 
-pub async fn list_flags(State(s): S, Query(q): Query<ListFlagsQuery>) -> R<Vec<Flag>> {
+pub async fn list_flags(State(s): S, Query(q): Query<ListFlagsQuery>) -> Result<Json<Vec<serde_json::Value>>, String> {
     let statuses = q.status.as_ref().map(|s| s.split(',').map(|x| x.to_string()).collect::<Vec<_>>());
     let desc = match q.sort.as_deref() {
         Some("asc") => false,
         Some("desc") | None => true,
         Some(_) => return Err("sort must be 'asc' or 'desc'".to_string()),
     };
-    s.db.list_flags(q.round_id, statuses, desc).await.map(Json).map_err(err)
+    let flags = s.db.list_flags(q.round_id, statuses, desc).await.map_err(err)?;
+    let fields: Option<Vec<&str>> = q.fields.as_ref().map(|f| f.split(',').collect());
+    let result: Vec<serde_json::Value> = flags.into_iter().map(|flag| {
+        let mut obj = serde_json::to_value(&flag).unwrap_or_default();
+        if let (Some(fields), Some(map)) = (&fields, obj.as_object_mut()) {
+            map.retain(|k, _| fields.contains(&k.as_str()));
+        }
+        obj
+    }).collect();
+    Ok(Json(result))
 }
 
 #[derive(Deserialize)]
@@ -579,6 +588,7 @@ pub struct ListFlagsQuery {
     pub round_id: Option<i32>,
     pub status: Option<String>,
     pub sort: Option<String>,
+    pub fields: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
