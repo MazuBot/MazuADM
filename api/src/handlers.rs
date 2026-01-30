@@ -397,6 +397,11 @@ pub async fn list_rounds(State(s): S) -> R<Vec<Round>> {
     s.db.list_rounds().await.map(Json).map_err(err)
 }
 
+pub async fn get_current_round(State(s): S) -> R<Option<Round>> {
+    let rounds = s.db.get_active_rounds().await.map_err(err)?;
+    Ok(Json(rounds.into_iter().find(|r| r.status == "running")))
+}
+
 pub async fn create_round(State(s): S) -> R<i32> {
     let round_id = s.scheduler.create_round().await.map_err(err)?;
     Ok(Json(round_id))

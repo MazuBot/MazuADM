@@ -198,6 +198,11 @@ List all rounds.
 
 **Response:** `Round[]`
 
+### `GET /api/rounds/current`
+Get the currently running round.
+
+**Response:** `Round | null`
+
 ### `POST /api/rounds`
 Create a new round. Jobs are created asynchronously in the background.
 
