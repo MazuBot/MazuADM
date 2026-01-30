@@ -515,6 +515,7 @@ pub struct SubmitFlagRequest {
     pub challenge_id: i32,
     pub team_id: i32,
     pub flag_value: String,
+    pub status: Option<String>,
 }
 
 pub async fn submit_flag(State(s): S, Json(req): Json<SubmitFlagRequest>) -> R<Flag> {
@@ -538,7 +539,8 @@ pub async fn submit_flag(State(s): S, Json(req): Json<SubmitFlagRequest>) -> R<F
     s.db.get_round(round_id).await.map_err(err)?;
     s.db.get_challenge(req.challenge_id).await.map_err(err)?;
     s.db.get_team(req.team_id).await.map_err(err)?;
-    let flag = s.db.create_manual_flag(round_id, req.challenge_id, req.team_id, flag_value).await.map_err(err)?;
+    let status = req.status.as_deref().unwrap_or("manual");
+    let flag = s.db.create_manual_flag(round_id, req.challenge_id, req.team_id, flag_value, status).await.map_err(err)?;
     broadcast(&s, "flag_created", &flag);
     Ok(Json(flag))
 }

@@ -773,15 +773,15 @@ WHERE ej.id = $1
     // Flags
     pub async fn create_flag(&self, job_id: i32, round_id: i32, challenge_id: i32, team_id: i32, flag_value: &str) -> Result<Flag> {
         Ok(sqlx::query_as!(Flag,
-            "INSERT INTO flags (job_id, round_id, challenge_id, team_id, flag_value) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+            "INSERT INTO flags (job_id, round_id, challenge_id, team_id, flag_value, status) VALUES ($1, $2, $3, $4, $5, 'captured') RETURNING *",
             job_id, round_id, challenge_id, team_id, flag_value
         ).fetch_one(&self.pool).await?)
     }
 
-    pub async fn create_manual_flag(&self, round_id: i32, challenge_id: i32, team_id: i32, flag_value: &str) -> Result<Flag> {
+    pub async fn create_manual_flag(&self, round_id: i32, challenge_id: i32, team_id: i32, flag_value: &str, status: &str) -> Result<Flag> {
         Ok(sqlx::query_as!(Flag,
-            "INSERT INTO flags (job_id, round_id, challenge_id, team_id, flag_value, status, submitted_at) VALUES (NULL, $1, $2, $3, $4, 'submitted', NOW()) RETURNING *",
-            round_id, challenge_id, team_id, flag_value
+            "INSERT INTO flags (job_id, round_id, challenge_id, team_id, flag_value, status, submitted_at) VALUES (NULL, $1, $2, $3, $4, $5, NOW()) RETURNING *",
+            round_id, challenge_id, team_id, flag_value, status
         ).fetch_one(&self.pool).await?)
     }
 

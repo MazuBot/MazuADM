@@ -275,7 +275,7 @@ List flags.
 **Response:** `Flag[]`
 
 ### `POST /api/flags`
-Submit a flag manually (status = `submitted`, `submitted_at` = now). If `round_id` is omitted, the running round is used. Requests are limited to the running round and up to `past_flag_rounds` rounds before it.
+Submit a flag manually. If `round_id` is omitted, the running round is used. If `status` is omitted, defaults to `manual`. Requests are limited to the running round and up to `past_flag_rounds` rounds before it.
 
 **Body:**
 ```json
@@ -283,7 +283,8 @@ Submit a flag manually (status = `submitted`, `submitted_at` = now). If `round_i
   "round_id": 1,
   "challenge_id": 2,
   "team_id": 3,
-  "flag_value": "FLAG{...}"
+  "flag_value": "FLAG{...}",
+  "status": "manual"
 }
 ```
 
@@ -468,7 +469,7 @@ Update a relation.
   "challenge_id": "int",
   "team_id": "int",
   "flag_value": "string",
-  "status": "string",
+  "status": "string (captured|succeed|failed|duplicated|manual)",
   "submitted_at": "datetime?",
   "created_at": "datetime"
 }
