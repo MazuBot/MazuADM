@@ -111,8 +111,11 @@
 
   $effect(() => {
     if (roundSelectionTouched) return;
-    if (submitRoundId === '' && runningRound) {
-      submitRoundId = String(runningRound.id);
+    if (runningRound) {
+      const next = String(runningRound.id);
+      if (submitRoundId !== next) submitRoundId = next;
+    } else if (submitRoundId !== '') {
+      submitRoundId = '';
     }
   });
 
@@ -132,9 +135,14 @@
     <select
       bind:value={submitRoundId}
       aria-label="Round for manual flag"
-      onchange={() => { roundSelectionTouched = true; }}
+      onchange={(e) => {
+        roundSelectionTouched = true;
+        if (!e.currentTarget?.value) {
+          submitRoundId = '';
+        }
+      }}
     >
-      <option value="">Running round</option>
+      <option value="">Unset</option>
       {#each allowedRounds as r}
         <option value={String(r.id)}>Round {r.id} ({r.status})</option>
       {/each}
