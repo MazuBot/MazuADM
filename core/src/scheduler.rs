@@ -72,6 +72,55 @@ struct JobsChangedPayload {
     created: u64,
 }
 
+#[derive(serde::Serialize)]
+struct RoundJobsReadyPayload {
+    round_id: i32,
+    created: u64,
+    success: bool,
+}
+
+fn spawn_round_job_creation(
+    db: Database,
+    tx: broadcast::Sender<WsMessage>,
+    scheduler_tx: mpsc::UnboundedSender<SchedulerCommand>,
+    round_job_creations: Arc<DashMap<i32, ()>>,
+    round_id: i32,
+) {
+    tokio::spawn(async move {
+        let scheduler = Scheduler::new(db.clone(), tx.clone());
+        let result = scheduler.create_round_jobs(round_id).await;
+        let (created, success) = match result {
+            Ok(count) => (count, true),
+            Err(e) => {
+                tracing::error!("Failed to create jobs for round {}: {}", round_id, e);
+                (0, false)
+            }
+        };
+
+        broadcast(
+            &tx,
+            "round_jobs_ready",
+            &RoundJobsReadyPayload {
+                round_id,
+                created,
+                success,
+            },
+        );
+
+        if success {
+            if let Ok(round) = db.get_round(round_id).await {
+                if round.status == "running" {
+                    if let Err(e) = scheduler_tx.send(SchedulerCommand::RunPending(round_id)) {
+                        tracing::error!("Failed to schedule round {} after jobs created: {}", round_id, e);
+                    }
+                }
+            }
+        }
+
+        round_job_creations.remove(&round_id);
+    });
+}
+
 impl Ord for PendingEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.priority.cmp(&other.priority) {
@@ -173,6 +222,7 @@ pub struct SchedulerRunner {
     executor: Option<Executor>,
     notify: Arc<Notify>,
     rx: mpsc::UnboundedReceiver<SchedulerCommand>,
+    tx: mpsc::UnboundedSender<SchedulerCommand>,
     queue: PendingQueue,
     semaphore: Arc<Semaphore>,
     concurrent_limit: usize,
@@ -181,6 +231,7 @@ pub struct SchedulerRunner {
     round_id: Option<i32>,
     target_locks: DashMap<(i32, i32), Arc<Mutex<()>>>,
     exploit_gates: DashMap<i32, Arc<ExploitGate>>,
+    round_job_creations: Arc<DashMap<i32, ()>>,
 }
 
 #[derive(Clone)]
@@ -198,6 +249,7 @@ impl SchedulerRunner {
             executor: Some(executor),
             notify: notify.clone(),
             rx,
+            tx: tx.clone(),
             queue: PendingQueue::default(),
             semaphore: Arc::new(Semaphore::new(1)),
             concurrent_limit: 1,
@@ -206,6 +258,7 @@ impl SchedulerRunner {
             round_id: None,
             target_locks: DashMap::new(),
             exploit_gates: DashMap::new(),
+            round_job_creations: Arc::new(DashMap::new()),
         };
         let handle = SchedulerHandle { tx, notify };
         (runner, handle)
@@ -253,7 +306,9 @@ impl SchedulerRunner {
         match cmd {
             SchedulerCommand::RunRound(id) => {
                 self.scheduler.run_round(id, executor).await?;
-                self.reset_queue(id, executor).await?;
+                if !self.round_job_creations.contains_key(&id) {
+                    self.reset_queue(id, executor).await?;
+                }
             }
             SchedulerCommand::RerunRound(id) => {
                 self.scheduler.rerun_round(id, executor).await?;
@@ -272,7 +327,15 @@ impl SchedulerRunner {
             }
             SchedulerCommand::CreateRound { resp } => {
                 let res = self.scheduler.create_round().await;
-                if let Ok(_round_id) = res {
+                if let Ok(round_id) = res {
+                    self.round_job_creations.insert(round_id, ());
+                    spawn_round_job_creation(
+                        self.scheduler.db.clone(),
+                        self.scheduler.tx.clone(),
+                        self.tx.clone(),
+                        self.round_job_creations.clone(),
+                        round_id,
+                    );
                     let settings = load_executor_settings(&self.scheduler.db).await;
                     executor
                         .container_manager
@@ -696,13 +759,12 @@ impl Scheduler {
         override_priority.unwrap_or_else(|| challenge_priority + team_priority * 100 - sequence * 10000)
     }
 
-    pub async fn generate_round(&self) -> Result<i32> {
-        let round = self.db.create_round().await?;
+    pub async fn create_round_jobs(&self, round_id: i32) -> Result<u64> {
         let challenges = self.db.list_challenges().await?;
         let teams = self.db.list_teams().await?;
-        
+
         let mut jobs = Vec::new();
-        
+
         for challenge in challenges.iter().filter(|c| c.enabled) {
             for team in &teams {
                 let runs = self.db.list_exploit_runs(Some(challenge.id), Some(team.id)).await?;
@@ -715,19 +777,19 @@ impl Scheduler {
 
         jobs.sort_by(|a, b| b.2.cmp(&a.2)); // Higher priority first
 
+        let mut created = 0u64;
         for (run_id, team_id, priority) in jobs {
-            self.db.create_job(round.id, run_id, team_id, priority, Some("new_round")).await?;
+            self.db.create_job(round_id, run_id, team_id, priority, Some("new_round")).await?;
+            created += 1;
         }
 
-        Ok(round.id)
+        Ok(created)
     }
 
     pub async fn create_round(&self) -> Result<i32> {
-        let round_id = self.generate_round().await?;
-        if let Ok(round) = self.db.get_round(round_id).await {
-            broadcast(&self.tx, "round_created", &round);
-        }
-        Ok(round_id)
+        let round = self.db.create_round().await?;
+        broadcast(&self.tx, "round_created", &round);
+        Ok(round.id)
     }
 
     pub async fn run_round(&self, round_id: i32, executor: &Executor) -> Result<()> {

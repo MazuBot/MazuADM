@@ -7,7 +7,16 @@ Base URL: `http://localhost:3000`
 ### `GET /ws`
 Real-time event stream for UI updates.
 
-Events: `challenge_created`, `challenge_updated`, `challenge_deleted`, `team_created`, `team_updated`, `team_deleted`, `exploit_created`, `exploit_updated`, `exploit_deleted`, `exploit_run_created`, `exploit_run_updated`, `exploit_run_deleted`, `exploit_runs_reordered`, `round_created`, `round_updated`, `job_created`, `job_updated`, `flag_created`, `setting_updated`, `container_created`, `container_updated`, `container_deleted`, `container_execs_updated`, `connection_info_updated`
+Events: `challenge_created`, `challenge_updated`, `challenge_deleted`, `team_created`, `team_updated`, `team_deleted`, `exploit_created`, `exploit_updated`, `exploit_deleted`, `exploit_run_created`, `exploit_run_updated`, `exploit_run_deleted`, `exploit_runs_reordered`, `round_created`, `round_updated`, `round_jobs_ready`, `job_created`, `job_updated`, `flag_created`, `setting_updated`, `container_created`, `container_updated`, `container_deleted`, `container_execs_updated`, `connection_info_updated`
+
+`round_jobs_ready` payload:
+```json
+{
+  "round_id": "int",
+  "created": "int",
+  "success": "boolean"
+}
+```
 
 ---
 
@@ -201,7 +210,7 @@ List all rounds.
 **Response:** `Round[]`
 
 ### `POST /api/rounds`
-Create a new round (generates jobs from exploit runs).
+Create a new round. Jobs are created asynchronously in the background.
 
 **Response:** `int` (round_id)
 
