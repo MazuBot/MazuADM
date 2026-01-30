@@ -4,7 +4,7 @@ import { connect, disconnect } from '$lib/websocket.js'
 import { pushToast } from '$lib/ui/toastStore.js'
 import { challenges, exploits, exploitRuns, loadAllEntities, teams } from './entities.js'
 import { flags, loadFlags, selectedFlagRoundId, submitFlag } from './flags.js'
-import { containers, containerRunners, loadContainers, loadRunners, resetContainers } from './containers.js'
+import { containers, loadContainers } from './containers.js'
 import { jobs, loadJobs, rounds, selectedRoundId, createRound, loadRounds, rerunRound, runRound, rerunUnflaggedRound } from './rounds.js'
 import { selectedChallengeId, ensureSelections } from './selections.js'
 
@@ -168,11 +168,6 @@ function handleWsMessage(msg) {
       break
     case 'container_deleted':
       containers.update((list) => list.filter((c) => c.id !== data))
-      containerRunners.update((current) => {
-        if (!(data in current)) return current
-        const { [data]: _removed, ...rest } = current
-        return rest
-      })
       break
     case 'connection_info_updated':
       break
@@ -213,7 +208,6 @@ export const app = {
   flags,
   settings,
   containers,
-  containerRunners,
   wsConnections,
   roundCreatedAt,
   selectedChallengeId,
@@ -223,8 +217,6 @@ export const app = {
   loadJobs,
   loadFlags,
   loadContainers,
-  loadRunners,
-  resetContainers,
   createRound,
   runRound,
   rerunRound,

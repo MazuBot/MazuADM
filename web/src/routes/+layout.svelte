@@ -16,7 +16,6 @@
     wsConnections,
     loadAll,
     loadContainers,
-    resetContainers,
     start,
     restart,
     stop
@@ -64,7 +63,6 @@
       if (!isReconnect) return
       loadAll()
       if (pathname.startsWith('/containers')) {
-        resetContainers()
         loadContainers()
       }
       if (pathname.startsWith('/websockets')) {

@@ -9,16 +9,12 @@
     challenges,
     teams,
     containers,
-    containerRunners,
-    loadContainers,
-    loadRunners,
-    resetContainers
+    loadContainers
   } = app
 
   let selectedChallengeId = null
 
   onMount(() => {
-    resetContainers()
     loadContainers()
   })
 
@@ -35,7 +31,5 @@
   containers={$containers}
   selectedChallengeId={selectedChallengeId}
   onSelectChallenge={selectChallenge}
-  containerRunners={$containerRunners}
   onLoadContainers={loadContainers}
-  onLoadRunners={loadRunners}
 />

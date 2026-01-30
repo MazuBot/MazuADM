@@ -12,7 +12,6 @@ const withQuery = (path, params = {}) => {
 }
 
 export const containers = () => fetchJson('/containers')
-export const containerRunners = (id) => fetchJson(`/containers/${id}/runners`)
 export const deleteContainer = (id) => fetchJson(`/containers/${id}`, { method: 'DELETE' })
 export const restartContainer = (id, opts = {}) =>
   fetchJson(`/containers/${id}/restart`, { method: 'POST', body: JSON.stringify(opts) })
