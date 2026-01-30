@@ -274,13 +274,13 @@ List flags.
 
 **Query:**
 - `round_id?: int` - Filter by round ID
-- `status?: string` - Filter by status (comma-separated, e.g. `captured,manual`)
+- `status?: string` - Filter by status (comma-separated, e.g. `captured,success`)
 - `sort?: string` - Sort order: `asc` or `desc` (default: `desc`)
 
 **Response:** `Flag[]`
 
 ### `POST /api/flags`
-Submit one or multiple flags manually. Accepts a single object or an array. If `round_id` is omitted, the running round is used. If `status` is omitted, defaults to `manual`. Requests are limited to the running round and up to `past_flag_rounds` rounds before it.
+Submit one or multiple flags. Accepts a single object or an array. If `round_id` is omitted, the running round is used. If `status` is omitted, defaults to `captured`. Requests are limited to the running round and up to `past_flag_rounds` rounds before it.
 
 **Body (single):**
 ```json
@@ -289,7 +289,7 @@ Submit one or multiple flags manually. Accepts a single object or an array. If `
   "challenge_id": 2,
   "team_id": 3,
   "flag_value": "FLAG{...}",
-  "status": "manual"
+  "status": "captured"
 }
 ```
 
@@ -304,9 +304,9 @@ Submit one or multiple flags manually. Accepts a single object or an array. If `
 **Response:** `Flag[]`
 
 ### `PATCH /api/flags`
-Update flag status. Accepts a single object or an array. Will not update flags with status `succeed` unless `force=true` is provided.
+Update flag status. Accepts a single object or an array. Will not update flags with status `success` unless `force=true` is provided.
 
-**Query:** `force?: bool` - Force update even if status is `succeed`
+**Query:** `force?: bool` - Force update even if status is `success`
 
 **Body (single):**
 ```json
@@ -519,7 +519,7 @@ Update a relation.
   "challenge_id": "int",
   "team_id": "int",
   "flag_value": "string",
-  "status": "string (captured|succeed|failed|duplicated|manual)",
+  "status": "string (captured|success|failed|duplicated)",
   "submitted_at": "datetime?",
   "created_at": "datetime"
 }

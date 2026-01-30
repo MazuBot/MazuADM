@@ -492,7 +492,7 @@ impl Database {
         if force {
             Ok(sqlx::query_as!(Flag, "UPDATE flags SET status = $2 WHERE id = $1 RETURNING *", id, status).fetch_one(&self.pool).await?)
         } else {
-            Ok(sqlx::query_as!(Flag, "UPDATE flags SET status = $2 WHERE id = $1 AND status != 'succeed' RETURNING *", id, status).fetch_one(&self.pool).await?)
+            Ok(sqlx::query_as!(Flag, "UPDATE flags SET status = $2 WHERE id = $1 AND status != 'success' RETURNING *", id, status).fetch_one(&self.pool).await?)
         }
     }
 

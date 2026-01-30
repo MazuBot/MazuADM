@@ -544,7 +544,7 @@ async fn create_one_flag(s: &AppState, req: &SubmitFlagRequest, running_round_id
     s.db.get_round(round_id).await.map_err(err)?;
     s.db.get_challenge(req.challenge_id).await.map_err(err)?;
     s.db.get_team(req.team_id).await.map_err(err)?;
-    let status = req.status.as_deref().unwrap_or("manual");
+    let status = req.status.as_deref().unwrap_or("captured");
     let flag = s.db.create_manual_flag(round_id, req.challenge_id, req.team_id, flag_value, status).await.map_err(err)?;
     broadcast(s, "flag_created", &flag);
     Ok(flag)
