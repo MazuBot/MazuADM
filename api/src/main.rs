@@ -195,6 +195,7 @@ async fn main() -> Result<()> {
         .or_else(|| config.database_url.clone())
         .unwrap_or_else(|| "postgres://localhost/mazuadm".to_string());
     let db = Database::connect(&db_url, &config).await?;
+    db.init_flag_cache().await?;
 
     let settings = load_executor_settings(&db).await;
     let (tx, _) = broadcast::channel::<WsMessage>(256);

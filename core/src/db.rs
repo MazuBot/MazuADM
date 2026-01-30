@@ -3,10 +3,14 @@ use crate::config::resolve_db_pool_settings;
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use anyhow::Result;
 use std::time::Duration;
+use redis::AsyncCommands;
+
+const REDIS_FLAG_SET: &str = "mazuadm:flags";
 
 #[derive(Clone)]
 pub struct Database {
     pub pool: PgPool,
+    redis: Option<redis::aio::MultiplexedConnection>,
 }
 
 pub struct CleanupStaleScheduledReport {
@@ -33,7 +37,40 @@ impl Database {
             .max_lifetime(Duration::from_secs(settings.max_lifetime_secs))
             .connect(url)
             .await?;
-        Ok(Self { pool })
+        let redis = if let Some(redis_url) = &cfg.redis_url {
+            let client = redis::Client::open(redis_url.as_str())?;
+            Some(client.get_multiplexed_async_connection().await?)
+        } else {
+            None
+        };
+        Ok(Self { pool, redis })
+    }
+
+    pub async fn init_flag_cache(&self) -> Result<()> {
+        if let Some(mut conn) = self.redis.clone() {
+            let _: () = redis::cmd("FLUSHDB").query_async(&mut conn).await?;
+            let flags: Vec<String> = sqlx::query_scalar("SELECT DISTINCT flag_value FROM flags")
+                .fetch_all(&self.pool).await?;
+            if !flags.is_empty() {
+                let _: () = conn.sadd(REDIS_FLAG_SET, &flags).await?;
+            }
+            tracing::info!("Loaded {} unique flags into Redis cache", flags.len());
+        }
+        Ok(())
+    }
+
+    async fn is_flag_duplicate(&self, flag_value: &str) -> bool {
+        if let Some(mut conn) = self.redis.clone() {
+            conn.sismember(REDIS_FLAG_SET, flag_value).await.unwrap_or(false)
+        } else {
+            false
+        }
+    }
+
+    async fn add_flag_to_cache(&self, flag_value: &str) {
+        if let Some(mut conn) = self.redis.clone() {
+            let _: Result<(), _> = conn.sadd(REDIS_FLAG_SET, flag_value).await;
+        }
     }
 
     fn clamp_priority(p: Option<i32>) -> i32 {
@@ -459,17 +496,23 @@ impl Database {
 
     // Flags
     pub async fn create_flag(&self, job_id: i32, round_id: i32, challenge_id: i32, team_id: i32, flag_value: &str) -> Result<Flag> {
-        Ok(sqlx::query_as!(Flag,
-            "INSERT INTO flags (job_id, round_id, challenge_id, team_id, flag_value, status) VALUES ($1, $2, $3, $4, $5, 'captured') RETURNING *",
-            job_id, round_id, challenge_id, team_id, flag_value
-        ).fetch_one(&self.pool).await?)
+        let status = if self.is_flag_duplicate(flag_value).await { "duplicated" } else { "captured" };
+        let flag = sqlx::query_as!(Flag,
+            "INSERT INTO flags (job_id, round_id, challenge_id, team_id, flag_value, status) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+            job_id, round_id, challenge_id, team_id, flag_value, status
+        ).fetch_one(&self.pool).await?;
+        self.add_flag_to_cache(flag_value).await;
+        Ok(flag)
     }
 
     pub async fn create_manual_flag(&self, round_id: i32, challenge_id: i32, team_id: i32, flag_value: &str, status: &str) -> Result<Flag> {
-        Ok(sqlx::query_as!(Flag,
+        let status = if self.is_flag_duplicate(flag_value).await { "duplicated" } else { status };
+        let flag = sqlx::query_as!(Flag,
             "INSERT INTO flags (job_id, round_id, challenge_id, team_id, flag_value, status, submitted_at) VALUES (NULL, $1, $2, $3, $4, $5, NOW()) RETURNING *",
             round_id, challenge_id, team_id, flag_value, status
-        ).fetch_one(&self.pool).await?)
+        ).fetch_one(&self.pool).await?;
+        self.add_flag_to_cache(flag_value).await;
+        Ok(flag)
     }
 
     pub async fn has_flag_for(&self, round_id: i32, challenge_id: i32, team_id: i32) -> Result<bool> {

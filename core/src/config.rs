@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Deserialize, Default, Clone)]
 pub struct AppConfig {
     pub database_url: Option<String>,
+    pub redis_url: Option<String>,
     pub listen_addr: Option<String>,
     pub db_pool: Option<DbPoolConfig>,
 }
