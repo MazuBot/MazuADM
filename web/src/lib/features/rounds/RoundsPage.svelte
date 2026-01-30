@@ -73,8 +73,20 @@
     return exploitRuns.find((r) => r.id === runId);
   }
 
+  function normalizeStatus(status) {
+    if (!status) return 'unknown';
+    return status.split(':')[0] || 'unknown';
+  }
+
   function formatStatus(status) {
-    return status === 'flag' ? '🚩 FLAG' : status;
+    if (!status) return 'unknown';
+    if (status === 'flag') return '🚩 FLAG';
+    const [base, detail] = status.split(':');
+    return detail ? `${base} (${detail})` : status;
+  }
+
+  function statusClass(status) {
+    return `job-status status-${normalizeStatus(status)}`;
   }
 
   function formatTimestamp(value) {
@@ -486,7 +498,7 @@
     <h3 class="job-modal-header">
       <span>Job #{modalJob.id}</span>
       <span><code>{getChallengeName(challenges, getExploitRunInfo(modalJob.exploit_run_id)?.challenge_id)}</code></span>
-      <span class={`job-status status-${modalJob.status || 'unknown'}`}>{formatStatus(modalJob.status)}</span>
+      <span class={statusClass(modalJob.status)}>{formatStatus(modalJob.status)}</span>
     </h3>
     <div class="job-info">
       <p><strong>Exploit:</strong> {getExploitName(exploits, getExploitRunInfo(modalJob.exploit_run_id)?.exploit_id)}</p>
