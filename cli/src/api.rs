@@ -3,6 +3,10 @@ use reqwest::Client;
 use tracing::debug;
 use crate::models::*;
 
+fn parse_response<T: serde::de::DeserializeOwned>(text: &str) -> Result<T> {
+    serde_json::from_str(text).map_err(|_| anyhow!("{}", text))
+}
+
 pub struct ApiClient {
     client: Client,
     base_url: String,
@@ -24,7 +28,7 @@ impl ApiClient {
         }
         let text = resp.text().await?;
         debug!("GET {} response: {}", path, text);
-        Ok(serde_json::from_str(&text)?)
+        parse_response(&text)
     }
 
     async fn post<T: serde::de::DeserializeOwned, B: serde::Serialize>(&self, path: &str, body: &B) -> Result<T> {
@@ -34,7 +38,7 @@ impl ApiClient {
         }
         let text = resp.text().await?;
         debug!("POST {} response: {}", path, text);
-        Ok(serde_json::from_str(&text)?)
+        parse_response(&text)
     }
 
     async fn post_empty<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
@@ -44,7 +48,7 @@ impl ApiClient {
         }
         let text = resp.text().await?;
         debug!("POST {} response: {}", path, text);
-        Ok(serde_json::from_str(&text)?)
+        parse_response(&text)
     }
 
     async fn put<T: serde::de::DeserializeOwned, B: serde::Serialize>(&self, path: &str, body: &B) -> Result<T> {
@@ -54,7 +58,7 @@ impl ApiClient {
         }
         let text = resp.text().await?;
         debug!("PUT {} response: {}", path, text);
-        Ok(serde_json::from_str(&text)?)
+        parse_response(&text)
     }
 
     async fn delete(&self, path: &str) -> Result<()> {
@@ -72,7 +76,7 @@ impl ApiClient {
         }
         let text = resp.text().await?;
         debug!("PATCH {} response: {}", path, text);
-        Ok(serde_json::from_str(&text)?)
+        parse_response(&text)
     }
 
     // Challenges
