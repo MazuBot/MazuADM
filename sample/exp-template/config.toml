@@ -3,6 +3,7 @@ challenge = "challenge-name"
 image = "example-exp:latest"
 priority = 100
 max_per_container = 1
+max_concurrent_jobs = 0
 timeout = 30
 default_counter = 999
 enabled = true

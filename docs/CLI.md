@@ -52,6 +52,7 @@ mazuadm-cli exploit create . --challenge pwn1
 mazuadm-cli exploit list
 mazuadm-cli exploit list --challenge pwn1
 mazuadm-cli exploit update pwn1-exp --challenge pwn1 --timeout 60
+mazuadm-cli exploit update pwn1-exp --challenge pwn1 --max-concurrent-jobs 3
 mazuadm-cli exploit delete pwn1-exp --challenge pwn1
 mazuadm-cli exploit enable pwn1-exp --challenge pwn1
 mazuadm-cli exploit disable pwn1-exp --challenge pwn1
