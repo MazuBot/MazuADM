@@ -5,17 +5,53 @@
 
   let { exploits, exploitRuns, challenges, teams, containers, selectedChallengeId, onSelectChallenge, onLoadContainers } = $props();
 
+  let searchQuery = $state('');
+
   let filteredExploits = $derived(
     selectedChallengeId ? exploits.filter((exploit) => exploit.challenge_id === selectedChallengeId) : exploits
   );
   let selectedChallenge = $derived(
     selectedChallengeId ? challenges.find((challenge) => challenge.id === selectedChallengeId) : null
   );
+
+  function getAffinityText(c) {
+    if (!c.affinity_runs?.length) return '';
+    return c.affinity_runs.map(runId => {
+      const run = exploitRuns.find(r => r.id === runId);
+      return run ? getTeamDisplay(teams, run.team_id) : String(runId);
+    }).join(' ');
+  }
+
+  function filterContainers(list) {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return list;
+    return list.filter(c => {
+      const searchable = [
+        c.id.slice(0, 12),
+        c.status,
+        getAffinityText(c)
+      ].join(' ').toLowerCase();
+      return searchable.includes(query);
+    });
+  }
+
+  function highlight(text) {
+    if (!text) return '-';
+    const q = searchQuery.trim();
+    if (q.length < 2) return text;
+    const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    return text.replace(regex, '<mark>$1</mark>');
+  }
+
   function computeTargetContainers() {
     if (!containers?.length) return [];
-    if (!selectedChallengeId) return containers;
-    const exploitIds = new Set(filteredExploits.map((exploit) => exploit.id));
-    return containers.filter((container) => exploitIds.has(container.exploit_id));
+    let list = selectedChallengeId
+      ? containers.filter(c => {
+          const exploitIds = new Set(filteredExploits.map(e => e.id));
+          return exploitIds.has(c.exploit_id);
+        })
+      : containers;
+    return filterContainers(list);
   }
   let targetContainers = $derived(computeTargetContainers());
   let hasContainers = $derived(targetContainers.length > 0);
@@ -122,6 +158,7 @@
   <div class="panel-header">
     <h2>Containers</h2>
     <div class="panel-actions">
+      <input type="text" bind:value={searchQuery} placeholder="Search..." class="search-input" />
       <button class="small" onclick={restartAllContainers} disabled={!hasContainers || restarting.size > 0}>
         {selectedChallenge ? 'Restart Challenge' : 'Restart All'}
       </button>
@@ -131,7 +168,7 @@
     </div>
   </div>
   {#each filteredExploits as exploit}
-    {@const expContainers = containers.filter((c) => c.exploit_id === exploit.id)}
+    {@const expContainers = filterContainers(containers.filter((c) => c.exploit_id === exploit.id))}
     {#if expContainers.length}
       <h3>{getChallengeName(challenges, exploit.challenge_id)} / {exploit.name}</h3>
       <table class="containers-table">
@@ -156,8 +193,8 @@
         <tbody>
           {#each expContainers as c}
             <tr class={c.status === 'running' ? '' : 'error'}>
-              <td><code>{c.id.slice(0, 12)}</code></td>
-              <td>{c.status}</td>
+              <td><code>{@html highlight(c.id.slice(0, 12))}</code></td>
+              <td>{@html highlight(c.status)}</td>
               <td>{c.counter}</td>
               <td>{c.running_execs}/{c.max_execs}</td>
               <td class="runners-cell">
@@ -166,7 +203,7 @@
                     {@const run = exploitRuns.find((r) => r.id === runId)}
                     <div>
                       {#if run}
-                        {getTeamDisplay(teams, run.team_id)}
+                        {@html highlight(getTeamDisplay(teams, run.team_id))}
                       {:else}
                         {runId}
                       {/if}
