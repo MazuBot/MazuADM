@@ -157,6 +157,13 @@ function handleWsMessage(msg) {
         return [...list, data]
       })
       break
+    case 'container_affinity_updated':
+      containers.update((list) => {
+        const idx = list.findIndex((c) => c.id === data.id)
+        if (idx >= 0) return [...list.slice(0, idx), data, ...list.slice(idx + 1)]
+        return [...list, data]
+      })
+      break
     case 'container_execs_updated':
       containers.update((list) =>
         list.map((c) =>
