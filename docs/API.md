@@ -264,6 +264,8 @@ Reorder jobs.
 ### `POST /api/jobs/enqueue`
 Enqueue a job into the current running round (fails if no round is running).
 
+**Query:** `debug?: any` - If present, merges `debug_envs` setting with exploit.envs
+
 **Body:**
 ```json
 {
@@ -276,8 +278,10 @@ Enqueue a job into the current running round (fails if no round is running).
 
 ### `POST /api/jobs/{id}/enqueue`
 Enqueue an existing job into the current running round (fails if no round is running).
-If the job is pending in the running round, its priority is bumped; otherwise a new
+If the job is pending in the running round, runs it immediately; otherwise a new
 job is created from the same exploit_run/team.
+
+**Query:** `debug?: any` - If present, merges `debug_envs` setting with exploit.envs
 
 **Response:** `ExploitJob`
 

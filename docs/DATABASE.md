@@ -105,7 +105,8 @@ Individual exploit executions within a round.
 | container_id | VARCHAR(100) | YES | Docker container ID used |
 | stdout | TEXT | YES | Container stdout |
 | stderr | TEXT | YES | Container stderr |
-| create_reason | VARCHAR(20) | YES | Reason the job was created (e.g., new_round, enqueue_exploit, rerun_job:<id>, rerun_unflag:<id>, cleanup_requeue:<id>) |
+| create_reason | VARCHAR(20) | YES | Reason the job was created (e.g., new_round, enqueue_exploit, debug_exploit, rerun_job:<id>, debug_job:<id>) |
+| envs | TEXT | YES | Merged environment variables as JSON (debug_envs + exploit.envs) |
 | duration_ms | INTEGER | YES | Execution time in milliseconds |
 | schedule_at | TIMESTAMPTZ | YES | Job scheduled time (set when picked by scheduler) |
 | started_at | TIMESTAMPTZ | YES | Job start time |
