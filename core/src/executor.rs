@@ -140,9 +140,7 @@ impl Executor {
             format!("TARGET_PORT={}", conn.port),
             format!("TARGET_TEAM_ID={}", team.team_id),
         ];
-        // Use job.envs if present (already merged with exploit.envs), otherwise use exploit.envs
-        let envs_json = job.envs.as_ref().or(exploit.envs.as_ref());
-        if let Some(envs_json) = envs_json {
+        if let Some(envs_json) = job.envs.as_ref() {
             if let Ok(envs_map) = serde_json::from_str::<std::collections::HashMap<String, String>>(envs_json) {
                 for (k, v) in envs_map {
                     env.push(format!("{}={}", k, v));

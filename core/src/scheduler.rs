@@ -770,9 +770,12 @@ impl Scheduler {
                 let runs = self.db.list_exploit_runs(Some(challenge.id), Some(team.id)).await?;
                 for run in runs {
                     // Skip disabled exploits
-                    if !exploits.iter().any(|e| e.id == run.exploit_id && e.enabled) { continue; }
+                    let exploit = match exploits.iter().find(|e| e.id == run.exploit_id && e.enabled) {
+                        Some(e) => e,
+                        None => continue,
+                    };
                     let priority = Self::calculate_priority(challenge.priority, team.priority, run.sequence, run.priority);
-                    jobs.push((run.id, team.id, priority));
+                    jobs.push((run.id, team.id, priority, exploit.envs.clone()));
                 }
             }
         }
@@ -780,8 +783,8 @@ impl Scheduler {
         jobs.sort_by(|a, b| b.2.cmp(&a.2)); // Higher priority first
 
         let mut created = 0u64;
-        for (run_id, team_id, priority) in jobs {
-            self.db.create_job(round_id, run_id, team_id, priority, Some("new_round"), None).await?;
+        for (run_id, team_id, priority, envs) in jobs {
+            self.db.create_job(round_id, run_id, team_id, priority, Some("new_round"), envs.as_deref()).await?;
             created += 1;
         }
 
