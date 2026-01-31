@@ -23,13 +23,19 @@
   } = app
 
   let lastJobsRound = null
+  let followRunning = false
 
   $: if ($ready) {
-    const { selectedId } = resolveRoundSelection({
+    let { selectedId } = resolveRoundSelection({
       rounds: $rounds,
       selectedId: $selectedRoundId,
       routeId
     })
+
+    if (followRunning) {
+      const runningId = $rounds.find((round) => round.status === 'running')?.id ?? null
+      if (runningId) selectedId = runningId
+    }
 
     if (selectedId !== $selectedRoundId) selectedRoundId.set(selectedId)
     if (selectedId && routeId !== selectedId) {
@@ -43,9 +49,14 @@
   }
 
   function selectRound(id) {
+    followRunning = false
     selectedRoundId.set(id)
     if (id) goto(`/jobs/${id}`)
     else goto('/jobs')
+  }
+
+  function toggleFollowRunning() {
+    followRunning = !followRunning
   }
 
   async function newRound(target) {
@@ -72,6 +83,8 @@
   exploitRuns={$exploitRuns}
   selectedRoundId={$selectedRoundId}
   onSelectRound={selectRound}
+  followRunning={followRunning}
+  onToggleFollow={toggleFollowRunning}
   onNewRound={newRound}
   onRunRound={runRoundHandler}
   onRerunUnflagged={rerunUnflaggedHandler}

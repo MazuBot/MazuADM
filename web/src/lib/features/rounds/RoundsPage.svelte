@@ -9,7 +9,22 @@
   import { getChallengeName, getExploitName, getTeamDisplay } from '$lib/utils/lookup.js';
   import { formatApiError, pushToast } from '$lib/ui/toastStore.js';
 
-  let { rounds, jobs, teams, challenges, exploits, exploitRuns, selectedRoundId, onSelectRound, onNewRound, onRunRound, onRerunUnflagged, onRefresh } = $props();
+  let {
+    rounds,
+    jobs,
+    teams,
+    challenges,
+    exploits,
+    exploitRuns,
+    selectedRoundId,
+    followRunning,
+    onToggleFollow,
+    onSelectRound,
+    onNewRound,
+    onRunRound,
+    onRerunUnflagged,
+    onRefresh
+  } = $props();
 
   const ansi_up = new AnsiUp();
   function renderAnsi(text) {
@@ -428,6 +443,14 @@
         </option>
       {/each}
     </select>
+    <button
+      class={`small follow-toggle ${followRunning ? 'active' : 'inactive'}`}
+      type="button"
+      aria-pressed={followRunning}
+      onclick={() => onToggleFollow?.()}
+    >
+      {followRunning ? 'Following' : 'Follow'}
+    </button>
     <button onclick={handleRunClick} disabled={!selectedRoundId}>Run</button>
     <button
       onclick={handleRerunUnflaggedClick}
@@ -595,4 +618,6 @@
   :global(.drag-preview .play-btn) { display: none; }
   .search-input { width: 150px; }
   .target-input { width: 160px; }
+  .follow-toggle.inactive { background: transparent; border: 1px solid #00d9ff; color: #00d9ff; }
+  .follow-toggle.inactive:hover { background: rgba(0, 217, 255, 0.15); }
 </style>
