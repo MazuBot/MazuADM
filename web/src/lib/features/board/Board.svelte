@@ -906,7 +906,6 @@
             >
               <span class="card-seq">{(orderIndex.get(run.id) ?? 0) + 1}</span>
               <span class="card-name">{getExploitName(exploits, run.exploit_id)}</span>
-              <span class="card-priority">{run.priority ?? 'auto'}</span>
               <div class="card-actions">
                 <button
                   type="button"
@@ -927,28 +926,31 @@
                   <Icon name="xmark" />
                 </button>
               </div>
-              <button
-                type="button"
-                class="card-play debug"
-                class:busy={isEnqueueing}
-                title="Debug run"
-                disabled={isEnqueueing}
-                onclick={(e) => runNow(run, e, true)}
-              >
-                <Icon name="bug" />
-              </button>
-              <button
-                type="button"
-                class="card-play"
-                class:busy={isEnqueueing}
-                title={isEnqueueing ? 'Enqueueing...' : 'Enqueue now'}
-                aria-label={isEnqueueing ? 'Enqueueing' : 'Enqueue now'}
-                aria-busy={isEnqueueing}
-                disabled={isEnqueueing}
-                onclick={(e) => runNow(run, e)}
-              >
-                <Icon name="play" />
-              </button>
+              <span class="card-right">
+                <span class="card-priority">{run.priority ?? 'auto'}</span>
+                <button
+                  type="button"
+                  class="card-play debug"
+                  class:busy={isEnqueueing}
+                  title="Debug run"
+                  disabled={isEnqueueing}
+                  onclick={(e) => runNow(run, e, true)}
+                >
+                  <Icon name="bug" />
+                </button>
+                <button
+                  type="button"
+                  class="card-play"
+                  class:busy={isEnqueueing}
+                  title={isEnqueueing ? 'Enqueueing...' : 'Enqueue now'}
+                  aria-label={isEnqueueing ? 'Enqueueing' : 'Enqueue now'}
+                  aria-busy={isEnqueueing}
+                  disabled={isEnqueueing}
+                  onclick={(e) => runNow(run, e)}
+                >
+                  <Icon name="play" />
+                </button>
+              </span>
             </div>
           {/each}
         </div>
@@ -1166,7 +1168,7 @@
   .gear:hover { opacity: 1; }
   .hint { color: #666; font-size: 0.85rem; margin: 0.5rem 0; }
   .cards { display: flex; flex-direction: column; gap: 0.5rem; min-height: 50px; }
-  .card { background: #1a1a2e; padding: 0.75rem 1.75rem 0.75rem 0.75rem; border-radius: 4px; border-left: 3px solid #00d9ff; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; position: relative; }
+  .card { background: #1a1a2e; padding: 0.75rem; border-radius: 4px; border-left: 3px solid #00d9ff; display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; cursor: pointer; position: relative; }
   .card:hover { background: #252550; }
   .card.disabled { background: #0d0d15; opacity: 0.6; border-left-color: #444; }
   .card.disabled .card-name { text-decoration: line-through; color: #666; }
@@ -1176,13 +1178,14 @@
   :global(.drag-preview .card-actions),
   :global(.drag-preview .card-play) { display: none; }
   .card-seq { background: #333; color: #888; font-size: 0.75rem; padding: 0.1rem 0.4rem; border-radius: 3px; }
-  .card-name { font-weight: 500; flex: 1; }
+  .card-name { font-weight: 500; width: 100%; word-break: break-all; }
   .card-priority { color: #888; font-size: 0.8rem; }
+  .card-right { display: flex; align-items: center; gap: 0.5rem; margin-left: auto; }
   .card-actions { position: absolute; top: -0.4rem; right: -0.2rem; display: flex; gap: 0.2rem; opacity: 0; pointer-events: none; z-index: 1; }
   .card:hover .card-actions, .card:focus-within .card-actions { opacity: 1; pointer-events: auto; }
-  .card-play { cursor: pointer; opacity: 0.5; font-size: 0.7rem; margin-left: auto; background: transparent; border: none; padding: 0; color: inherit; }
+  .card-play { cursor: pointer; opacity: 0.5; font-size: 0.7rem; background: transparent; border: none; padding: 0; color: inherit; }
   .card-play:hover { opacity: 1; }
-  .card-play.debug { color: #f0ad4e; margin-left: 0; }
+  .card-play.debug { color: #f0ad4e; }
   .card-play.busy,
   .card-play[disabled] { opacity: 0.3; cursor: not-allowed; }
   .danger { background: #d9534f; }
