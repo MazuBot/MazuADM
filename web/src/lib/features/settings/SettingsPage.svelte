@@ -8,15 +8,42 @@
     return settings.find((s) => s.key === key)?.value || fallback;
   }
 
+  function parseEnvs(envsJson) {
+    if (!envsJson) return [];
+    try {
+      const obj = JSON.parse(envsJson);
+      return Object.entries(obj).map(([key, value]) => ({ key, value }));
+    } catch { return []; }
+  }
+
+  function serializeEnvs(envsList) {
+    if (!envsList || envsList.length === 0) return '';
+    const filtered = envsList.filter(e => e.key.trim());
+    if (filtered.length === 0) return '';
+    const obj = {};
+    for (const e of filtered) obj[e.key] = e.value;
+    return JSON.stringify(obj);
+  }
+
+  let debugEnvs = $state(parseEnvs(getSetting('debug_envs', '')));
+
   async function updateSettingAndToast(key, value) {
     try {
       await api.updateSetting(key, value);
       await onRefresh();
-      pushToast(`Setting ${key} updated to ${value}.`, 'success');
+      pushToast(`Setting ${key} updated.`, 'success');
     } catch (error) {
       pushToast(formatApiError(error, `Failed to update ${key}.`), 'error');
     }
   }
+
+  async function saveDebugEnvs() {
+    await updateSettingAndToast('debug_envs', serializeEnvs(debugEnvs));
+  }
+
+  $effect(() => {
+    debugEnvs = parseEnvs(getSetting('debug_envs', ''));
+  });
 </script>
 
 <div class="panel">
@@ -108,6 +135,22 @@
       <span class="setting-desc">Default value for exploit ignore_connection_info</span>
     </div>
   </div>
+  <div class="env-section">
+    <span class="env-label">debug_envs <span class="setting-desc">- Global environment variables for all jobs</span></span>
+    <div class="env-list">
+      {#each debugEnvs as env, i}
+        <div class="env-row">
+          <input type="text" bind:value={env.key} placeholder="KEY" />
+          <input type="text" bind:value={env.value} placeholder="value" />
+          <button type="button" class="small danger" onclick={() => debugEnvs = debugEnvs.filter((_, idx) => idx !== i)}>×</button>
+        </div>
+      {/each}
+    </div>
+    <div class="env-actions">
+      <button type="button" class="small" onclick={() => debugEnvs = [...debugEnvs, { key: '', value: '' }]}>+ Add Env</button>
+      <button type="button" class="small" onclick={saveDebugEnvs}>Save</button>
+    </div>
+  </div>
 </div>
 
 <style>
@@ -115,4 +158,11 @@
     color: #888;
     font-size: 0.85em;
   }
+  .env-section { margin: 1.5rem 0 0 0; }
+  .env-label { display: block; color: #aaa; font-size: 0.9rem; margin-bottom: 0.5rem; }
+  .env-list { max-height: 160px; overflow-y: scroll; }
+  .env-row { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .env-row input { flex: 1; padding: 0.4rem; background: #1a1a2e; border: 1px solid #444; color: #eee; border-radius: 4px; }
+  .env-row input:first-child { max-width: 150px; }
+  .env-actions { display: flex; gap: 0.5rem; }
 </style>
