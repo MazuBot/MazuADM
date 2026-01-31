@@ -1,6 +1,6 @@
-# name = "."
-challenge = "challenge-name"
-# image = null # default normalize name
+name = "chal1-web"
+challenge = "Chal1"
+image = "chal1-web" # default normalize name
 # entrypoint = null
 enabled = true
 # max_per_container = 0
