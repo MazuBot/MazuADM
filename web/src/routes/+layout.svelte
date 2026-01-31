@@ -30,7 +30,7 @@
 
   function shortHash(hash) {
     if (!hash) return ''
-    return hash.substring(0, 7) + (hash.endsWith('-c') ? '-c' : '')
+    return hash.substring(0, 7) + (hash.includes('(Changed)') ? '-c' : '')
   }
 
   function navHref(section) {
