@@ -2,10 +2,8 @@ import { fetchJson } from './index.js'
 
 export const rounds = () => fetchJson('/rounds')
 export const createRound = (target) => {
-  if (target !== null && target !== undefined) {
-    return fetchJson('/rounds', { method: 'POST', body: JSON.stringify({ target }) })
-  }
-  return fetchJson('/rounds', { method: 'POST' })
+  const body = target != null ? { target } : {}
+  return fetchJson('/rounds', { method: 'POST', body: JSON.stringify(body) })
 }
 export const runRound = (id) => fetchJson(`/rounds/${id}/run`, { method: 'POST' })
 export const rerunRound = (id) => fetchJson(`/rounds/${id}/rerun`, { method: 'POST' })
