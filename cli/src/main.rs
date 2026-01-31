@@ -94,8 +94,8 @@ enum RoundCmd {
     Run { id: i32 },
     Rerun { id: i32 },
     RerunUnflagged { id: i32 },
-    Clean { #[arg(long, env = "DATABASE_URL")] db: String },
-    Rollback { id: i32, #[arg(long, env = "DATABASE_URL")] db: String },
+    Clean { #[arg(long, env = "DATABASE_URL")] db: String, #[arg(long)] confirm: bool },
+    Rollback { id: i32, #[arg(long, env = "DATABASE_URL")] db: String, #[arg(long)] confirm: bool },
 }
 
 #[derive(Subcommand)]
@@ -425,14 +425,16 @@ async fn main() -> Result<()> {
             RoundCmd::Run { id } => { ctx.api.run_round(id).await?; println!("Started round {}", id); }
             RoundCmd::Rerun { id } => { ctx.api.rerun_round(id).await?; println!("Rerunning round {}", id); }
             RoundCmd::RerunUnflagged { id } => { ctx.api.rerun_unflagged_round(id).await?; println!("Reran unflagged jobs for round {}", id); }
-            RoundCmd::Clean { db } => {
+            RoundCmd::Clean { db, confirm } => {
+                if !confirm { anyhow::bail!("Use --confirm to clean all round data"); }
                 let pool = sqlx::PgPool::connect(&db).await?;
                 sqlx::query!("TRUNCATE flags, exploit_jobs, rounds RESTART IDENTITY CASCADE")
                     .execute(&pool)
                     .await?;
                 println!("Cleaned all round data");
             }
-            RoundCmd::Rollback { id, db } => {
+            RoundCmd::Rollback { id, db, confirm } => {
+                if !confirm { anyhow::bail!("Use --confirm to rollback"); }
                 let pool = sqlx::PgPool::connect(&db).await?;
                 sqlx::query!("DELETE FROM rounds WHERE id > $1", id)
                     .execute(&pool)
