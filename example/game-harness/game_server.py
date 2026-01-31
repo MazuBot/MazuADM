@@ -13,7 +13,7 @@ class GameServer:
         if not self._endpoint:
             raise ValueError('GAME_ENDPOINT is not configured')
 
-    def send_flag(self, flag_content):
+    def send_flag(self, flag_content) -> dict | str:
         self._require_endpoint()
         url = f"{self._endpoint.rstrip('/')}/flags"
         response = requests.post(
@@ -27,7 +27,7 @@ class GameServer:
         except ValueError:
             return response.text
 
-    def fetch_round(self):
+    def fetch_round(self) -> int:
         self._require_endpoint()
         url = f"{self._endpoint.rstrip('/')}/round"
         response = requests.get(url, timeout=self._timeout)
@@ -37,7 +37,11 @@ class GameServer:
             return int(data['round'])
         return int(data)
 
-    def extract_status(self, result):
+    def is_round_started(self) -> bool:
+        self._require_endpoint()
+        raise Exception('Not implemented')
+
+    def extract_status(self, result) -> str | None:
         status = None
         if isinstance(result, dict):
             status = result.get('status') or result.get('result')

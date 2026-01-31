@@ -30,9 +30,9 @@ class MazuAPI:
         self._timeout = timeout_secs
 
     # POST MazuADM/api/rounds
-    def push_new_round(self) -> int:
+    def push_new_round(self, target_id) -> int:
         url = f"{self._endpoint.rstrip('/')}/api/rounds"
-        response = requests.post(url, timeout=self._timeout)
+        response = requests.post(url, json={'target': target_id}, timeout=self._timeout)
         response.raise_for_status()
         return int(response.json())
 

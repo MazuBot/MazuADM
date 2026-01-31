@@ -79,7 +79,7 @@ def flag_dispatch_loop(
 
 def round_monitor_loop(stop_event: threading.Event, game_server: GameServer, api: MazuAPI):
     game_round = None
-    last_run_round = None
+    latest_game_round = None
     while not stop_event.is_set():
         try:
             latest_game_round = game_server.fetch_round()
@@ -90,6 +90,7 @@ def round_monitor_loop(stop_event: threading.Event, game_server: GameServer, api
         if game_round != latest_game_round:
             game_round = latest_game_round
             logger.info('game round changed to %s', game_round)
+        
         try:
             adm_round = api.get_current_round_id()
         except Exception:
@@ -101,17 +102,21 @@ def round_monitor_loop(stop_event: threading.Event, game_server: GameServer, api
             logger.info('no MazuADM round; creating up to %s', game_round)
             adm_round = 0
 
-        if adm_round < game_round:
-            logger.info('advancing MazuADM rounds from %s to %s', adm_round, game_round)
-            while adm_round < game_round and not stop_event.is_set():
-                adm_round = api.push_new_round()
-                logger.info('created round %s', adm_round)
+        logger.info('Pushing MazuADM rounds from %s to %s', adm_round, game_round)
+        try:
+            api.push_new_round(game_round)
+        except Exception:
+            logger.exception('failed to push new MazuADM round')
+            time.sleep(ROUND_POLL_INTERVAL_SECS)
+            continue
 
-        target_round = game_round
-        if last_run_round != target_round:
-            logger.info('starting MazuADM round %s', target_round)
-            api.push_round_start(target_round)
-            last_run_round = target_round
+        if adm_round != game_round:
+            if game_server.is_round_started():
+                logger.info('starting MazuADM round %s', game_round)
+                api.push_round_start(game_round)
+            else:
+                logger.info('game round not started yet; deferring MazuADM run')
+    
         time.sleep(ROUND_POLL_INTERVAL_SECS)
 
 
