@@ -436,7 +436,14 @@ async fn main() -> Result<()> {
             RoundCmd::Rollback { id, db, confirm } => {
                 if !confirm { anyhow::bail!("Use --confirm to rollback"); }
                 let pool = sqlx::PgPool::connect(&db).await?;
+                let current: Option<i32> = sqlx::query_scalar!("SELECT id FROM rounds WHERE status = 'running'")
+                    .fetch_optional(&pool)
+                    .await?;
+                if current.map(|c| id >= c).unwrap_or(true) { anyhow::bail!("Target round must be less than current round"); }
                 sqlx::query!("DELETE FROM rounds WHERE id > $1", id)
+                    .execute(&pool)
+                    .await?;
+                sqlx::query!("UPDATE rounds SET status = 'running' WHERE id = $1", id)
                     .execute(&pool)
                     .await?;
                 println!("Rolled back to round {}", id);
