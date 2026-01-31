@@ -109,7 +109,8 @@ button.danger {
 }
 
 select,
-input[type="text"] {
+input[type="text"],
+input[type="number"] {
   background: #252540;
   color: #eee;
   border: 1px solid #444;
@@ -117,7 +118,8 @@ input[type="text"] {
   border-radius: 4px;
 }
 
-input[type="text"]::placeholder {
+input[type="text"]::placeholder,
+input[type="number"]::placeholder {
   color: #888;
 }
 
