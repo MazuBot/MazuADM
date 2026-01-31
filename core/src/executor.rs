@@ -341,6 +341,9 @@ pub(crate) async fn should_skip_job(
     skip_on_flag: bool,
     round_id: i32,
 ) -> bool {
+    if ctx.job.create_reason.as_ref().map(|r| r.starts_with("rerun_job:")).unwrap_or(false) {
+        return false;
+    }
     let has_flag = if skip_on_flag {
         db.has_flag_for(round_id, ctx.challenge.id, ctx.team.id).await.ok().unwrap_or(false)
     } else {
