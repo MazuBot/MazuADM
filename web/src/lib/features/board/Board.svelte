@@ -32,12 +32,31 @@
     };
   }
 
+  function parseEnvs(envsJson) {
+    if (!envsJson) return [];
+    try {
+      const obj = JSON.parse(envsJson);
+      return Object.entries(obj).map(([key, value]) => ({ key, value }));
+    } catch { return []; }
+  }
+
+  function serializeEnvs(envsList) {
+    if (!envsList || envsList.length === 0) return null;
+    const filtered = envsList.filter(e => e.key.trim());
+    if (filtered.length === 0) return null;
+    const obj = {};
+    for (const e of filtered) obj[e.key] = e.value;
+    return JSON.stringify(obj);
+  }
+
   let showAddExploit = $state(false);
   let selectedExploitId = $state(null);
   let selectedTeamId = $state(null);
   let lastScrollKey = '';
   let newExploit = $state(getNewExploitDefaults());
   let newExploitInitial = $state(getNewExploitDefaults());
+  let newExploitEnvs = $state([]);
+  let newExploitEnvsInitial = $state([]);
 
   let editingRun = $state(null);
   let editForm = $state({ priority: '', sequence: 0, enabled: true });
@@ -46,6 +65,8 @@
   let editingExploit = $state(null);
   let exploitForm = $state({ name: '', docker_image: '', entrypoint: '', max_per_container: 1, max_containers: 0, max_concurrent_jobs: 0, default_counter: 999, timeout_secs: 0, ignore_connection_info: false, enabled: true });
   let exploitFormInitial = $state(null);
+  let exploitEnvs = $state([]);
+  let exploitEnvsInitial = $state([]);
 
   let editingRelation = $state(null);
   let relationForm = $state({ addr: '', port: '' });
@@ -234,12 +255,15 @@
         timeout_secs: newExploit.timeout_secs || 0,
         ignore_connection_info: newExploit.ignore_connection_info,
         auto_add: newExploit.auto_add,
-        insert_into_rounds: newExploit.insert_into_rounds
+        insert_into_rounds: newExploit.insert_into_rounds,
+        envs: serializeEnvs(newExploitEnvs)
       });
       showAddExploit = false;
       const defaults = getNewExploitDefaults();
       newExploit = { ...defaults };
       newExploitInitial = { ...defaults };
+      newExploitEnvs = [];
+      newExploitEnvsInitial = [];
       onRefresh();
       pushToast(`Exploit created: ${exploitName} (${challengeName}).`, 'success');
     } catch (error) {
@@ -252,6 +276,8 @@
     const defaults = getNewExploitDefaults();
     newExploit = { ...defaults };
     newExploitInitial = { ...defaults };
+    newExploitEnvs = [];
+    newExploitEnvsInitial = [];
   }
 
   function duplicateExploit(e, ev) {
@@ -259,12 +285,16 @@
     showAddExploit = true;
     newExploit = { name: e.name + ' (copy)', docker_image: e.docker_image, entrypoint: e.entrypoint || '', max_per_container: e.max_per_container, max_containers: e.max_containers, max_concurrent_jobs: e.max_concurrent_jobs, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, ignore_connection_info: e.ignore_connection_info || false, auto_add: 'end', insert_into_rounds: true };
     newExploitInitial = { ...newExploit };
+    newExploitEnvs = parseEnvs(e.envs);
+    newExploitEnvsInitial = parseEnvs(e.envs);
   }
 
   function openEditExploit(e) {
     editingExploit = e;
     exploitForm = { name: e.name, docker_image: e.docker_image, entrypoint: e.entrypoint || '', max_per_container: e.max_per_container, max_containers: e.max_containers, max_concurrent_jobs: e.max_concurrent_jobs, default_counter: e.default_counter, timeout_secs: e.timeout_secs || 0, ignore_connection_info: e.ignore_connection_info || false, enabled: e.enabled };
     exploitFormInitial = { ...exploitForm };
+    exploitEnvs = parseEnvs(e.envs);
+    exploitEnvsInitial = parseEnvs(e.envs);
   }
 
   async function saveExploit() {
@@ -273,7 +303,8 @@
     try {
       await api.updateExploit(editingExploit.id, {
         ...exploitForm,
-        entrypoint: exploitForm.entrypoint || null
+        entrypoint: exploitForm.entrypoint || null,
+        envs: serializeEnvs(exploitEnvs)
       });
       editingExploit = null;
       onRefresh();
@@ -962,6 +993,17 @@
       <label class="checkbox" class:field-changed={isNewExploitChanged('insert_into_rounds')}>
         <input type="checkbox" bind:checked={newExploit.insert_into_rounds} /> Insert jobs into active rounds
       </label>
+      <div class="env-section">
+        <span class="env-label">Environment Variables</span>
+        {#each newExploitEnvs as env, i}
+          <div class="env-row">
+            <input type="text" bind:value={env.key} placeholder="KEY" />
+            <input type="text" bind:value={env.value} placeholder="value" />
+            <button type="button" class="small danger" onclick={() => newExploitEnvs = newExploitEnvs.filter((_, idx) => idx !== i)}>×</button>
+          </div>
+        {/each}
+        <button type="button" class="small" onclick={() => newExploitEnvs = [...newExploitEnvs, { key: '', value: '' }]}>+ Add Env</button>
+      </div>
       <div class="modal-actions">
         <button type="button" onclick={() => showAddExploit = false}>Cancel</button>
         <button type="submit">Add</button>
@@ -1038,6 +1080,17 @@
       <label class="checkbox" class:field-changed={isExploitFieldChanged('enabled')}>
         <input type="checkbox" bind:checked={exploitForm.enabled} /> Enabled
       </label>
+      <div class="env-section">
+        <span class="env-label">Environment Variables</span>
+        {#each exploitEnvs as env, i}
+          <div class="env-row">
+            <input type="text" bind:value={env.key} placeholder="KEY" />
+            <input type="text" bind:value={env.value} placeholder="value" />
+            <button type="button" class="small danger" onclick={() => exploitEnvs = exploitEnvs.filter((_, idx) => idx !== i)}>×</button>
+          </div>
+        {/each}
+        <button type="button" class="small" onclick={() => exploitEnvs = [...exploitEnvs, { key: '', value: '' }]}>+ Add Env</button>
+      </div>
       <div class="modal-actions">
         <button type="button" class="danger" onclick={deleteExploit}>Delete</button>
         <button type="button" onclick={() => editingExploit = null}>Cancel</button>
@@ -1117,4 +1170,9 @@
   .danger { background: #d9534f; }
   .modal-title { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
   .modal-title code { margin-left: auto; text-align: right; }
+  .env-section { margin: 0.75rem 0; }
+  .env-label { display: block; color: #aaa; font-size: 0.9rem; margin-bottom: 0.5rem; }
+  .env-row { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .env-row input { flex: 1; padding: 0.4rem; background: #1a1a2e; border: 1px solid #444; color: #eee; border-radius: 4px; }
+  .env-row input:first-child { max-width: 150px; }
 </style>
