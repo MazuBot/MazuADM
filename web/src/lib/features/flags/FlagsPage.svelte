@@ -255,7 +255,7 @@
   </thead>
   <tbody>
     {#each filteredFlags as f}
-      <tr>
+      <tr class:row-success={f.status === 'success'}>
         <td>{f.id}</td>
         <td>{@html highlight(String(f.job_id ?? '-'))}</td>
         <td>{f.round_id}</td>
@@ -282,5 +282,8 @@
     align-items: center;
     gap: 0.25rem;
     cursor: pointer;
+  }
+  .row-success {
+    background-color: rgba(34, 197, 94, 0.15);
   }
 </style>
