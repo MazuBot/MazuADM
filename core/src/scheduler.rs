@@ -33,6 +33,7 @@ pub enum SchedulerCommand {
     RefreshJob(i32),
     CreateRound { resp: oneshot::Sender<Result<i32>> },
     RunJobImmediately(i32),
+    RunJobDebug { job_id: i32, debug_envs: Option<String> },
     StopJob { job_id: i32, reason: String, resp: oneshot::Sender<Result<ExploitJob>> },
     EnsureContainers { exploit_id: i32, resp: oneshot::Sender<Result<()>> },
     DestroyExploitContainers { exploit_id: i32, resp: oneshot::Sender<Result<()>> },
@@ -360,6 +361,26 @@ impl SchedulerRunner {
                     };
                     if let Err(e) = exec.run_job_immediately(job_id).await {
                         tracing::error!("Immediate job {} failed: {}", job_id, e);
+                    }
+                    drop(exploit_permit);
+                }));
+            }
+            SchedulerCommand::RunJobDebug { job_id, debug_envs } => {
+                let exec = executor;
+                let db = self.scheduler.db.clone();
+                let tx = self.scheduler.tx.clone();
+                let exploit_gates = self.exploit_gates.clone();
+                immediate.push(Box::pin(async move {
+                    let ctx = match build_job_context_or_finish(&db, &tx, job_id).await {
+                        Some(ctx) => ctx,
+                        None => return,
+                    };
+                    let exploit_permit = match acquire_exploit_permit(&exploit_gates, ctx.exploit.id, ctx.exploit.max_concurrent_jobs).await {
+                        Some(permit) => permit,
+                        None => return,
+                    };
+                    if let Err(e) = exec.run_job_with_debug_envs(job_id, debug_envs).await {
+                        tracing::error!("Debug job {} failed: {}", job_id, e);
                     }
                     drop(exploit_permit);
                 }));

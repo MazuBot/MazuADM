@@ -524,21 +524,37 @@ pub async fn enqueue_single_job(State(s): S, Json(req): Json<EnqueueSingleJobReq
     Ok(Json(job))
 }
 
-pub async fn enqueue_existing_job(State(s): S, Path(job_id): Path<i32>) -> R<ExploitJob> {
+#[derive(Deserialize)]
+pub struct EnqueueExistingJobQuery {
+    pub debug: Option<String>,
+}
+
+pub async fn enqueue_existing_job(State(s): S, Path(job_id): Path<i32>, Query(q): Query<EnqueueExistingJobQuery>) -> R<ExploitJob> {
     let job = s.db.get_job(job_id).await.map_err(err)?;
     let round_id = require_running_round_id(&s).await?;
     let max_priority = s.db.get_max_priority_for_round(round_id).await.map_err(err)?;
+    let debug = q.debug.is_some();
 
     if job.status == "pending" && job.round_id == round_id {
-        run_job_immediately(&s, job_id).await;
+        if debug {
+            let debug_envs = s.db.get_setting("debug_envs").await.ok();
+            s.scheduler.send(SchedulerCommand::RunJobDebug { job_id, debug_envs }).map_err(err)?;
+        } else {
+            run_job_immediately(&s, job_id).await;
+        }
         return Ok(Json(job));
     }
 
     let run_id = job.exploit_run_id.ok_or_else(|| "Job has no exploit_run_id".to_string())?;
-    let create_reason = format!("rerun_job:{}", job_id);
+    let create_reason = if debug { format!("debug_job:{}", job_id) } else { format!("rerun_job:{}", job_id) };
     let new_job = s.db.create_job(round_id, run_id, job.team_id, max_priority + 1, Some(&create_reason)).await.map_err(err)?;
     broadcast_job(&s, "job_created", &new_job);
-    s.scheduler.send(SchedulerCommand::RefreshJob(new_job.id)).map_err(err)?;
+    if debug {
+        let debug_envs = s.db.get_setting("debug_envs").await.ok();
+        s.scheduler.send(SchedulerCommand::RunJobDebug { job_id: new_job.id, debug_envs }).map_err(err)?;
+    } else {
+        s.scheduler.send(SchedulerCommand::RefreshJob(new_job.id)).map_err(err)?;
+    }
     Ok(Json(new_job))
 }
 

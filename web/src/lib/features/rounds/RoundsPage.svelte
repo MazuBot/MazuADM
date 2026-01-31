@@ -392,7 +392,7 @@
     draggingJob = null;
   }
 
-  async function runJob(job, e) {
+  async function runJob(job, e, debug = false) {
     e.stopPropagation();
     try {
       if (job.status === 'running') {
@@ -400,8 +400,8 @@
         pushToast(`Job #${job.id} stopped.`, 'success');
       } else {
         if (job.status === 'pending' && isPendingRound) return;
-        await api.enqueueExistingJob(job.id);
-        pushToast(`Job #${job.id} enqueued.`, 'success');
+        await api.enqueueExistingJob(job.id, debug);
+        pushToast(`Job #${job.id} enqueued${debug ? ' (debug)' : ''}.`, 'success');
       }
     } catch (error) {
       const fallback = job.status === 'running'
@@ -547,6 +547,16 @@
             <td>{formatStatus(j.status)}</td>
             <td>{j.duration_ms ? `${j.duration_ms}ms` : '-'}</td>
             <td>
+              {#if j.status !== 'running'}
+                <button
+                  class="play-btn debug"
+                  onclick={(e) => runJob(j, e, true)}
+                  title="Debug run"
+                  disabled={j.status === 'pending' && isPendingRound}
+                >
+                  <Icon name="bug" />
+                </button>
+              {/if}
               <button
                 class={`play-btn ${j.status === 'running' ? 'stop' : ''}`}
                 onclick={(e) => runJob(j, e)}
@@ -613,6 +623,7 @@
   .play-btn:hover { opacity: 1; }
   .play-btn:disabled { cursor: not-allowed; opacity: 0.3; }
   .play-btn.stop { color: #ff6b6b; }
+  .play-btn.debug { color: #f0ad4e; }
   .job-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
   :global(.drag-preview) { pointer-events: none; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35); transform: rotate(-1deg); }
   :global(.drag-preview .play-btn) { display: none; }
