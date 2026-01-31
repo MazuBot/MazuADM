@@ -149,7 +149,7 @@
   async function handleNewRoundClick() {
     try {
       startNewRoundCooldown(NEW_ROUND_COOLDOWN_MS);
-      const trimmed = newRoundTarget.trim();
+      const trimmed = newRoundTarget == null ? '' : String(newRoundTarget).trim();
       let target = null;
       if (trimmed) {
         const parsed = Number(trimmed);
