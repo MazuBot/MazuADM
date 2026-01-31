@@ -124,13 +124,6 @@ function handleWsMessage(msg) {
       }
       break
     }
-    case 'jobs_changed': {
-      const currentRoundId = get(selectedRoundId)
-      if (currentRoundId && data?.round_id === currentRoundId) {
-        loadJobs(currentRoundId)
-      }
-      break
-    }
     case 'flag_created': {
       const currentFlagRoundId = get(selectedFlagRoundId)
       if (!currentFlagRoundId || data.round_id === currentFlagRoundId) {

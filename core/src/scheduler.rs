@@ -67,12 +67,6 @@ enum ExploitPermit {
 }
 
 #[derive(serde::Serialize)]
-struct JobsChangedPayload {
-    round_id: i32,
-    created: u64,
-}
-
-#[derive(serde::Serialize)]
 struct RoundJobsReadyPayload {
     round_id: i32,
     created: u64,
@@ -862,9 +856,9 @@ impl Scheduler {
     }
 
     pub async fn rerun_unflagged(&self, round_id: i32, executor: &Executor) -> Result<()> {
-        let created = self.db.clone_unflagged_jobs_for_round(round_id).await?;
-        if created > 0 {
-            broadcast(&self.tx, "jobs_changed", &JobsChangedPayload { round_id, created });
+        let jobs = self.db.clone_unflagged_jobs_for_round(round_id).await?;
+        for job in &jobs {
+            broadcast(&self.tx, "job_created", job);
         }
         if let Ok(r) = self.db.get_round(round_id).await {
             broadcast(&self.tx, "round_updated", &r);

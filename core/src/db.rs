@@ -392,8 +392,9 @@ impl Database {
         Ok(result.rows_affected())
     }
 
-    pub async fn clone_unflagged_jobs_for_round(&self, round_id: i32) -> Result<u64> {
-        let result = sqlx::query!(
+    pub async fn clone_unflagged_jobs_for_round(&self, round_id: i32) -> Result<Vec<ExploitJob>> {
+        let jobs = sqlx::query_as!(
+            ExploitJob,
             "INSERT INTO exploit_jobs (round_id, exploit_run_id, team_id, priority, create_reason)
              SELECT $1, ej.exploit_run_id, ej.team_id, ej.priority, 'rerun_unflag:' || ej.id::text
              FROM exploit_jobs ej
@@ -408,12 +409,13 @@ impl Database {
                    AND f.challenge_id = er.challenge_id
                    AND f.team_id = ej.team_id
                  LIMIT 1
-               )",
+               )
+             RETURNING *",
             round_id
         )
-        .execute(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
-        Ok(result.rows_affected())
+        Ok(jobs)
     }
 
     pub async fn kill_running_jobs(&self) -> Result<Vec<ExploitJob>> {
