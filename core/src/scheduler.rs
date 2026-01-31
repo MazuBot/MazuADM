@@ -756,6 +756,7 @@ impl Scheduler {
     pub async fn create_round_jobs(&self, round_id: i32) -> Result<u64> {
         let challenges = self.db.list_challenges().await?;
         let teams = self.db.list_teams().await?;
+        let exploits = self.db.list_exploits(None).await?;
 
         let mut jobs = Vec::new();
 
@@ -768,6 +769,8 @@ impl Scheduler {
                 }
                 let runs = self.db.list_exploit_runs(Some(challenge.id), Some(team.id)).await?;
                 for run in runs {
+                    // Skip disabled exploits
+                    if !exploits.iter().any(|e| e.id == run.exploit_id && e.enabled) { continue; }
                     let priority = Self::calculate_priority(challenge.priority, team.priority, run.sequence, run.priority);
                     jobs.push((run.id, team.id, priority));
                 }
