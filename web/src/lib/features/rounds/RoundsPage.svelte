@@ -587,6 +587,7 @@
       <p><strong>Team:</strong> <span class="truncate">{getTeamDisplay(teams, modalJob.team_id)}</span></p>
       <p><strong>Priority:</strong> {modalJob.priority}</p>
       <p><strong>Start reason:</strong> {modalJob.create_reason || '-'}</p>
+      {#if modalJob.envs}<p><strong>Envs:</strong> <code>{modalJob.envs}</code></p>{/if}
       <p><strong>Scheduled at:</strong> {formatTimestamp(modalJob.schedule_at)}</p>
       <p><strong>Started at:</strong> {formatTimestamp(modalJob.started_at)}</p>
       <p><strong>Finished at:</strong> {formatTimestamp(modalJob.finished_at)}</p>
