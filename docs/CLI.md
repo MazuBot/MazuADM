@@ -25,8 +25,7 @@ mazuadm-cli [OPTIONS] <COMMAND>
 ### Version
 
 ```bash
-mazuadm-cli version api    # show API server version
-mazuadm-cli version cli    # show CLI version
+mazuadm-cli version    # show CLI and API version info
 ```
 
 ### Challenge Management

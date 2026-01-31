@@ -20,7 +20,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    Version { #[command(subcommand)] cmd: VersionCmd },
+    Version,
     Challenge { #[command(subcommand)] cmd: ChallengeCmd },
     Team { #[command(subcommand)] cmd: TeamCmd },
     Exploit { #[command(subcommand)] cmd: ExploitCmd },
@@ -33,9 +33,6 @@ enum Cmd {
     Relation { #[command(subcommand)] cmd: RelationCmd },
     Ws { #[command(subcommand)] cmd: WsCmd },
 }
-
-#[derive(Subcommand)]
-enum VersionCmd { Api, Cli }
 
 #[derive(Subcommand)]
 enum ChallengeCmd {
@@ -217,13 +214,26 @@ async fn main() -> Result<()> {
     let mut ctx = Ctx::new(ApiClient::new(&cli.api));
 
     match cli.cmd {
-        Cmd::Version { cmd } => match cmd {
-            VersionCmd::Api => {
-                let v = ctx.api.get_version().await?;
-                println!("{} ({} {})", v.version, v.git_ref, &v.git_hash[..7.min(v.git_hash.len())]);
+        Cmd::Version => {
+            println!("CLI:");
+            println!("  Version:    {}", env!("CARGO_PKG_VERSION"));
+            println!("  Git Ref:    {}", env!("BUILD_GIT_REF"));
+            println!("  Git Hash:   {}", env!("BUILD_GIT_HASH"));
+            println!("  Build Time: {}", env!("BUILD_TIME"));
+            println!("  Rustc:      {}", env!("BUILD_RUSTC"));
+            println!();
+            println!("API:");
+            match ctx.api.get_version().await {
+                Ok(v) => {
+                    println!("  Version:    {}", v.version);
+                    println!("  Git Ref:    {}", v.git_ref);
+                    println!("  Git Hash:   {}", v.git_hash);
+                    println!("  Build Time: {}", v.build_time);
+                    println!("  Rustc:      {}", v.rustc);
+                }
+                Err(e) => println!("  Error: {}", e),
             }
-            VersionCmd::Cli => { println!("{}", env!("CARGO_PKG_VERSION")); }
-        },
+        }
         Cmd::Challenge { cmd } => match cmd {
             ChallengeCmd::Add { name, port, priority, flag_regex } => {
                 let c = ctx.api.create_challenge(CreateChallenge { name, enabled: Some(true), default_port: port, priority, flag_regex }).await?;
