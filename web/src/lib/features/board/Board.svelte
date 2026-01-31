@@ -949,7 +949,7 @@
 </div>
 
 {#if showAddExploit}
-  <Modal onClose={() => showAddExploit = false}>
+  <Modal wide onClose={() => showAddExploit = false}>
     <form onsubmit={(e) => { e.preventDefault(); addExploit(); }}>
       <h3 class="modal-title">
         <span>Add Exploit</span>
@@ -964,44 +964,48 @@
       <label class:field-changed={isNewExploitChanged('entrypoint')}>
         Entrypoint <input type="text" bind:value={newExploit.entrypoint} placeholder="Leave empty to use image CMD" />
       </label>
-      <label class:field-changed={isNewExploitChanged('max_per_container')}>
-        Max per container <input bind:value={newExploit.max_per_container} type="number" placeholder={`Default: ${Math.max(teams.length, 1)}`} />
-      </label>
-      <label class:field-changed={isNewExploitChanged('max_containers')}>
-        Max containers <input bind:value={newExploit.max_containers} type="number" placeholder="0 = unlimited" />
-      </label>
-      <label class:field-changed={isNewExploitChanged('max_concurrent_jobs')}>
-        Max concurrent jobs <input bind:value={newExploit.max_concurrent_jobs} type="number" placeholder="0 = unlimited" />
-      </label>
-      <label class:field-changed={isNewExploitChanged('default_counter')}>
-        Default counter <input bind:value={newExploit.default_counter} type="number" placeholder="Default: 999" />
-      </label>
-      <label class:field-changed={isNewExploitChanged('timeout_secs')}>
-        Timeout (secs) <input bind:value={newExploit.timeout_secs} type="number" placeholder="0 = use global" />
-      </label>
+      <div class="three-col">
+        <label class:field-changed={isNewExploitChanged('max_per_container')}>
+          Max per container <input bind:value={newExploit.max_per_container} type="number" placeholder={`Default: ${Math.max(teams.length, 1)}`} />
+        </label>
+        <label class:field-changed={isNewExploitChanged('max_containers')}>
+          Max containers <input bind:value={newExploit.max_containers} type="number" placeholder="0 = unlimited" />
+        </label>
+        <label class:field-changed={isNewExploitChanged('max_concurrent_jobs')}>
+          Max concurrent jobs <input bind:value={newExploit.max_concurrent_jobs} type="number" placeholder="0 = unlimited" />
+        </label>
+        <label class:field-changed={isNewExploitChanged('default_counter')}>
+          Default counter <input bind:value={newExploit.default_counter} type="number" placeholder="Default: 999" />
+        </label>
+        <label class:field-changed={isNewExploitChanged('timeout_secs')}>
+          Timeout (secs) <input bind:value={newExploit.timeout_secs} type="number" placeholder="0 = use global" />
+        </label>
+        <label class:field-changed={isNewExploitChanged('auto_add')}>
+          Auto-add to teams
+          <select bind:value={newExploit.auto_add}>
+            <option value="none">Don't add</option>
+            <option value="start">Add to start</option>
+            <option value="end">Add to end</option>
+          </select>
+        </label>
+      </div>
       <label class="checkbox" class:field-changed={isNewExploitChanged('ignore_connection_info')}>
         <input type="checkbox" bind:checked={newExploit.ignore_connection_info} /> Ignore connection info
-      </label>
-      <label class:field-changed={isNewExploitChanged('auto_add')}>
-        Auto-add to teams
-        <select bind:value={newExploit.auto_add}>
-          <option value="none">Don't add</option>
-          <option value="start">Add to start of each team</option>
-          <option value="end">Add to end of each team</option>
-        </select>
       </label>
       <label class="checkbox" class:field-changed={isNewExploitChanged('insert_into_rounds')}>
         <input type="checkbox" bind:checked={newExploit.insert_into_rounds} /> Insert jobs into active rounds
       </label>
       <div class="env-section">
         <span class="env-label">Environment Variables</span>
-        {#each newExploitEnvs as env, i}
-          <div class="env-row">
-            <input type="text" bind:value={env.key} placeholder="KEY" />
-            <input type="text" bind:value={env.value} placeholder="value" />
-            <button type="button" class="small danger" onclick={() => newExploitEnvs = newExploitEnvs.filter((_, idx) => idx !== i)}>×</button>
-          </div>
-        {/each}
+        <div class="env-list">
+          {#each newExploitEnvs as env, i}
+            <div class="env-row">
+              <input type="text" bind:value={env.key} placeholder="KEY" />
+              <input type="text" bind:value={env.value} placeholder="value" />
+              <button type="button" class="small danger" onclick={() => newExploitEnvs = newExploitEnvs.filter((_, idx) => idx !== i)}>×</button>
+            </div>
+          {/each}
+        </div>
         <button type="button" class="small" onclick={() => newExploitEnvs = [...newExploitEnvs, { key: '', value: '' }]}>+ Add Env</button>
       </div>
       <div class="modal-actions">
@@ -1044,7 +1048,7 @@
 {/if}
 
 {#if editingExploit}
-  <Modal onClose={() => editingExploit = null}>
+  <Modal wide onClose={() => editingExploit = null}>
     <form onsubmit={(e) => { e.preventDefault(); saveExploit(); }}>
       <h3 class="modal-title">
         <span>Edit Exploit</span>
@@ -1059,21 +1063,23 @@
       <label class:field-changed={isExploitFieldChanged('entrypoint')}>
         Entrypoint <input type="text" bind:value={exploitForm.entrypoint} placeholder="Leave empty to use image CMD" />
       </label>
-      <label class:field-changed={isExploitFieldChanged('max_per_container')}>
-        Max per container <input bind:value={exploitForm.max_per_container} type="number" />
-      </label>
-      <label class:field-changed={isExploitFieldChanged('max_containers')}>
-        Max containers <input bind:value={exploitForm.max_containers} type="number" placeholder="0 = unlimited" />
-      </label>
-      <label class:field-changed={isExploitFieldChanged('max_concurrent_jobs')}>
-        Max concurrent jobs <input bind:value={exploitForm.max_concurrent_jobs} type="number" placeholder="0 = unlimited" />
-      </label>
-      <label class:field-changed={isExploitFieldChanged('default_counter')}>
-        Default counter <input bind:value={exploitForm.default_counter} type="number" />
-      </label>
-      <label class:field-changed={isExploitFieldChanged('timeout_secs')}>
-        Timeout (secs) <input bind:value={exploitForm.timeout_secs} type="number" placeholder="0 = use global" />
-      </label>
+      <div class="three-col">
+        <label class:field-changed={isExploitFieldChanged('max_per_container')}>
+          Max per container <input bind:value={exploitForm.max_per_container} type="number" />
+        </label>
+        <label class:field-changed={isExploitFieldChanged('max_containers')}>
+          Max containers <input bind:value={exploitForm.max_containers} type="number" placeholder="0 = unlimited" />
+        </label>
+        <label class:field-changed={isExploitFieldChanged('max_concurrent_jobs')}>
+          Max concurrent jobs <input bind:value={exploitForm.max_concurrent_jobs} type="number" placeholder="0 = unlimited" />
+        </label>
+        <label class:field-changed={isExploitFieldChanged('default_counter')}>
+          Default counter <input bind:value={exploitForm.default_counter} type="number" />
+        </label>
+        <label class:field-changed={isExploitFieldChanged('timeout_secs')}>
+          Timeout (secs) <input bind:value={exploitForm.timeout_secs} type="number" placeholder="0 = use global" />
+        </label>
+      </div>
       <label class="checkbox" class:field-changed={isExploitFieldChanged('ignore_connection_info')}>
         <input type="checkbox" bind:checked={exploitForm.ignore_connection_info} /> Ignore connection info
       </label>
@@ -1082,13 +1088,15 @@
       </label>
       <div class="env-section">
         <span class="env-label">Environment Variables</span>
-        {#each exploitEnvs as env, i}
-          <div class="env-row">
-            <input type="text" bind:value={env.key} placeholder="KEY" />
-            <input type="text" bind:value={env.value} placeholder="value" />
-            <button type="button" class="small danger" onclick={() => exploitEnvs = exploitEnvs.filter((_, idx) => idx !== i)}>×</button>
-          </div>
-        {/each}
+        <div class="env-list">
+          {#each exploitEnvs as env, i}
+            <div class="env-row">
+              <input type="text" bind:value={env.key} placeholder="KEY" />
+              <input type="text" bind:value={env.value} placeholder="value" />
+              <button type="button" class="small danger" onclick={() => exploitEnvs = exploitEnvs.filter((_, idx) => idx !== i)}>×</button>
+            </div>
+          {/each}
+        </div>
         <button type="button" class="small" onclick={() => exploitEnvs = [...exploitEnvs, { key: '', value: '' }]}>+ Add Env</button>
       </div>
       <div class="modal-actions">
@@ -1172,7 +1180,9 @@
   .modal-title code { margin-left: auto; text-align: right; }
   .env-section { margin: 0.75rem 0; }
   .env-label { display: block; color: #aaa; font-size: 0.9rem; margin-bottom: 0.5rem; }
+  .env-list { max-height: 160px; overflow-y: scroll; }
   .env-row { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
   .env-row input { flex: 1; padding: 0.4rem; background: #1a1a2e; border: 1px solid #444; color: #eee; border-radius: 4px; }
   .env-row input:first-child { max-width: 150px; }
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem 1rem; }
 </style>
