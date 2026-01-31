@@ -341,6 +341,22 @@ impl Database {
         Ok(sqlx::query_as!(Round, "INSERT INTO rounds DEFAULT VALUES RETURNING *").fetch_one(&self.pool).await?)
     }
 
+    pub async fn get_latest_round_id(&self) -> Result<Option<i32>> {
+        let row = sqlx::query!("SELECT id FROM rounds ORDER BY id DESC LIMIT 1")
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| r.id))
+    }
+
+    pub async fn get_latest_pending_round_id(&self) -> Result<Option<i32>> {
+        let row = sqlx::query!(
+            "SELECT id FROM rounds WHERE status = 'pending' ORDER BY id DESC LIMIT 1"
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| r.id))
+    }
+
     pub async fn get_round(&self, id: i32) -> Result<Round> {
         Ok(sqlx::query_as!(Round, "SELECT * FROM rounds WHERE id = $1", id).fetch_one(&self.pool).await?)
     }

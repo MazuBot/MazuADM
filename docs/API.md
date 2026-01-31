@@ -217,6 +217,13 @@ Get the currently running round.
 ### `POST /api/rounds`
 Create a new round. Jobs are created asynchronously in the background.
 
+**Body (optional):**
+```json
+{ "target": 123 }
+```
+If `target` is provided, the server will create pending rounds until the latest round id is at least `target`.
+If the target is already satisfied, the response is the latest pending round id (or the latest round id if none are pending).
+
 **Response:** `int` (round_id)
 
 ### `POST /api/rounds/{id}/run`

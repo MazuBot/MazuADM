@@ -408,8 +408,33 @@ pub async fn get_current_round(State(s): S) -> R<Option<Round>> {
     Ok(Json(rounds.into_iter().find(|r| r.status == "running")))
 }
 
-pub async fn create_round(State(s): S) -> R<i32> {
-    let round_id = s.scheduler.create_round().await.map_err(err)?;
+#[derive(Deserialize)]
+pub struct CreateRoundRequest {
+    pub target: Option<i32>,
+}
+
+pub async fn create_round(State(s): S, payload: Option<Json<CreateRoundRequest>>) -> R<i32> {
+    let target = payload.and_then(|Json(p)| p.target);
+    let round_id = if let Some(target_id) = target {
+        let mut latest_id = s.db.get_latest_round_id().await.map_err(err)?.unwrap_or(0);
+        if latest_id >= target_id {
+            if let Some(pending_id) = s.db.get_latest_pending_round_id().await.map_err(err)? {
+                pending_id
+            } else if latest_id > 0 {
+                latest_id
+            } else {
+                let created = s.scheduler.create_round().await.map_err(err)?;
+                created
+            }
+        } else {
+            while latest_id < target_id {
+                latest_id = s.scheduler.create_round().await.map_err(err)?;
+            }
+            latest_id
+        }
+    } else {
+        s.scheduler.create_round().await.map_err(err)?
+    };
     Ok(Json(round_id))
 }
 

@@ -48,8 +48,8 @@
     else goto('/jobs')
   }
 
-  async function newRound() {
-    const id = await createRound()
+  async function newRound(target) {
+    const id = await createRound(target)
     if (id) goto(`/jobs/${id}`)
     return id
   }

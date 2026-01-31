@@ -149,7 +149,17 @@
   async function handleNewRoundClick() {
     try {
       startNewRoundCooldown(NEW_ROUND_COOLDOWN_MS);
-      const id = await onNewRound?.();
+      const trimmed = newRoundTarget.trim();
+      let target = null;
+      if (trimmed) {
+        const parsed = Number(trimmed);
+        if (!Number.isInteger(parsed) || parsed < 1) {
+          pushToast('Target round id must be a positive integer.', 'error');
+          return;
+        }
+        target = parsed;
+      }
+      const id = await onNewRound?.(target);
     } catch (error) {
       pushToast(formatApiError(error, 'Failed to create round.'), 'error');
     }
@@ -203,6 +213,7 @@
   let newRoundCooldown = $state(false);
   let newRoundCooldownTimer = null;
   let lastRoundCreatedAt = $state(0);
+  let newRoundTarget = $state('');
 
   const NEW_ROUND_COOLDOWN_MS = 3000;
 
@@ -394,9 +405,18 @@
   }
 </script>
 
-<div class="rounds-panel">
+  <div class="rounds-panel">
   <div class="controls">
     <button onclick={handleNewRoundClick} disabled={newRoundCooldown}>New Round</button>
+    <input
+      type="number"
+      min="1"
+      step="1"
+      bind:value={newRoundTarget}
+      placeholder="Target round id"
+      class="target-input"
+      aria-label="Target round id"
+    />
     <select
       value={selectedRoundId ?? ''}
       onchange={(e) => onSelectRound(e.target.value ? Number(e.target.value) : null)}
@@ -574,4 +594,5 @@
   :global(.drag-preview) { pointer-events: none; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35); transform: rotate(-1deg); }
   :global(.drag-preview .play-btn) { display: none; }
   .search-input { width: 150px; }
+  .target-input { width: 160px; }
 </style>

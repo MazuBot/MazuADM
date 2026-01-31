@@ -18,8 +18,8 @@ export async function loadJobs(roundId) {
   if (roundId === get(selectedRoundId)) jobs.set(result)
 }
 
-export async function createRound() {
-  const id = await api.createRound()
+export async function createRound(target) {
+  const id = await api.createRound(target)
   selectedRoundId.set(id)
   jobs.set([])
   return id
