@@ -279,7 +279,7 @@ async fn main() -> Result<()> {
                 let cfg = match config { Some(p) => exploit_config::load_exploit_config(&p)?, None => exploit_config::load_default_exploit_config()? };
                 let name = if name != "." { name } else if let Some(n) = cfg.name.clone() { n } else { cwd_basename()? };
                 let challenge = resolve_challenge(&mut ctx, challenge, cfg.challenge.as_ref()).await?;
-                let image = cfg.docker_image.ok_or_else(|| anyhow!("missing image in config"))?;
+                let image = cfg.docker_image.unwrap_or_else(|| name.to_lowercase().replace(|c: char| !c.is_alphanumeric(), "-"));
                 println!("Building docker image: {}", image);
                 let status = std::process::Command::new("docker").args(["build", "-t", &image, "."]).status()?;
                 if !status.success() { return Err(anyhow!("docker build failed")); }
