@@ -97,6 +97,7 @@ Send JSON messages to change subscriptions:
 | Event | Data | Description |
 |-------|------|-------------|
 | `flag_created` | `Flag` | New flag captured |
+| `flag_updated` | `Flag` | Flag status changed |
 
 ### Settings
 | Event | Data | Description |

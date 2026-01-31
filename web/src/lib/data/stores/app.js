@@ -131,6 +131,13 @@ function handleWsMessage(msg) {
       }
       break
     }
+    case 'flag_updated': {
+      const currentFlagRoundId = get(selectedFlagRoundId)
+      if (!currentFlagRoundId || data.round_id === currentFlagRoundId) {
+        flags.update((list) => list.map((f) => (f.id === data.id ? data : f)))
+      }
+      break
+    }
     case 'setting_updated':
       settings.update((list) =>
         list.map((s) => (s.key === data.key ? { ...s, value: data.value } : s))
