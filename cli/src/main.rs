@@ -95,6 +95,7 @@ enum RoundCmd {
     Rerun { id: i32 },
     RerunUnflagged { id: i32 },
     Clean { #[arg(long, env = "DATABASE_URL")] db: String },
+    Rollback { id: i32, #[arg(long, env = "DATABASE_URL")] db: String },
 }
 
 #[derive(Subcommand)]
@@ -430,6 +431,13 @@ async fn main() -> Result<()> {
                     .execute(&pool)
                     .await?;
                 println!("Cleaned all round data");
+            }
+            RoundCmd::Rollback { id, db } => {
+                let pool = sqlx::PgPool::connect(&db).await?;
+                sqlx::query!("DELETE FROM rounds WHERE id > $1", id)
+                    .execute(&pool)
+                    .await?;
+                println!("Rolled back to round {}", id);
             }
         },
         Cmd::Job { cmd } => match cmd {
