@@ -118,7 +118,8 @@ Create an exploit.
   "default_counter": "int?",
   "ignore_connection_info": "boolean?",
   "auto_add": "string? (start|end)",
-  "insert_into_rounds": "boolean?"
+  "insert_into_rounds": "boolean?",
+  "envs": "string? (JSON object, e.g., {\"KEY\": \"value\"})"
 }
 ```
 
@@ -139,7 +140,8 @@ Update an exploit.
   "max_concurrent_jobs": "int? (0 = unlimited)",
   "timeout_secs": "int?",
   "default_counter": "int?",
-  "ignore_connection_info": "boolean?"
+  "ignore_connection_info": "boolean?",
+  "envs": "string? (JSON object, e.g., {\"KEY\": \"value\"})"
 }
 ```
 

@@ -135,11 +135,18 @@ impl Executor {
             }
         };
 
-        let env = vec![
+        let mut env = vec![
             format!("TARGET_HOST={}", conn.addr),
             format!("TARGET_PORT={}", conn.port),
             format!("TARGET_TEAM_ID={}", team.team_id),
         ];
+        if let Some(envs_json) = &exploit.envs {
+            if let Ok(envs_map) = serde_json::from_str::<std::collections::HashMap<String, String>>(envs_json) {
+                for (k, v) in envs_map {
+                    env.push(format!("{}={}", k, v));
+                }
+            }
+        }
 
         let (pid_tx, pid_rx) = oneshot::channel::<i64>();
         let container_id = lease.container_id().to_string();

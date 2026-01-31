@@ -58,6 +58,8 @@ Docker-based exploit definitions.
 | max_containers | INTEGER | NO | Max active containers for exploit (default: 0 = unlimited) |
 | max_concurrent_jobs | INTEGER | NO | Max concurrent jobs per exploit (default: 0 = unlimited) |
 | default_counter | INTEGER | NO | Container lifetime (default: 999) |
+| ignore_connection_info | BOOLEAN | NO | Skip connection info requirement (default: false) |
+| envs | TEXT | YES | Environment variables as JSON object (e.g., `{"KEY": "value"}`) |
 | created_at | TIMESTAMPTZ | NO | Creation timestamp |
 
 ### exploit_runs

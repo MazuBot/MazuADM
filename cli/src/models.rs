@@ -62,6 +62,7 @@ pub struct Exploit {
     pub timeout_secs: i32,
     pub default_counter: i32,
     pub ignore_connection_info: bool,
+    pub envs: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -90,6 +91,8 @@ pub struct CreateExploit {
     pub auto_add: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub insert_into_rounds: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub envs: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -112,6 +115,8 @@ pub struct UpdateExploit {
     pub default_counter: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_connection_info: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub envs: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
