@@ -309,7 +309,7 @@ pub async fn create_exploit(State(s): S, Json(mut e): Json<CreateExploit>) -> R<
             let exploit_runs: Vec<_> = runs.iter().filter(|r| r.exploit_id == exploit.id).collect();
             for round in rounds {
                 for run in &exploit_runs {
-                    if let Ok(job) = s.db.create_job(round.id, run.id, run.team_id, 0, Some("new_exploit")).await {
+                    if let Ok(job) = s.db.create_job(round.id, run.id, run.team_id, 0, Some("new_exploit"), None).await {
                         broadcast_job(&s, "job_created", &job);
                         if should_refresh_scheduler(&round.status) {
                             refresh_job_ids.push(job.id);
@@ -514,11 +514,19 @@ async fn run_job_immediately(s: &AppState, job_id: i32) {
     }
 }
 
-pub async fn enqueue_single_job(State(s): S, Json(req): Json<EnqueueSingleJobRequest>) -> R<ExploitJob> {
+#[derive(Deserialize)]
+pub struct EnqueueSingleJobQuery {
+    pub debug: Option<String>,
+}
+
+pub async fn enqueue_single_job(State(s): S, Query(q): Query<EnqueueSingleJobQuery>, Json(req): Json<EnqueueSingleJobRequest>) -> R<ExploitJob> {
     let run = s.db.get_exploit_run(req.exploit_run_id).await.map_err(err)?;
     let round_id = require_running_round_id(&s).await?;
     let max_priority = s.db.get_max_priority_for_round(round_id).await.map_err(err)?;
-    let job = s.db.create_job(round_id, run.id, req.team_id, max_priority + 1, Some("enqueue_exploit")).await.map_err(err)?;
+    let debug = q.debug.is_some();
+    let create_reason = if debug { "debug_exploit" } else { "enqueue_exploit" };
+    let debug_envs = if debug { s.db.get_setting("debug_envs").await.ok() } else { None };
+    let job = s.db.create_job(round_id, run.id, req.team_id, max_priority + 1, Some(create_reason), debug_envs.as_deref()).await.map_err(err)?;
     broadcast_job(&s, "job_created", &job);
     run_job_immediately(&s, job.id).await;
     Ok(Json(job))
@@ -536,25 +544,16 @@ pub async fn enqueue_existing_job(State(s): S, Path(job_id): Path<i32>, Query(q)
     let debug = q.debug.is_some();
 
     if job.status == "pending" && job.round_id == round_id {
-        if debug {
-            let debug_envs = s.db.get_setting("debug_envs").await.ok();
-            s.scheduler.send(SchedulerCommand::RunJobDebug { job_id, debug_envs }).map_err(err)?;
-        } else {
-            run_job_immediately(&s, job_id).await;
-        }
+        run_job_immediately(&s, job_id).await;
         return Ok(Json(job));
     }
 
     let run_id = job.exploit_run_id.ok_or_else(|| "Job has no exploit_run_id".to_string())?;
     let create_reason = if debug { format!("debug_job:{}", job_id) } else { format!("rerun_job:{}", job_id) };
-    let new_job = s.db.create_job(round_id, run_id, job.team_id, max_priority + 1, Some(&create_reason)).await.map_err(err)?;
+    let debug_envs = if debug { s.db.get_setting("debug_envs").await.ok() } else { None };
+    let new_job = s.db.create_job(round_id, run_id, job.team_id, max_priority + 1, Some(&create_reason), debug_envs.as_deref()).await.map_err(err)?;
     broadcast_job(&s, "job_created", &new_job);
-    if debug {
-        let debug_envs = s.db.get_setting("debug_envs").await.ok();
-        s.scheduler.send(SchedulerCommand::RunJobDebug { job_id: new_job.id, debug_envs }).map_err(err)?;
-    } else {
-        s.scheduler.send(SchedulerCommand::RefreshJob(new_job.id)).map_err(err)?;
-    }
+    run_job_immediately(&s, new_job.id).await;
     Ok(Json(new_job))
 }
 

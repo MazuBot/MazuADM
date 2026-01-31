@@ -591,16 +591,35 @@ impl Database {
     }
 
     // Jobs
-    pub async fn create_job(&self, round_id: i32, exploit_run_id: i32, team_id: i32, priority: i32, create_reason: Option<&str>) -> Result<ExploitJob> {
+    pub async fn create_job(&self, round_id: i32, exploit_run_id: i32, team_id: i32, priority: i32, create_reason: Option<&str>, injected_envs: Option<&str>) -> Result<ExploitJob> {
+        // Merge injected_envs with exploit.envs
+        let merged_envs = if injected_envs.is_some() {
+            let run = self.get_exploit_run(exploit_run_id).await?;
+            let exploit = self.get_exploit(run.exploit_id).await?;
+            let mut merged: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            if let Some(envs_json) = injected_envs {
+                if let Ok(envs_map) = serde_json::from_str::<std::collections::HashMap<String, String>>(envs_json) {
+                    merged.extend(envs_map);
+                }
+            }
+            if let Some(ref envs_json) = exploit.envs {
+                if let Ok(envs_map) = serde_json::from_str::<std::collections::HashMap<String, String>>(envs_json) {
+                    merged.extend(envs_map);
+                }
+            }
+            if merged.is_empty() { None } else { Some(serde_json::to_string(&merged).unwrap()) }
+        } else {
+            None
+        };
         Ok(sqlx::query_as!(ExploitJob,
-            "INSERT INTO exploit_jobs (round_id, exploit_run_id, team_id, priority, create_reason) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-            round_id, exploit_run_id, team_id, priority, create_reason
+            "INSERT INTO exploit_jobs (round_id, exploit_run_id, team_id, priority, create_reason, envs) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+            round_id, exploit_run_id, team_id, priority, create_reason, merged_envs
         ).fetch_one(&self.pool).await?)
     }
 
     pub async fn list_jobs(&self, round_id: i32) -> Result<Vec<ExploitJob>> {
         Ok(sqlx::query_as!(ExploitJob,
-            "SELECT id, round_id, exploit_run_id, team_id, priority, status, container_id, NULL::TEXT AS stdout, NULL::TEXT AS stderr, create_reason, duration_ms, schedule_at, started_at, finished_at, created_at FROM exploit_jobs WHERE round_id = $1 ORDER BY priority DESC",
+            "SELECT id, round_id, exploit_run_id, team_id, priority, status, container_id, NULL::TEXT AS stdout, NULL::TEXT AS stderr, create_reason, envs, duration_ms, schedule_at, started_at, finished_at, created_at FROM exploit_jobs WHERE round_id = $1 ORDER BY priority DESC",
             round_id
         ).fetch_all(&self.pool).await?)
     }

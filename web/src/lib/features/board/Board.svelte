@@ -194,7 +194,7 @@
     scrollToTeamAnchor(hash);
   });
 
-  async function runNow(run, e) {
+  async function runNow(run, e, debug = false) {
     e.stopPropagation();
     if (enqueueingRuns[run.id]) return;
     enqueueingRuns[run.id] = true;
@@ -202,9 +202,8 @@
     const challengeName = challengeLabel();
     const exploitName = exploitLabel(run.exploit_id);
     try {
-      const job = await api.enqueueSingleJob(run.id, run.team_id);
-      alert(`Enqueued job #${job.id} for ${challengeName} / ${exploitName}.`);
-      pushToast(`Job #${job.id} enqueued for ${teamName}: ${challengeName} / ${exploitName}.`, 'success');
+      const job = await api.enqueueSingleJob(run.id, run.team_id, debug);
+      pushToast(`Job #${job.id} enqueued${debug ? ' (debug)' : ''} for ${teamName}: ${challengeName} / ${exploitName}.`, 'success');
     } catch (error) {
       pushToast(formatApiError(error, `Failed to enqueue ${challengeName} / ${exploitName} for ${teamName}.`), 'error');
     } finally {
@@ -930,6 +929,16 @@
               </div>
               <button
                 type="button"
+                class="card-play debug"
+                class:busy={isEnqueueing}
+                title="Debug run"
+                disabled={isEnqueueing}
+                onclick={(e) => runNow(run, e, true)}
+              >
+                <Icon name="bug" />
+              </button>
+              <button
+                type="button"
                 class="card-play"
                 class:busy={isEnqueueing}
                 title={isEnqueueing ? 'Enqueueing...' : 'Enqueue now'}
@@ -1173,6 +1182,7 @@
   .card:hover .card-actions, .card:focus-within .card-actions { opacity: 1; pointer-events: auto; }
   .card-play { cursor: pointer; opacity: 0.5; font-size: 0.7rem; margin-left: auto; background: transparent; border: none; padding: 0; color: inherit; }
   .card-play:hover { opacity: 1; }
+  .card-play.debug { color: #f0ad4e; margin-left: 0; }
   .card-play.busy,
   .card-play[disabled] { opacity: 0.3; cursor: not-allowed; }
   .danger { background: #d9534f; }

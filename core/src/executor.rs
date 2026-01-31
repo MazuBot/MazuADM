@@ -140,7 +140,9 @@ impl Executor {
             format!("TARGET_PORT={}", conn.port),
             format!("TARGET_TEAM_ID={}", team.team_id),
         ];
-        if let Some(envs_json) = &exploit.envs {
+        // Use job.envs if present (already merged with exploit.envs), otherwise use exploit.envs
+        let envs_json = job.envs.as_ref().or(exploit.envs.as_ref());
+        if let Some(envs_json) = envs_json {
             if let Ok(envs_map) = serde_json::from_str::<std::collections::HashMap<String, String>>(envs_json) {
                 for (k, v) in envs_map {
                     env.push(format!("{}={}", k, v));
@@ -242,10 +244,6 @@ impl Executor {
     }
 
     pub async fn run_job_immediately(&self, job_id: i32) -> Result<JobResult> {
-        self.run_job_with_debug_envs(job_id, None).await
-    }
-
-    pub async fn run_job_with_debug_envs(&self, job_id: i32, debug_envs: Option<String>) -> Result<JobResult> {
         let ctx = match build_job_context(&self.db, job_id).await {
             Ok(ctx) => ctx,
             Err(JobContextError::NotPending) => {
@@ -270,27 +268,7 @@ impl Executor {
         let settings = load_job_settings(&self.db).await;
         let timeout = compute_timeout(ctx.exploit.timeout_secs, settings.worker_timeout);
 
-        // Merge debug_envs with exploit.envs
-        let merged_envs = if debug_envs.is_some() {
-            let mut merged: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-            if let Some(ref envs_json) = debug_envs {
-                if let Ok(envs_map) = serde_json::from_str::<std::collections::HashMap<String, String>>(envs_json) {
-                    merged.extend(envs_map);
-                }
-            }
-            if let Some(ref envs_json) = ctx.exploit.envs {
-                if let Ok(envs_map) = serde_json::from_str::<std::collections::HashMap<String, String>>(envs_json) {
-                    merged.extend(envs_map);
-                }
-            }
-            let mut exploit = ctx.exploit.clone();
-            exploit.envs = if merged.is_empty() { None } else { Some(serde_json::to_string(&merged).unwrap()) };
-            exploit
-        } else {
-            ctx.exploit.clone()
-        };
-
-        let result = self.execute_job(&ctx.job, &ctx.run, &merged_envs, &ctx.conn, ctx.challenge.flag_regex.as_deref(), timeout, settings.max_flags).await;
+        let result = self.execute_job(&ctx.job, &ctx.run, &ctx.exploit, &ctx.conn, ctx.challenge.flag_regex.as_deref(), timeout, settings.max_flags).await;
 
         match result {
             Ok(result) => {
