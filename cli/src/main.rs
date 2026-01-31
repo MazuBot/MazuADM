@@ -59,6 +59,7 @@ enum TeamCmd {
 
 #[derive(Subcommand)]
 enum ExploitCmd {
+    Init { #[arg(default_value = ".")] name: String, #[arg(long)] challenge: Option<String> },
     Create { name: String, #[arg(long)] challenge: Option<String>, #[arg(long)] config: Option<std::path::PathBuf>, #[arg(long)] image: Option<String>, #[arg(long)] entrypoint: Option<String>, #[arg(long)] max_per_container: Option<i32>, #[arg(long)] max_containers: Option<i32>, #[arg(long)] max_concurrent_jobs: Option<i32>, #[arg(long)] timeout: Option<i32>, #[arg(long)] default_counter: Option<i32>, #[arg(long)] ignore_connection_info: Option<bool>, #[arg(long)] auto_add: Option<String>, #[arg(long)] insert_into_rounds: Option<bool> },
     Pack { #[arg(default_value = ".")] name: String, #[arg(long)] challenge: Option<String>, #[arg(long, default_missing_value = "config.toml")] config: Option<std::path::PathBuf> },
     List { #[arg(long)] challenge: Option<String> },
@@ -268,6 +269,30 @@ async fn main() -> Result<()> {
             }
         },
         Cmd::Exploit { cmd } => match cmd {
+            ExploitCmd::Init { name, challenge } => {
+                let challenge = match challenge {
+                    Some(c) => ctx.find_challenge(&c).await?,
+                    None => prompt_challenge(&mut ctx).await?,
+                };
+                let target_dir = if name == "." { std::env::current_dir()? } else {
+                    let dir = std::env::current_dir()?.join(&name);
+                    std::fs::create_dir_all(&dir)?;
+                    dir
+                };
+                let template_dir = std::path::Path::new("/opt/mazuadm/exp-template");
+                if !template_dir.exists() { return Err(anyhow!("template not found at {}", template_dir.display())); }
+                for entry in std::fs::read_dir(template_dir)? {
+                    let entry = entry?;
+                    let dest = target_dir.join(entry.file_name());
+                    if entry.file_name() == "config.toml" {
+                        let content = std::fs::read_to_string(entry.path())?;
+                        std::fs::write(&dest, content.replace("challenge-name", &challenge.name))?;
+                    } else {
+                        std::fs::copy(entry.path(), &dest)?;
+                    }
+                }
+                println!("Initialized exploit in {} for challenge {}", target_dir.display(), challenge.name);
+            }
             ExploitCmd::Create { name, challenge, config, image, entrypoint, max_per_container, max_containers, max_concurrent_jobs, timeout, default_counter, ignore_connection_info, auto_add, insert_into_rounds } => {
                 let cfg = match config { Some(p) => exploit_config::load_exploit_config(&p)?, None => exploit_config::ExploitConfig::default() };
                 let challenge = resolve_challenge(&mut ctx, challenge, cfg.challenge.as_ref()).await?;

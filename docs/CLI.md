@@ -54,6 +54,9 @@ mazuadm-cli team disable team1
 ### Exploit Management
 
 ```bash
+mazuadm-cli exploit init                                     # init template in current dir, prompt for challenge
+mazuadm-cli exploit init myexp                               # create myexp/ dir with template
+mazuadm-cli exploit init --challenge pwn1                    # init with challenge pre-selected
 mazuadm-cli exploit create pwn1-exp --challenge pwn1 --image pwn1-exp:latest
 mazuadm-cli exploit create pwn1-exp --challenge pwn1 --image pwn1-exp:latest --timeout 60
 mazuadm-cli exploit create pwn1-exp --config config.toml      # uses challenge/image from config
