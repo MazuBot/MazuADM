@@ -446,6 +446,9 @@ async fn main() -> Result<()> {
                 sqlx::query!("UPDATE rounds SET status = 'running' WHERE id = $1", id)
                     .execute(&pool)
                     .await?;
+                sqlx::query_scalar!("SELECT setval('rounds_id_seq', COALESCE((SELECT MAX(id) FROM rounds), 0))")
+                    .fetch_one(&pool)
+                    .await?;
                 ctx.api.init_flag_cache().await?;
                 println!("Purged to round {}", id);
             }
