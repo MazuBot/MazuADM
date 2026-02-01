@@ -275,6 +275,7 @@ mod tests {
             stdout: Some("stdout".to_string()),
             stderr: Some("stderr".to_string()),
             create_reason: None,
+            envs: None,
             duration_ms: Some(123),
             schedule_at: None,
             started_at: Some(now),
