@@ -1,269 +1,433 @@
-# MazuADM Rust Architecture
+# MazuADM Architecture
+
+MazuADM is a CTF Attack/Defense exploit management system with a Trello-like interface for orchestrating exploit runs against multiple teams.
+
+## System Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              Web Browser                                 │
+│                         (SvelteKit Frontend)                            │
+└─────────────────────────────────────────────────────────────────────────┘
+                    │ HTTP/REST              │ WebSocket
+                    ▼                        ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           mazuadm-api                                    │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐ │
+│  │   Handlers   │  │  Scheduler   │  │   Executor   │  │  WebSocket  │ │
+│  │   (Axum)     │  │   Runner     │  │              │  │   Broker    │ │
+│  └──────────────┘  └──────────────┘  └──────────────┘  └─────────────┘ │
+│         │                 │                 │                 │         │
+│         └─────────────────┴─────────────────┴─────────────────┘         │
+│                                   │                                      │
+│                    ┌──────────────┴──────────────┐                       │
+│                    │      Container Manager      │                       │
+│                    └──────────────┬──────────────┘                       │
+└────────────────────────────────────┼────────────────────────────────────┘
+                    │                │                │
+                    ▼                ▼                ▼
+            ┌───────────┐    ┌───────────┐    ┌───────────────┐
+            │ PostgreSQL│    │  Docker   │    │ mazuadm-cli   │
+            │           │    │  Engine   │    │               │
+            └───────────┘    └───────────┘    └───────────────┘
+```
 
 ## Crate Structure
 
 ```
 mazuadm/
-├── core/       # Shared library (mazuadm-core)
-├── api/        # HTTP API server (mazuadm-api)
-└── cli/        # Command-line tool (mazuadm-cli)
+├── core/           # Shared library (mazuadm-core)
+│   ├── models.rs       # Data structures
+│   ├── db.rs           # Database operations
+│   ├── scheduler.rs    # Job scheduling & round management
+│   ├── executor.rs     # Job execution
+│   ├── container_manager.rs  # Docker container lifecycle
+│   ├── config.rs       # Configuration loading
+│   └── settings.rs     # Runtime settings
+├── api/            # HTTP API server (mazuadm-api)
+│   ├── main.rs         # Server startup
+│   ├── routes.rs       # Route definitions
+│   ├── handlers.rs     # Request handlers
+│   └── events.rs       # WebSocket events
+├── cli/            # Command-line tool (mazuadm-cli)
+│   ├── main.rs         # CLI commands
+│   ├── api.rs          # API client
+│   └── models.rs       # CLI-specific models
+└── web/            # Frontend (SvelteKit)
+    └── src/
+        ├── lib/
+        │   ├── data/       # API clients & stores
+        │   ├── features/   # Page components
+        │   └── websocket.js
+        └── routes/         # Page routes
 ```
 
 ---
 
-## Core Library (`mazuadm-core`)
+## Core Components
 
-### Models (`models.rs`)
+### Data Models (`core/models.rs`)
 
-Data structures mapping to database tables.
-
-| Struct | Purpose |
-|--------|---------|
-| `Challenge` | CTF challenge definition |
-| `CreateChallenge` | DTO for creating challenges |
-| `Team` | Competing team |
-| `CreateTeam` | DTO for creating teams |
-| `ChallengeTeamRelation` | Per-team connection overrides |
-| `Exploit` | Exploit container definition |
-| `CreateExploit` | DTO for creating exploits |
+| Model | Description |
+|-------|-------------|
+| `Challenge` | CTF challenge with default port and flag regex |
+| `Team` | Competing team with default IP |
+| `ChallengeTeamRelation` | Per-team connection overrides (addr/port) |
+| `Exploit` | Docker image configuration for an exploit |
 | `ExploitRun` | Scheduled exploit-team assignment (Trello card) |
-| `CreateExploitRun` | DTO for creating runs |
-| `Round` | Execution round |
-| `ExploitJob` | Individual job execution |
-| `Flag` | Captured flag |
-| `ConnectionInfo` | Resolved target addr/port |
+| `Round` | Execution round grouping jobs |
+| `ExploitJob` | Individual job execution with status/output |
+| `ExploitContainer` | Persistent Docker container record |
+| `ExploitRunner` | Affinity binding (exploit_run → container) |
+| `Flag` | Captured flag with submission status |
+| `Setting` | Runtime configuration key-value |
 
-Key method:
-```rust
-impl ChallengeTeamRelation {
-    // Resolves connection info with fallbacks:
-    // addr: relation.addr -> team.default_ip
-    // port: relation.port -> challenge.default_port
-    fn connection_info(&self, challenge: &Challenge, team: &Team) -> Option<ConnectionInfo>
-}
-```
+### Database (`core/db.rs`)
 
-### Database (`db.rs`)
+PostgreSQL database with connection pooling via SQLx.
 
-```rust
-pub struct Database {
-    pub pool: PgPool,
-}
-```
+Key operations:
+- CRUD for all entities
+- `ensure_relations(challenge_id)` - Auto-create relations for all teams
+- `create_round_jobs(round_id)` - Generate jobs from enabled exploit_runs
+- `clone_unflagged_jobs_for_round(round_id)` - Clone jobs that didn't capture flags
 
-CRUD operations for all entities. Key methods:
+### Scheduler (`core/scheduler.rs`)
 
-| Method | Description |
-|--------|-------------|
-| `connect(url)` | Create connection pool |
-| `create_challenge/team/exploit/...` | Insert entities |
-| `list_challenges/teams/...` | Query entities |
-| `ensure_relations(challenge_id)` | Auto-create relations for all teams |
-| `create_round()` | Start new round |
-| `create_job(...)` | Create job for round |
-| `get_pending_jobs(round_id)` | Get jobs to execute |
-| `update_job_status(id, status)` | Mark job running |
-| `finish_job(id, status, stdout, stderr, duration)` | Complete job |
-| `create_flag(...)` | Store captured flag |
-
-Database pool settings are loaded from `AppConfig` under `[db_pool]` in `config.toml`.
-
-### Scheduler (`scheduler.rs`)
+Manages round lifecycle and job execution ordering.
 
 ```rust
 pub struct Scheduler {
     db: Database,
-    executor: Executor,
     tx: broadcast::Sender<WsMessage>,
 }
 
 pub struct SchedulerRunner {
     scheduler: Scheduler,
-    notify: Arc<Notify>,
     rx: mpsc::UnboundedReceiver<SchedulerCommand>,
 }
 
-#[derive(Clone)]
 pub struct SchedulerHandle {
     tx: mpsc::UnboundedSender<SchedulerCommand>,
-    notify: Arc<Notify>,
 }
 ```
 
-| Method | Description |
-|--------|-------------|
-| `calculate_priority(challenge_priority, team_priority, sequence, override)` | Compute job priority |
-| `generate_round()` | Create round and generate all jobs from enabled exploit_runs |
-| `create_round()` | Create round and pre-warm containers |
-| `run_round(round_id)` | Execute all pending jobs in priority order |
-| `rerun_round(round_id)` | Reset round state and re-run |
-| `rerun_unflagged(round_id)` | Clone scheduled non-flag/non-skipped/non-pending jobs for running round and execute |
+Commands:
+- `CreateRound` - Create new round and spawn background job creation
+- `RunRound(id)` - Execute pending jobs for a round
+- `RerunRound(id)` - Reset and re-execute a round
+- `RerunUnflagged(id)` - Clone and run jobs that didn't get flags
+- `RunJobImmediately(id)` - Execute single job immediately
+- `StopJob { job_id, reason }` - Stop a running job
 
-Priority formula (when no override):
+Priority formula:
 ```
 priority = challenge_priority + team_priority * 100 - sequence * 10000
 ```
 
-SchedulerRunner is started once at API startup; handlers enqueue `SchedulerCommand` values
-via `SchedulerHandle` and notify the runner.
+### Executor (`core/executor.rs`)
 
-### Executor (`executor.rs`)
+Executes jobs in Docker containers.
 
 ```rust
 pub struct Executor {
     db: Database,
     container_manager: ContainerManager,
+    container_registry: ContainerRegistryHandle,
     tx: broadcast::Sender<WsMessage>,
-}
-
-pub struct JobResult {
-    pub stdout: String,
-    pub stderr: String,
-    pub duration_ms: i32,
-    pub exit_code: i64,
-    pub flags: Vec<String>,
 }
 ```
 
-| Method | Description |
-|--------|-------------|
-| `execute_job(job, exploit, conn)` | Run single container, capture output |
-| `extract_flags(output, pattern)` | Extract flags using regex |
-| `run_job_immediately(job_id)` | Execute a pending job immediately (internal) |
-| `stop_job(job_id, reason)` | Stop a running job (kills exec PID only) |
+Job execution flow:
+1. Acquire container lease (with affinity)
+2. Create Docker exec with environment variables
+3. Stream stdout/stderr with timeout
+4. Extract flags using regex
+5. Store results and release container
 
-Container environment:
-- `TARGET_HOST` - Target IP
+Environment variables provided to containers:
+- `TARGET_HOST` - Target IP/hostname
 - `TARGET_PORT` - Target port
-- `TARGET_TEAM_ID` - Target team ID
+- `TARGET_TEAM_ID` - Target team identifier
+
+### Container Manager (`core/container_manager.rs`)
+
+Manages persistent Docker containers with affinity-based routing.
+
+```rust
+pub struct ContainerManager {
+    db: Database,
+    docker: Docker,
+    tx: broadcast::Sender<WsMessage>,
+}
+```
+
+Container lifecycle:
+1. Pre-warm containers when round starts
+2. Assign affinity (exploit_run → container) on first job
+3. Decrement counter on each job lease
+4. Destroy when counter reaches 0 and no running execs
+5. Restore state from Docker labels on API restart
+
+Key settings per exploit:
+- `max_per_container` - Max affinity assignments per container
+- `max_containers` - Max active containers (0 = unlimited)
+- `default_counter` - Initial lifetime counter
 
 ---
 
 ## API Server (`mazuadm-api`)
 
-### State
+### Application State
 
 ```rust
 pub struct AppState {
     pub db: Database,
     pub tx: broadcast::Sender<WsMessage>,
-    pub executor: Executor,
+    pub scheduler: SchedulerHandle,
+    pub ws_connections: Arc<DashMap<Uuid, WsConnection>>,
 }
 ```
 
-### Routes (`routes.rs`)
+### REST Endpoints
 
-| Endpoint | Method | Handler |
-|----------|--------|---------|
-| `/api/challenges` | GET | `list_challenges` |
-| `/api/challenges` | POST | `create_challenge` |
-| `/api/challenges/{id}/enabled/{enabled}` | PUT | `set_challenge_enabled` |
-| `/api/teams` | GET | `list_teams` |
-| `/api/teams` | POST | `create_team` |
-| `/api/exploits` | GET | `list_exploits` |
-| `/api/exploits` | POST | `create_exploit` |
-| `/api/exploits/{id}` | PUT | `update_exploit` |
-| `/api/exploits/{id}` | DELETE | `delete_exploit` |
-| `/api/exploit-runs` | GET | `list_exploit_runs` |
-| `/api/exploit-runs` | POST | `create_exploit_run` |
-| `/api/exploit-runs/reorder` | POST | `reorder_exploit_runs` |
-| `/api/exploit-runs/{id}` | PUT | `update_exploit_run` |
-| `/api/exploit-runs/{id}` | DELETE | `delete_exploit_run` |
-| `/api/rounds` | GET | `list_rounds` |
-| `/api/rounds` | POST | `create_round` |
-| `/api/rounds/{id}/run` | POST | `run_round` |
-| `/api/rounds/{id}/rerun` | POST | `rerun_round` |
-| `/api/rounds/{id}/rerun-unflagged` | POST | `rerun_unflagged` |
-| `/api/jobs` | GET | `list_jobs` |
-| `/api/jobs/{id}` | GET | `get_job` |
-| `/api/jobs/reorder` | POST | `reorder_jobs` |
-| `/api/jobs/enqueue` | POST | `enqueue_single_job` |
-| `/api/jobs/{id}/enqueue` | POST | `enqueue_existing_job` |
-| `/api/jobs/{id}/stop` | POST | `stop_job` |
-| `/api/flags` | GET | `list_flags` |
-| `/api/flags` | POST | `submit_flag` |
-| `/api/settings` | GET | `list_settings` |
-| `/api/settings` | POST | `update_setting` |
-| `/api/containers` | GET | `list_containers` |
-| `/api/containers/restart-all` | POST | `restart_all_containers` |
-| `/api/containers/remove-all` | POST | `remove_all_containers` |
-| `/api/containers/{id}` | DELETE | `delete_container` |
-| `/api/containers/{id}/runners` | GET | `get_container_runners` |
-| `/api/containers/{id}/restart` | POST | `restart_container` |
-| `/api/relations/{challenge_id}` | GET | `list_relations` |
-| `/api/relations/{challenge_id}/{team_id}` | GET/PUT | `get_relation` / `update_connection_info` |
+| Endpoint | Methods | Description |
+|----------|---------|-------------|
+| `/api/challenges` | GET, POST | List/create challenges |
+| `/api/challenges/{id}` | PUT, DELETE | Update/delete challenge |
+| `/api/teams` | GET, POST | List/create teams |
+| `/api/teams/{id}` | PUT, DELETE | Update/delete team |
+| `/api/exploits` | GET, POST | List/create exploits |
+| `/api/exploits/{id}` | PUT, DELETE | Update/delete exploit |
+| `/api/exploit-runs` | GET, POST | List/create exploit runs |
+| `/api/exploit-runs/reorder` | POST | Reorder runs (sequence) |
+| `/api/rounds` | GET, POST | List/create rounds |
+| `/api/rounds/{id}/run` | POST | Execute round |
+| `/api/rounds/{id}/rerun` | POST | Re-execute round |
+| `/api/rounds/{id}/rerun-unflagged` | POST | Rerun unflagged jobs |
+| `/api/jobs` | GET | List jobs (with filters) |
+| `/api/jobs/{id}` | GET | Get job details |
+| `/api/jobs/{id}/stop` | POST | Stop running job |
+| `/api/jobs/enqueue` | POST | Create and run ad-hoc job |
+| `/api/flags` | GET, POST, PATCH | List/submit/update flags |
+| `/api/settings` | GET, POST | List/update settings |
+| `/api/containers` | GET | List containers |
+| `/api/containers/{id}` | DELETE | Remove container |
+| `/api/containers/{id}/restart` | POST | Restart container |
+| `/api/relations/{challenge_id}` | GET | List team relations |
+| `/api/relations/{challenge_id}/{team_id}` | GET, PUT | Get/update relation |
+| `/ws` | WebSocket | Real-time events |
 
-Query parameters: `challenge_id`, `team_id`, `round_id`
+### WebSocket Events
+
+Connection: `GET /ws?user=<name>&client=<client>&events=<prefixes>`
+
+Event categories:
+- `challenge_*` - Challenge CRUD
+- `team_*` - Team CRUD
+- `exploit_*` - Exploit CRUD
+- `exploit_run_*` - Exploit run CRUD
+- `round_*` - Round lifecycle
+- `job_*` - Job status changes
+- `flag_*` - Flag captures
+- `container_*` - Container lifecycle
+- `setting_updated` - Settings changes
 
 ---
 
-## Container Lifecycle (Current)
+## Frontend (`web/`)
 
-1. Containers are pre-warmed when a round is created.
-2. Each container has a `counter` that decrements when a job lease is acquired.
-3. Each container caps affinity assignments at `max_per_container`.
-4. Containers carry `mazuadm.affinity` with a CSV list of dynamically assigned `exploit_run_id` values.
-5. When `counter` reaches 0 and no execs remain, the container is destroyed.
-6. Dead containers are removed and recreated on demand.
-7. `max_containers` caps active containers per exploit (0 = unlimited).
-8. Containers and affinities are restored from Docker labels on restart.
+SvelteKit application with reactive stores.
+
+### Structure
+
+```
+web/src/
+├── lib/
+│   ├── data/
+│   │   ├── api/          # REST API clients
+│   │   └── stores/       # Svelte stores
+│   │       ├── app.js        # WebSocket message handler
+│   │       ├── entities.js   # challenges, teams, exploits, runs
+│   │       ├── selections.js # UI selections
+│   │       └── rounds.js     # Round-specific state
+│   ├── features/
+│   │   ├── board/        # Trello-like board
+│   │   ├── rounds/       # Round management
+│   │   ├── flags/        # Flag viewer
+│   │   ├── containers/   # Container management
+│   │   ├── challenges/   # Challenge CRUD
+│   │   ├── teams/        # Team CRUD
+│   │   └── settings/     # Settings page
+│   └── websocket.js      # WebSocket connection
+└── routes/               # SvelteKit routes
+```
+
+### Data Flow
+
+1. Initial load fetches data via REST API
+2. WebSocket connects for real-time updates
+3. Store updates trigger reactive UI changes
+4. User actions call REST API → broadcast WebSocket events
 
 ---
 
 ## CLI (`mazuadm-cli`)
 
-### Commands
+Command-line interface for automation and scripting.
 
 ```
-mazuadm-cli [--db DATABASE_URL] <command>
+mazuadm-cli [--api URL] <command>
 
-challenge add --name <NAME> [--port <PORT>] [--priority <N>]
-challenge list
-challenge enable <ID>
-challenge disable <ID>
-
-team add --id <ID> --name <NAME> [--ip <IP>] [--priority <N>]
-team list
-
-exploit create <NAME|.> [--challenge <NAME>] [--config <PATH>]
-exploit list [--challenge <ID>]
-
-run add --exploit <ID> --challenge <ID> --team <ID> [--priority <N>] [--sequence <N>]
-run list [--challenge <ID>] [--team <ID>]
-
-round new
-round list
-round run <ID>
-round rerun-unflagged <ID>
-round jobs <ID>
-
-flag list [--round <ID>]
-flag submit [--round <ID>] --challenge <ID|NAME> --team <ID|TEAM_ID> <FLAG>
+Commands:
+  challenge add|list|enable|disable
+  team add|list|enable|disable
+  exploit create|list|enable|disable
+  run add|list
+  round new|list|run|rerun-unflagged|jobs
+  flag list|submit
+  container list|restart|remove
+  setting list|set
 ```
+
+The CLI communicates with the API server via REST.
 
 ---
 
 ## Execution Flow
 
-```
-1. Setup
-   challenge add → team add → exploit create → run add
+### Round Lifecycle
 
-2. Round Execution
-   round new
-     └─→ Scheduler.generate_round()
-           └─→ Creates ExploitJobs from enabled ExploitRuns
-   
-   round run <id>
-     └─→ Scheduler.run_round()
-           ├─→ Stops all running jobs immediately (any round)
-           └─→ For each pending job (by priority):
-                 └─→ execute_job()
-                       ├─→ Lease container (per-exploit pool)
-                       ├─→ Wait for completion
-                       ├─→ extract_flags() from stdout
-                       └─→ Store flags in DB
-
-3. Results
-   flag list --round <id>
 ```
+1. Create Round
+   POST /api/rounds
+   └─→ Scheduler.create_round()
+         ├─→ Insert round record (status: pending)
+         ├─→ Spawn background job creation task
+         └─→ Broadcast round_created
+
+2. Background Job Creation
+   └─→ create_round_jobs()
+         ├─→ For each enabled exploit_run:
+         │     └─→ Create ExploitJob with calculated priority
+         ├─→ Pre-warm containers for enabled exploits
+         └─→ Broadcast round_jobs_ready
+
+3. Run Round
+   POST /api/rounds/{id}/run
+   └─→ Scheduler.run_round()
+         ├─→ Update round status to 'running'
+         └─→ For each pending job (by priority):
+               └─→ Spawn job execution task
+
+4. Job Execution
+   └─→ Executor.execute_job()
+         ├─→ Acquire container lease (affinity-aware)
+         ├─→ Mark job as 'running'
+         ├─→ Create Docker exec with TARGET_* env vars
+         ├─→ Stream output with timeout
+         ├─→ Extract flags from stdout
+         ├─→ Store flags in database
+         ├─→ Mark job as 'flag'/'done'/'error'/'timeout'
+         └─→ Release container lease
+
+5. Round Completion
+   └─→ When all jobs finish:
+         ├─→ Update round status to 'finished'
+         └─→ Broadcast round_updated
+```
+
+### Container Affinity
+
+```
+Job arrives for exploit_run_id=42, team_id=5
+    │
+    ▼
+Check existing affinity (exploit_run_id → container)
+    │
+    ├─→ Found: Use that container
+    │
+    └─→ Not found:
+          │
+          ▼
+        Find container with capacity (affinity_count < max_per_container)
+          │
+          ├─→ Found: Assign affinity, use container
+          │
+          └─→ Not found:
+                │
+                ▼
+              Create new container (if under max_containers)
+                │
+                └─→ Assign affinity, use container
+```
+
+---
+
+## Configuration
+
+### config.toml
+
+```toml
+[server]
+host = "0.0.0.0"
+port = 3000
+
+[db_pool]
+max_connections = 10
+min_connections = 1
+acquire_timeout_secs = 30
+idle_timeout_secs = 600
+max_lifetime_secs = 1800
+
+[container]
+spawn_limit = 10
+```
+
+### Runtime Settings (database)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `worker_timeout` | 60 | Job execution timeout (seconds) |
+| `max_flags` | 1 | Max flags to extract per job |
+| `skip_on_flag` | true | Skip remaining jobs for team after flag |
+| `sequential_per_target` | false | Run jobs sequentially per target |
+| `stagger_delay_ms` | 0 | Delay between job starts |
+
+---
+
+## Database Schema
+
+```
+challenges ─────────────────┐
+    │                       │
+    ▼                       │
+challenge_team_relations    │
+    │                       │
+    ▼                       │
+teams ◄─────────────────────┤
+    │                       │
+    ▼                       │
+exploit_runs ◄──────────────┤
+    │         │             │
+    │         ▼             │
+    │     exploits ◄────────┘
+    │         │
+    │         ▼
+    │     exploit_containers
+    │         │
+    │         ▼
+    │     exploit_runners
+    │
+    ▼
+exploit_jobs ──────────────► rounds
+    │
+    ▼
+flags
+```
+
+Key relationships:
+- `exploit_runs` links `exploit` to `team` for a `challenge`
+- `exploit_jobs` are created per `round` from `exploit_runs`
+- `exploit_runners` bind `exploit_run` to `exploit_container` (affinity)
+- `flags` are extracted from `exploit_jobs`
