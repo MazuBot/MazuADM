@@ -155,6 +155,8 @@ impl ApiClient {
         self.patch(path, &items).await
     }
 
+    pub async fn init_flag_cache(&self) -> Result<()> { let _: String = self.post_empty("/api/flags/cache/init").await?; Ok(()) }
+
     // Settings
     pub async fn list_settings(&self) -> Result<Vec<Setting>> { self.get("/api/settings").await }
     pub async fn update_setting(&self, s: UpdateSetting) -> Result<()> { let _: String = self.post("/api/settings", &s).await?; Ok(()) }

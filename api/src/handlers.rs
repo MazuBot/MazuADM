@@ -619,6 +619,11 @@ pub async fn submit_flag(State(s): S, Json(body): Json<SubmitFlagsBody>) -> R<Ve
     Ok(Json(flags))
 }
 
+pub async fn init_flag_cache(State(s): S) -> R<String> {
+    s.db.init_flag_cache().await.map_err(err)?;
+    Ok(Json("ok".to_string()))
+}
+
 pub async fn list_flags(State(s): S, Query(q): Query<ListFlagsQuery>) -> Result<Json<Vec<serde_json::Value>>, String> {
     let statuses = q.status.as_ref().map(|s| s.split(',').map(|x| x.to_string()).collect::<Vec<_>>());
     let desc = match q.sort.as_deref() {

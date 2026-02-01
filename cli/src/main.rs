@@ -446,6 +446,7 @@ async fn main() -> Result<()> {
                 sqlx::query!("UPDATE rounds SET status = 'running' WHERE id = $1", id)
                     .execute(&pool)
                     .await?;
+                ctx.api.init_flag_cache().await?;
                 println!("Purged to round {}", id);
             }
         },
