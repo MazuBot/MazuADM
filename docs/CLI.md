@@ -98,7 +98,7 @@ mazuadm-cli round run 1
 mazuadm-cli round rerun 1
 mazuadm-cli round rerun-unflagged 1              # only for running rounds
 mazuadm-cli round clean --db postgres://localhost/mazuadm --confirm
-mazuadm-cli round rollback 5 --db postgres://localhost/mazuadm --confirm  # rollback to round 5
+mazuadm-cli round purge 5 --db postgres://localhost/mazuadm --confirm  # purge to round 5
 ```
 
 ### Job Management

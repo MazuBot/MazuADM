@@ -95,7 +95,7 @@ enum RoundCmd {
     Rerun { id: i32 },
     RerunUnflagged { id: i32 },
     Clean { #[arg(long, env = "DATABASE_URL")] db: String, #[arg(long)] confirm: bool },
-    Rollback { id: i32, #[arg(long, env = "DATABASE_URL")] db: String, #[arg(long)] confirm: bool },
+    Purge { id: i32, #[arg(long, env = "DATABASE_URL")] db: String, #[arg(long)] confirm: bool },
 }
 
 #[derive(Subcommand)]
@@ -433,8 +433,8 @@ async fn main() -> Result<()> {
                     .await?;
                 println!("Cleaned all round data");
             }
-            RoundCmd::Rollback { id, db, confirm } => {
-                if !confirm { anyhow::bail!("Use --confirm to rollback"); }
+            RoundCmd::Purge { id, db, confirm } => {
+                if !confirm { anyhow::bail!("Use --confirm to purge"); }
                 let pool = sqlx::PgPool::connect(&db).await?;
                 let current: Option<i32> = sqlx::query_scalar!("SELECT id FROM rounds WHERE status = 'running'")
                     .fetch_optional(&pool)
@@ -446,7 +446,7 @@ async fn main() -> Result<()> {
                 sqlx::query!("UPDATE rounds SET status = 'running' WHERE id = $1", id)
                     .execute(&pool)
                     .await?;
-                println!("Rolled back to round {}", id);
+                println!("Purged to round {}", id);
             }
         },
         Cmd::Job { cmd } => match cmd {
