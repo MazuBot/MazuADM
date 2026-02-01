@@ -4,6 +4,7 @@ use crate::Database;
 pub struct JobSettings {
     pub worker_timeout: u64,
     pub max_flags: usize,
+    pub container_output_limit: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,6 +15,7 @@ pub struct ExecutorSettings {
     pub max_flags: usize,
     pub skip_on_flag: bool,
     pub sequential_per_target: bool,
+    pub container_output_limit: usize,
 }
 
 pub fn parse_setting_u64(value: Option<String>, default: u64) -> u64 {
@@ -31,7 +33,8 @@ pub fn parse_setting_bool(value: Option<String>, default: bool) -> bool {
 pub async fn load_job_settings(db: &Database) -> JobSettings {
     let worker_timeout = parse_setting_u64(db.get_setting("worker_timeout").await.ok(), 60);
     let max_flags = parse_setting_usize(db.get_setting("max_flags_per_job").await.ok(), 50);
-    JobSettings { worker_timeout, max_flags }
+    let container_output_limit = parse_setting_usize(db.get_setting("container_output_limit").await.ok(), 256000);
+    JobSettings { worker_timeout, max_flags, container_output_limit }
 }
 
 pub fn compute_timeout(exploit_timeout_secs: i32, worker_timeout: u64) -> u64 {
@@ -49,7 +52,8 @@ pub async fn load_executor_settings(db: &Database) -> ExecutorSettings {
     let max_flags = parse_setting_usize(db.get_setting("max_flags_per_job").await.ok(), 50);
     let skip_on_flag = parse_setting_bool(db.get_setting("skip_on_flag").await.ok(), false);
     let sequential_per_target = parse_setting_bool(db.get_setting("sequential_per_target").await.ok(), false);
-    ExecutorSettings { concurrent_limit, concurrent_create_limit, worker_timeout, max_flags, skip_on_flag, sequential_per_target }
+    let container_output_limit = parse_setting_usize(db.get_setting("container_output_limit").await.ok(), 256000);
+    ExecutorSettings { concurrent_limit, concurrent_create_limit, worker_timeout, max_flags, skip_on_flag, sequential_per_target, container_output_limit }
 }
 
 #[cfg(test)]

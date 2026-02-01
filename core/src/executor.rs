@@ -93,7 +93,7 @@ impl Executor {
         entry.clone()
     }
 
-    pub async fn execute_job(&self, job: &ExploitJob, run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64, max_flags: usize) -> Result<JobResult> {
+    pub async fn execute_job(&self, job: &ExploitJob, run: &ExploitRun, exploit: &Exploit, conn: &ConnectionInfo, flag_regex: Option<&str>, timeout_secs: u64, max_flags: usize, output_limit: usize) -> Result<JobResult> {
         let start = Instant::now();
         let stop_rx = self.stop_tx.subscribe();
         self.db.mark_job_running(job.id).await?;
@@ -167,6 +167,7 @@ impl Executor {
             env,
             Duration::from_secs(timeout_secs),
             Some(pid_tx),
+            output_limit,
         );
         let exec_result = run_exec_with_stop(
             exec_future,
@@ -266,7 +267,7 @@ impl Executor {
         let settings = load_job_settings(&self.db).await;
         let timeout = compute_timeout(ctx.exploit.timeout_secs, settings.worker_timeout);
 
-        let result = self.execute_job(&ctx.job, &ctx.run, &ctx.exploit, &ctx.conn, ctx.challenge.flag_regex.as_deref(), timeout, settings.max_flags).await;
+        let result = self.execute_job(&ctx.job, &ctx.run, &ctx.exploit, &ctx.conn, ctx.challenge.flag_regex.as_deref(), timeout, settings.max_flags, settings.container_output_limit).await;
 
         match result {
             Ok(result) => {

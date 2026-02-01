@@ -47,6 +47,7 @@ struct ScheduleSettings {
     max_flags: usize,
     skip_on_flag: bool,
     sequential_per_target: bool,
+    container_output_limit: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -472,6 +473,7 @@ impl SchedulerRunner {
             max_flags: settings.max_flags,
             skip_on_flag: settings.skip_on_flag,
             sequential_per_target: settings.sequential_per_target,
+            container_output_limit: settings.container_output_limit,
         });
     }
 
@@ -922,7 +924,7 @@ async fn execute_one_job(
 
     let timeout = compute_timeout(ctx.exploit.timeout_secs, settings.worker_timeout);
 
-    match executor.execute_job(&ctx.job, &ctx.run, &ctx.exploit, &ctx.conn, ctx.challenge.flag_regex.as_deref(), timeout, settings.max_flags).await {
+    match executor.execute_job(&ctx.job, &ctx.run, &ctx.exploit, &ctx.conn, ctx.challenge.flag_regex.as_deref(), timeout, settings.max_flags, settings.container_output_limit).await {
         Ok(result) => {
             for flag in result.flags {
                 if let Ok(f) = db.create_flag(ctx.job.id, round_id, ctx.challenge.id, ctx.team.id, &flag).await {

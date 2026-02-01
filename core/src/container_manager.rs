@@ -30,7 +30,7 @@ pub struct ContainerManager {
     restart_in_flight: DashSet<String>,
 }
 
-const MAX_OUTPUT: usize = 256 * 1024; // 256KB limit
+const DEFAULT_OUTPUT_LIMIT: usize = 256 * 1024; // 256KB limit
 const LABEL_MANAGED: &str = "mazuadm.managed";
 const LABEL_EXPLOIT_ID: &str = "mazuadm.exploit_id";
 const LABEL_EXPLOIT_NAME: &str = "mazuadm.exploit_name";
@@ -104,7 +104,7 @@ enum AffinityAcquire<'a> {
     None,
 }
 
-async fn collect_exec_output<S>(stream: S, timeout: Option<Duration>) -> ExecOutput
+async fn collect_exec_output<S>(stream: S, timeout: Option<Duration>, max_output: usize) -> ExecOutput
 where
     S: Stream<Item = Result<bollard::container::LogOutput, bollard::errors::Error>>,
 {
@@ -136,11 +136,11 @@ where
         match msg {
             Some(Ok(log)) => {
                 let total_len = stdout.len() + stderr.len();
-                if total_len >= MAX_OUTPUT {
+                if total_len >= max_output {
                     ole = true;
                     break;
                 }
-                let remaining = MAX_OUTPUT - total_len;
+                let remaining = max_output - total_len;
                 match log {
                     bollard::container::LogOutput::StdOut { message }
                     | bollard::container::LogOutput::Console { message } => {
@@ -153,7 +153,7 @@ where
                     }
                     _ => {}
                 }
-                if stdout.len() + stderr.len() >= MAX_OUTPUT {
+                if stdout.len() + stderr.len() >= max_output {
                     ole = true;
                     break;
                 }
@@ -939,7 +939,7 @@ impl ContainerManager {
     }
 
     /// Execute command in a persistent container with timeout support
-    pub async fn execute_in_container_with_timeout(&self, container_id: &str, cmd: Vec<String>, env: Vec<String>, timeout: Duration, pid_notify: Option<oneshot::Sender<i64>>) -> Result<ExecResult> {
+    pub async fn execute_in_container_with_timeout(&self, container_id: &str, cmd: Vec<String>, env: Vec<String>, timeout: Duration, pid_notify: Option<oneshot::Sender<i64>>, output_limit: usize) -> Result<ExecResult> {
         let exec = self.docker.create_exec(container_id, CreateExecOptions {
             cmd: Some(cmd),
             env: Some(env.into_iter().chain(std::iter::once("TERM=xterm".to_string())).collect()),
@@ -984,7 +984,7 @@ impl ContainerManager {
         let mut timed_out = false;
 
         if let bollard::exec::StartExecResults::Attached { output: stream, .. } = output {
-            let capture = collect_exec_output(stream, Some(timeout)).await;
+            let capture = collect_exec_output(stream, Some(timeout), output_limit).await;
             stdout = capture.stdout;
             stderr = capture.stderr;
             ole = capture.ole;
@@ -1024,7 +1024,7 @@ impl ContainerManager {
         let mut ole = false;
 
         if let bollard::exec::StartExecResults::Attached { output: stream, .. } = output {
-            let capture = collect_exec_output(stream, None).await;
+            let capture = collect_exec_output(stream, None, DEFAULT_OUTPUT_LIMIT).await;
             stdout = capture.stdout;
             stderr = capture.stderr;
             ole = capture.ole;
@@ -1447,7 +1447,7 @@ mod tests {
         select_best_container_with_affinity,
         try_decrement_counter,
         ManagedContainer,
-        MAX_OUTPUT,
+        DEFAULT_OUTPUT_LIMIT,
     };
     use crate::ExploitRunner;
     use bollard::container::LogOutput;
@@ -1489,7 +1489,7 @@ mod tests {
             Ok(LogOutput::Console { message: "con".into() }),
         ];
         let stream = stream::iter(items);
-        let out = collect_exec_output(stream, None).await;
+        let out = collect_exec_output(stream, None, DEFAULT_OUTPUT_LIMIT).await;
         assert_eq!(out.stdout, "outcon");
         assert_eq!(out.stderr, "err");
         assert!(!out.ole);
@@ -1502,7 +1502,7 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(200)).await;
             Some((Ok(LogOutput::StdOut { message: "late".into() }), ()))
         });
-        let out = collect_exec_output(stream, Some(Duration::from_millis(20))).await;
+        let out = collect_exec_output(stream, Some(Duration::from_millis(20)), DEFAULT_OUTPUT_LIMIT).await;
         assert!(out.timed_out);
         assert!(out.stdout.is_empty());
         assert!(out.stderr.is_empty());
@@ -1510,16 +1510,16 @@ mod tests {
 
     #[tokio::test]
     async fn collect_exec_output_enforces_max_output() {
-        let chunk = vec![b'a'; MAX_OUTPUT / 2];
+        let chunk = vec![b'a'; DEFAULT_OUTPUT_LIMIT / 2];
         let items = vec![
             Ok(LogOutput::StdOut { message: chunk.clone().into() }),
             Ok(LogOutput::StdErr { message: chunk.clone().into() }),
             Ok(LogOutput::StdOut { message: chunk.clone().into() }),
         ];
         let stream = stream::iter(items);
-        let out = collect_exec_output(stream, None).await;
+        let out = collect_exec_output(stream, None, DEFAULT_OUTPUT_LIMIT).await;
         assert!(out.ole);
-        assert_eq!(out.stdout.len() + out.stderr.len(), MAX_OUTPUT);
+        assert_eq!(out.stdout.len() + out.stderr.len(), DEFAULT_OUTPUT_LIMIT);
     }
 
     #[test]
