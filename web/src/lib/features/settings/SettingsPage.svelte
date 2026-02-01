@@ -86,6 +86,15 @@
       <span class="setting-desc">Max flags extracted per job</span>
     </div>
     <div class="setting-row">
+      <label for="setting_container_output_limit">container_output_limit</label>
+      <input
+        id="setting_container_output_limit"
+        value={getSetting('container_output_limit', '256000')}
+        onchange={(e) => updateSettingAndToast('container_output_limit', e.target.value)}
+      />
+      <span class="setting-desc">Max output bytes saved per job</span>
+    </div>
+    <div class="setting-row">
       <label for="setting_past_flag_rounds">past_flag_rounds</label>
       <input
         id="setting_past_flag_rounds"
