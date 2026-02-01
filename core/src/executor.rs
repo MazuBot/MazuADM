@@ -612,6 +612,7 @@ mod tests {
             stdout: None,
             stderr: None,
             create_reason: None,
+            envs: None,
             duration_ms: None,
             schedule_at: None,
             started_at: None,
