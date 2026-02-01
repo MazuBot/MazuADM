@@ -98,7 +98,7 @@ mazuadm-cli round run 1
 mazuadm-cli round rerun 1
 mazuadm-cli round rerun-unflagged 1              # only for running rounds
 mazuadm-cli round clean --db postgres://localhost/mazuadm --confirm
-mazuadm-cli round purge 5 --db postgres://localhost/mazuadm --confirm  # purge to round 5
+mazuadm-cli round purge 5 --db postgres://localhost/mazuadm --confirm  # purge to round 5 and reinit Redis cache
 ```
 
 ### Job Management
@@ -120,6 +120,14 @@ mazuadm-cli flag submit --round 1 --challenge pwn1 --team team01 "FLAG{...}"
 mazuadm-cli flag submit --challenge pwn1 --team team01 "FLAG{...}" # uses running round
 mazuadm-cli flag update 1:submitted 2:submitted  # update flag status (id:status)
 mazuadm-cli flag update --force 1:pending        # force update even if already submitted
+```
+
+### Flag Cache
+
+The API provides an endpoint to reinitialize the Redis flag cache from the database:
+
+```bash
+curl -X POST http://localhost:3000/api/flags/cache/init
 ```
 
 ### Settings Management
