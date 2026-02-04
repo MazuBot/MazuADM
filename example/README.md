@@ -2,6 +2,22 @@
 
 This folder contains the sample challenge services and exploit images used for local testing.
 
+## Bootstrap MazuADM (challenges + exploits + runs)
+
+Ensure each exploit directory has a `config.toml` with `insert_into_rounds = true`, then run:
+
+```sh
+./scripts/bootstrap_sample.sh
+```
+
+### Options
+
+```sh
+MAZUADM_API_URL=http://localhost:3000 \
+FLAG_SECRET=sample-secret CHAL1_PORT=18000 CHAL2_PORT=18001 CHAL3_PORT=18002 \
+./scripts/bootstrap_sample.sh
+```
+
 ## Quick exploit testing (all images)
 
 Use the helper script to run all sample exploit images against the already-running sample services.

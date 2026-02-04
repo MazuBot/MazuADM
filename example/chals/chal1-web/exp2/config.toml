@@ -1,6 +1,6 @@
-name = "sample-chal1-exp"
+name = "sample-chal1-exp2"
 challenge = "chal1-web"
-image = "sample-chal1-exp"
+image = "sample-chal1-exp2"
 enabled = true
 timeout = 30
 default_counter = 50

@@ -1,0 +1,7 @@
+name = "sample-chal2-exp2"
+challenge = "chal2-pwn"
+image = "sample-chal2-exp2"
+enabled = true
+timeout = 30
+default_counter = 50
+insert_into_rounds = true

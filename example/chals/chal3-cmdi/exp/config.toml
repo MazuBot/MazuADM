@@ -1,0 +1,7 @@
+name = "sample-chal3-exp"
+challenge = "chal3-cmdi"
+image = "sample-chal3-exp"
+enabled = true
+timeout = 30
+default_counter = 50
+insert_into_rounds = true
