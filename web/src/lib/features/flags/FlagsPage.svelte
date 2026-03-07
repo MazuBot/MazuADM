@@ -59,12 +59,33 @@
     });
   }
 
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
   function highlight(text) {
     if (!text) return '-';
+    const raw = String(text);
     const q = searchQuery.trim();
-    if (q.length < 2) return text;
-    const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-    return text.replace(regex, '<mark>$1</mark>');
+    if (q.length < 2) return escapeHtml(raw);
+    const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    let html = '';
+    let lastIndex = 0;
+    for (const match of raw.matchAll(regex)) {
+      const index = match.index ?? 0;
+      const value = match[0] ?? '';
+      html += escapeHtml(raw.slice(lastIndex, index));
+      html += `<mark>${escapeHtml(value)}</mark>`;
+      lastIndex = index + value.length;
+    }
+    if (!html) return escapeHtml(raw);
+    html += escapeHtml(raw.slice(lastIndex));
+    return html;
   }
 
   function resolveChallengeId() {
