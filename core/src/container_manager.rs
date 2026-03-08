@@ -1086,6 +1086,14 @@ impl ContainerManager {
 
     /// Destroy a container and clean up
     pub(crate) async fn destroy_container_by_id(&self, registry: &ContainerRegistryHandle, container_id: &str) -> Result<()> {
+        let is_managed = {
+            let guard = registry.lock().await;
+            guard.by_id.contains_key(container_id)
+        };
+        if !is_managed {
+            return Err(anyhow::anyhow!("Refusing to destroy unmanaged container {}", container_id));
+        }
+
         let _ = self.detach_container(registry, container_id).await;
         let _ = self.docker.remove_container(container_id, Some(RemoveContainerOptions { force: true, ..Default::default() })).await;
         info!("Destroyed container {}", container_id);
@@ -1101,6 +1109,14 @@ impl ContainerManager {
         timeout_secs: Option<u64>,
         force: bool,
     ) -> Result<()> {
+        let is_managed = {
+            let guard = registry.lock().await;
+            guard.by_id.contains_key(container_id)
+        };
+        if !is_managed {
+            return Err(anyhow::anyhow!("Refusing to restart unmanaged container {}", container_id));
+        }
+
         if !force && !self.begin_restart(container_id).await {
             return Ok(());
         }
